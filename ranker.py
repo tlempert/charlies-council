@@ -40,7 +40,7 @@ def get_quality_score(ticker):
             'Price': info.get('currentPrice', 'N/A')
         }
         
-    except:
+    except Exception:
         return None
 
 def run_fresh_scan():

@@ -44,7 +44,8 @@ def run_forensic_interrogation(ticker, dossier):
     for q in queries[:5]:
         print(f"   - Investigating: '{q}'...", end=" ")
         try:
-            results = get_tavily_search(q) 
+            response = tavily.search(query=q, search_depth="basic", max_results=3)
+            results = response.get('results', [])
             if results:
                 print(f"{Fore.GREEN}✅{Style.RESET_ALL}")
                 for r in results:
@@ -53,7 +54,7 @@ def run_forensic_interrogation(ticker, dossier):
             else: 
                 print(f"{Fore.RED}❌{Style.RESET_ALL}")
             time.sleep(1) # Polite delay for API limits
-        except: pass
+        except Exception: pass
         
     return f"{dossier}\n\n--- 🕵️‍♂️ FORENSIC ANSWERS ---\n{new_intel}"
 
@@ -359,11 +360,11 @@ def run_munger(ticker, dossier, reports):
     {dossier}
     
     [THE TITAN COUNCIL REPORTS]:
-    1. [JEFF BEZOS - Physics & Cash Flow]: {reports.get('bezos', 'N/A')}
-    2. [WARREN BUFFETT - Moat & Strategy]: {reports.get('buffett', 'N/A')}
-    3. [TIM COOK - Operations & Margins]: {reports.get('cook', 'N/A')}
-    4. [STEVE JOBS - Product Soul]: {reports.get('jobs', 'N/A')}
-    5. [MICHAEL BURRY - The Skeptic]: {reports.get('burry', 'N/A')}
+    1. [JEFF BEZOS - Physics & Cash Flow]: {reports.get('jeff_bezos', 'N/A')}
+    2. [WARREN BUFFETT - Moat & Strategy]: {reports.get('warren_buffett', 'N/A')}
+    3. [TIM COOK - Operations & Margins]: {reports.get('tim_cook', 'N/A')}
+    4. [STEVE JOBS - Product Soul]: {reports.get('steve_jobs', 'N/A')}
+    5. [MICHAEL BURRY - The Skeptic]: {reports.get('michael_burry', 'N/A')}
     6. [SHERLOCK - History]: {reports.get('sherlock', 'N/A')}
     7. [FUTURIST - Market Size]: {reports.get('futurist', 'N/A')}
     

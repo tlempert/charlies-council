@@ -54,7 +54,7 @@ if run_btn and ticker:
             import yfinance as yf
             chart_data = yf.Ticker(ticker).history(period="1y")['Close']
             st.line_chart(chart_data)
-        except:
+        except Exception:
             st.warning("Could not load stock chart.")
         
         # --- C. Run the Council ---

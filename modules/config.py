@@ -16,8 +16,8 @@ if not GEMINI_KEY or not TAVILY_KEY:
 
 # --- MODEL SETUP ---
 genai.configure(api_key=GEMINI_KEY)
-model = genai.GenerativeModel('gemini-2.5-flash-preview-09-2025')
-model_reasoning = genai.GenerativeModel('gemini-3-pro-preview')
+model = genai.GenerativeModel('gemini-2.5-flash')
+model_reasoning = genai.GenerativeModel('gemini-3.1-pro-preview')
 tavily = TavilyClient(api_key=TAVILY_KEY)
 
 # --- CONSTANTS ---

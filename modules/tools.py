@@ -43,7 +43,7 @@ def get_advanced_valuations(ticker, info, stock):
         price = info.get('currentPrice')
         if price is None:
             try: price = stock.history(period='1d')['Close'].iloc[-1]
-            except: price = 0
+            except Exception: price = 0
 
         if price_curr == 'GBp':
             print(f"{Fore.YELLOW}🇬🇧 Detected British Pence. Converting Price to Pounds...{Style.RESET_ALL}")
@@ -113,7 +113,7 @@ def get_advanced_valuations(ticker, info, stock):
             try:
                 if date_col is not None: return df.loc[key][date_col]
                 return df.loc[key].iloc[0]
-            except: return 0
+            except Exception: return 0
 
         # 3. TTM LOGIC (With "Bad Data" Guard)
         # ---------------------------------------------------------
@@ -186,7 +186,7 @@ def get_advanced_valuations(ticker, info, stock):
                 net_margin = (net_income / rev * 100) if rev > 0 else 0
                 
                 history_table.append(f"| {year_str} | {roic:6.1f}% | {net_margin:6.1f}% | {c_sym}{net_income/1e9:6.2f}B | {c_sym}{fcf/1e9:6.2f}B | {c_sym}{owner_earn/1e9:6.2f}B |")
-            except: continue 
+            except Exception: continue
 
         if ttm_row_str and use_ttm: history_table.insert(0, ttm_row_str)
         history_str = "\n".join(history_table)
@@ -262,203 +262,10 @@ def get_advanced_valuations(ticker, info, stock):
         print(f"DEBUG: Valuation Complete.")
         print(f"DEBUG: {output}")
         return output
-    except Exception as e: 
+    except Exception as e:
         print(f"{Fore.RED}❌ MATH CRASHED: {e}{Style.RESET_ALL}")
-        return f"Math Error: {e}" 
- 
-# --- 1. THE MATHEMATICIAN (Valuation Engine) ---
-def get_advanced_valuations_old(ticker, info, stock):
-    print(f"{Fore.CYAN}🧮 Generating Year-by-Year Financial Matrix...{Style.RESET_ALL}")
-    try:
-        market_cap = info.get('marketCap', 1)
-        current_shares = info.get('sharesOutstanding', 1)
-        price = info.get('currentPrice', 1)
-        
-        currency = info.get('currency', 'USD')
-        
-        if currency == 'GBp':
-            print(f"{Fore.YELLOW}🇬🇧 Detected British Pence ({price}p). Converting to Pounds (£{price/100:.2f})...{Style.RESET_ALL}")
-            price = price / 100
-            currency = 'GBP'  # Now we are officially in Pounds
-        
-        c_sym = get_currency_symbol({'currency': currency})
-        
-        # Get Dataframes
-        income = stock.financials
-        balance = stock.balance_sheet
-        cashflow = stock.cashflow
-        q_income = stock.quarterly_financials
-        q_balance = stock.quarterly_balance_sheet
-        q_cashflow = stock.quarterly_cashflow
-        
-        # --- ROBUSTNESS CHECK ---
-        if income.empty or balance.empty or cashflow.empty:
-            error_msg = f"""
-            ⚠️ DATA WARNING: Insufficient Financial Data for {ticker}.
-            This is common for Conglomerates, Financials, or ETFs.
-            Munger will rely on qualitative analysis.
-            """
-            print(f"{Fore.RED}{error_msg}{Style.RESET_ALL}")
-            return error_msg
+        return f"Math Error: {e}"
 
-        history_table = []
-        ttm_vals = {} 
-        ttm_row_str = ""
-        
-        # 1a. TTM Calculation
-        try:
-            if not q_income.empty and not q_cashflow.empty:
-                ttm_rev = q_income.loc['Total Revenue'].iloc[:4].sum() if 'Total Revenue' in q_income.index else 0
-                ttm_net = q_income.loc['Net Income'].iloc[:4].sum() if 'Net Income' in q_income.index else 0
-                
-                # EBIT/Pretax Logic
-                if 'EBIT' in q_income.index: ttm_ebit = q_income.loc['EBIT'].iloc[:4].sum()
-                elif 'Pretax Income' in q_income.index: ttm_ebit = q_income.loc['Pretax Income'].iloc[:4].sum()
-                else: ttm_ebit = 0
-                    
-                # Cash Flow
-                ttm_ocf = q_cashflow.loc['Operating Cash Flow'].iloc[:4].sum() if 'Operating Cash Flow' in q_cashflow.index else 0
-                ttm_capex = abs(q_cashflow.loc['Capital Expenditure'].iloc[:4].sum()) if 'Capital Expenditure' in q_cashflow.index else 0
-                ttm_fcf = ttm_ocf - ttm_capex
-                
-                # Snapshot Metrics
-                latest_equity = q_balance.loc['Stockholders Equity'].iloc[0] if 'Stockholders Equity' in q_balance.index else 0
-                latest_debt = q_balance.loc['Total Debt'].iloc[0] if 'Total Debt' in q_balance.index else 0
-                latest_cash = q_balance.loc['Cash And Cash Equivalents'].iloc[0] if 'Cash And Cash Equivalents' in q_balance.index else 0
-                invested_capital = latest_equity + latest_debt - latest_cash
-                
-                # Ratios
-                ttm_nopat = ttm_ebit * (1 - 0.21)
-                ttm_roic = (ttm_nopat / invested_capital * 100) if invested_capital > 0 else 0
-                ttm_margin = (ttm_net / ttm_rev * 100) if ttm_rev > 0 else 0
-                
-                # DUAL METRIC ROW
-                ttm_row_str = f"| TTM  | {ttm_roic:6.1f}% | {ttm_margin:6.1f}% | ${ttm_net/1e9:6.2f}B (Net) | ${ttm_fcf/1e9:6.2f}B (FCF) |"
-                
-                ttm_vals = {
-                    'ebit': ttm_ebit, 'ocf': ttm_ocf, 'capex': ttm_capex,
-                    'net_debt': latest_debt - latest_cash, 'fcf': ttm_fcf, 'net': ttm_net
-                }
-        except Exception as e:
-            print(f"Warning: TTM Calculation failed ({e})")
-
-        # 1b. Historical Annual Rows
-        years = income.columns 
-        for date in years[:5]: 
-            try:
-                year_str = date.strftime('%Y')
-                ebit = income.loc['EBIT'][date] if 'EBIT' in income.index else income.loc['Pretax Income'][date]
-                nopat = ebit * (1 - 0.21)
-                equity = balance.loc['Stockholders Equity'][date]
-                debt = balance.loc['Total Debt'][date] if 'Total Debt' in balance.index else 0
-                cash = balance.loc['Cash And Cash Equivalents'][date]
-                invested_capital = equity + debt - cash
-                roic = (nopat / invested_capital * 100) if invested_capital > 0 else 0
-                rev = income.loc['Total Revenue'][date]
-                net_income = income.loc['Net Income'][date]
-                net_margin = (net_income / rev * 100) if rev > 0 else 0
-                ocf = cashflow.loc['Operating Cash Flow'][date] if 'Operating Cash Flow' in cashflow.index else 0
-                capex = abs(cashflow.loc['Capital Expenditure'][date]) if 'Capital Expenditure' in cashflow.index else 0
-                fcf = ocf - capex
-                
-                # DUAL METRIC ROW
-                history_table.append(f"| {year_str} | {roic:6.1f}% | {net_margin:6.1f}% | ${net_income/1e9:6.2f}B (Net) | ${fcf/1e9:6.2f}B (FCF) |")
-            except: continue 
-
-        if ttm_row_str: history_table.insert(0, ttm_row_str)
-        history_str = "\n".join(history_table)
-
-        # --- PART 1.5: THE CANNIBAL CHECK (Share Count) ---
-        cannibal_report = "Data Unavailable"
-        try:
-            share_row = None
-            if 'Diluted Average Shares' in income.index: share_row = income.loc['Diluted Average Shares']
-            elif 'Basic Average Shares' in income.index: share_row = income.loc['Basic Average Shares']
-            
-            if share_row is not None:
-                recent_shares = share_row.iloc[:3].values
-                if len(recent_shares) >= 2:
-                    cagr = ((recent_shares[0] / recent_shares[-1])**(1/(len(recent_shares)-1)) - 1) * 100
-                    status = "🦁 CANNIBAL (Buying Back Shares)" if cagr < -0.5 else "🐰 DILUTER (Issuing Shares)" if cagr > 0.5 else "😐 STABLE"
-                    cannibal_report = f"{status}\n   - 3-Year Share Trend: {cagr:.1f}% CAGR\n   - Current Count: {current_shares/1e6:.1f}M"
-        except: pass
-
-        # --- PART 2: VALUATION ANCHORS ---
-        wacc = 0.10
-        
-        if ttm_vals:
-            curr_ebit = ttm_vals['ebit']
-            curr_ocf = ttm_vals['ocf']
-            curr_capex = ttm_vals['capex']
-            net_debt_curr = ttm_vals['net_debt']
-            curr_fcf = ttm_vals['fcf']
-            source_label = "(Based on TTM)"
-        else:
-            curr_ebit = income.loc['EBIT'].iloc[0] if 'EBIT' in income.index else income.loc['Pretax Income'].iloc[0]
-            curr_ocf = cashflow.loc['Operating Cash Flow'].iloc[0] if 'Operating Cash Flow' in cashflow.index else 0
-            curr_capex = abs(cashflow.loc['Capital Expenditure'].iloc[0]) if 'Capital Expenditure' in cashflow.index else 0
-            total_debt = balance.loc['Total Debt'].iloc[0] if 'Total Debt' in balance.index else 0
-            curr_cash = balance.loc['Cash And Cash Equivalents'].iloc[0] if 'Cash And Cash Equivalents' in balance.index else 0
-            net_debt_curr = total_debt - curr_cash
-            curr_fcf = curr_ocf - curr_capex
-            source_label = "(Based on Last Fiscal Year)"
-
-        # 1. Graham Buy Floor (EPV)
-        nopat = curr_ebit * (1 - 0.21) 
-        firm_value = nopat / wacc
-        epv_equity = firm_value - net_debt_curr
-        epv_price = epv_equity / current_shares
-        
-        # 2. Owner Yield
-        owner_earnings = curr_ocf - (curr_capex * 0.5) 
-        owner_yield = (owner_earnings / market_cap) * 100
-
-        # 3. DCF Ceiling
-        hist_growth = info.get('revenueGrowth', 0.05)
-        growth_rate = min(hist_growth, 0.15)
-        if growth_rate < 0: growth_rate = 0.02
-        
-        future_flows = [curr_fcf * ((1 + growth_rate) ** i) / ((1 + wacc) ** i) for i in range(1, 6)]
-        terminal = (curr_fcf * ((1 + growth_rate) ** 5) * 1.03) / (wacc - 0.03)
-        terminal_disc = terminal / ((1 + wacc) ** 5)
-        dcf_price = (sum(future_flows) + terminal_disc - net_debt_curr) / current_shares
-        
-        buy_high = dcf_price * 0.80
-        
-        is_discounted = price < buy_high
-        discount_gap = buy_high - price
-        discount_pct = (discount_gap / price) * 100
-        math_verdict = f"✅ UNDERVALUED by {discount_pct:.1f}%" if is_discounted else f"❌ OVERVALUED by ${price - buy_high:.2f}"
-
-        output = f"""
-        --- 📊 FINANCIAL PHYSICS (Net Income vs FCF) ---
-        | YEAR |  ROIC   | MARGIN  | NET INCOME (GAAP) | FREE CASH FLOW |
-        |------|---------|---------|-------------------|----------------|
-        {history_str}
-        
-        --- 🥩 THE CANNIBAL CHECK (Share Count) ---
-        {cannibal_report}
-
-        --- 🧮 VALUATION ANCHORS {source_label} ---
-        CURRENT PRICE: ${price:.2f}
-        
-        1. GRAHAM BUY FLOOR (EPV): ${epv_price:.2f}
-           (Zero Growth Value)
-           
-        2. GROWTH CEILING (DCF): ${dcf_price:.2f}
-           (Implies {growth_rate*100:.1f}% growth for 5 years based on FCF)
-           
-        3. OWNER YIELD: {owner_yield:.1f}%
-        
-        🎯 GRAHAM BUY ZONE: ${epv_price:.2f} - ${buy_high:.2f}
-        
-        📝 MATH DIAGNOSIS:
-        {math_verdict}
-        """
-        
-        print(f"DEBUG: {output}")
-        return output
-    except Exception as e: return f"Math Error: {e}"  
 # --- 2. THE SEC HUNTER ---
 def get_cik(ticker):
     try:
@@ -468,7 +275,7 @@ def get_cik(ticker):
         for entry in data.values():
             if entry['ticker'] == ticker.upper():
                 return str(entry['cik_str']).zfill(10)
-    except: pass
+    except Exception: pass
     return None
 
 def get_sec_text(ticker, form_type="10-K"):
@@ -509,7 +316,7 @@ def get_sec_text(ticker, form_type="10-K"):
                     for page in reader.pages:
                         raw_text += page.extract_text() + "\n"
                         if len(raw_text) > 300000: break # Cap raw read for processing
-            except: return None
+            except Exception: return None
         else:
             # Handle HTML
             try:
@@ -563,7 +370,7 @@ def get_earnings_transcript_intel(ticker):
             response = tavily.search(query=q, search_depth="basic", max_results=2)
             for r in response.get('results', []):
                 intel += f"SOURCE: {r['title']}\nTRANSCRIPT/SUMMARY: {r['content'][:800]}\n\n"
-        except: pass
+        except Exception: pass
     return intel
 
 def get_tavily_strategy(ticker):
@@ -587,7 +394,7 @@ def get_tavily_strategy(ticker):
             response = tavily.search(query=q, search_depth="basic", max_results=1)
             for r in response.get('results', []):
                 intel += f"SOURCE: {r['title']}\nCONTENT: {r['content'][:600]}\n\n"
-        except: pass
+        except Exception: pass
     return intel
 
 # --- 4. THE DOSSIER BUILDER ---
@@ -611,7 +418,7 @@ def build_initial_dossier(ticker):
     try:
         revs = stock.financials.loc['Total Revenue'].iloc[:3][::-1]
         trend_line = " -> ".join([f"${x/1e9:.1f}B" for x in revs])
-    except: trend_line = "N/A"
+    except Exception: trend_line = "N/A"
 
     return f"""
     TARGET: {ticker}
@@ -628,27 +435,27 @@ def build_initial_dossier(ticker):
     {sec_10k[:100000]}
     """
 
-def save_to_markdown(ticker, verdict, reports, simple_report=None):
+DEFAULT_REPORT_DIR = "/Users/tallempert/Library/Mobile Documents/iCloud~md~obsidian/Documents/Tal/reports"
+
+def clean_ansi(text):
+    """Remove ANSI color codes from text."""
+    if not isinstance(text, str): return str(text)
+    ansi_escape = re.compile(r'\x1B(?:[@-Z\\-_]|\[[0-?]*[ -/]*[@-~])')
+    return ansi_escape.sub('', text)
+
+def save_to_markdown(ticker, verdict, reports, simple_report=None, base_dir=None):
     """
     Smarter Save Function: Handles both 'Deep Dive' and 'Simple' reports.
     Returns a dictionary of filenames: {'full': path, 'simple': path}
     """
-    
+
     # --- 1. CONFIGURATION ---
-    # Your specific path
-    base_dir = "/Users/tallempert/Library/Mobile Documents/iCloud~md~obsidian/Documents/Tal/reports"
-    
+    base_dir = base_dir or DEFAULT_REPORT_DIR
+
     if not os.path.exists(base_dir):
         os.makedirs(base_dir)
-    
+
     date_str = datetime.now().strftime("%Y-%m-%d")
-    
-    # --- 2. HELPER: CLEANER ---
-    def clean(text):
-        if not isinstance(text, str): return str(text)
-        # Remove ANSI color codes
-        ansi_escape = re.compile(r'\x1B(?:[@-Z\\-_]|\[[0-?]*[ -/]*[@-~])')
-        return ansi_escape.sub('', text)
 
     # --- 3. HELPER: FILE WRITER ---
     def write_file(suffix, content_body):
@@ -671,12 +478,12 @@ def save_to_markdown(ticker, verdict, reports, simple_report=None):
         
         # A. Verdict
         full_content += "---\n## ⚖️ MUNGER'S VERDICT\n"
-        full_content += f"{clean(verdict)}\n\n"
+        full_content += f"{clean_ansi(verdict)}\n\n"
         
         # B. The Teacher
         if "teacher" in reports:
             full_content += "---\n## 👨‍🏫 THE BUSINESS EXPLANATION\n"
-            full_content += f"{clean(reports['teacher'])}\n\n"
+            full_content += f"{clean_ansi(reports['teacher'])}\n\n"
 
         # C. The Evidence
         full_content += "---\n## 📂 EVIDENCE & ANALYSIS\n"
@@ -684,14 +491,14 @@ def save_to_markdown(ticker, verdict, reports, simple_report=None):
             if key == "teacher": continue
             if key == "reality_check": continue # Skip here, we want it at the end!
             full_content += f"### 🕵️ {key.replace('_', ' ').upper()} REPORT\n"
-            full_content += f"{clean(text)}\n"
+            full_content += f"{clean_ansi(text)}\n"
             full_content += "\n" + "-"*40 + "\n\n"
         
         # D. The Reality Check (New Section at the Bottom)
         if 'reality_check' in reports:
             full_content += "---\n# 🏛️ THE FINAL REALITY CHECK\n"
             full_content += "*A critique from the historical personas of Munger and Buffett.*\n\n"
-            full_content += f"{clean(reports['reality_check'])}\n\n"
+            full_content += f"{clean_ansi(reports['reality_check'])}\n\n"
             
         # Save it
         saved_paths['full'] = write_file("Analysis", full_content)
@@ -700,7 +507,7 @@ def save_to_markdown(ticker, verdict, reports, simple_report=None):
     if simple_report:
         simple_content = f"# 🍷 {ticker}: The 'Dinner Table' Analysis\n"
         simple_content += f"**Date:** {datetime.now().strftime('%B %d, %Y')}\n\n"
-        simple_content += f"{clean(simple_report)}\n"
+        simple_content += f"{clean_ansi(simple_report)}\n"
         
         # Save it
         saved_paths['simple'] = write_file("SIMPLE", simple_content)

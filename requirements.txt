@@ -1,0 +1,10 @@
+google-generativeai
+tavily-python
+yfinance
+streamlit
+pandas
+requests
+beautifulsoup4
+pypdf
+finvizfinance
+colorama

@@ -7,7 +7,7 @@ from colorama import Fore, Style, init
 
 init(autoreset=True)
 
-# --- API KEYS ---
+# --- API KEYS  ---
 GEMINI_KEY = os.getenv("GEMINI_API_KEY")
 TAVILY_KEY = os.getenv("TAVILY_API_KEY")
 

@@ -1,6 +1,6 @@
 # HTML Dashboard Redesign — Product Experience Upgrade
 
-**Date:** 2026-04-09
+**Date:** 2026-04-09 (revised)
 **Status:** Design
 **Trigger:** Product review identified 7 UX gaps — dashboard requires reading 2000+ words to get the answer
 
@@ -11,234 +11,210 @@ The current HTML dashboard is a "wall of text with accordions." A user landing o
 ## Design Principles
 
 1. **30-second rule:** A reader should understand the verdict, buy zone, and key metrics without scrolling past the first viewport.
-2. **Progressive disclosure:** Summary → Detail → Deep Dive. Never force the reader into depth before they've absorbed the summary.
-3. **Visual hierarchy:** Numbers are more scannable than words. Badges are more scannable than numbers. Colors are most scannable of all.
-4. **Single-file constraint:** All changes must live in `save_to_html()` in `modules/tools.py`. No external CSS/JS files (GitHub Pages static hosting).
+2. **Progressive disclosure:** Summary → Detail → Deep Dive.
+3. **Visual hierarchy:** Colors > Badges > Numbers > Words.
+4. **Graceful degradation:** Missing data shows "Analysis available" gray state, never crashes.
+5. **Maintainable template:** HTML extracted to separate template file, not inline Python f-string.
 
-## Page Structure (Top to Bottom)
+## Architecture Decision: Template Extraction
 
-### Section 1: Hero Card (NEW)
+**Problem:** The current template is ~200 lines of HTML/CSS/JS inside a Python f-string with `{{` escaping. This redesign doubles it. Debugging CSS inside Python strings is painful.
 
-A full-width card immediately below the header that answers the three essential questions:
+**Solution:** Extract the HTML template to `modules/templates/dashboard.html` using Python's `string.Template` (`$variable` substitution). The `save_to_html` function becomes:
+1. Parse expert summaries and verdict highlights
+2. Build data dict (hero metrics, expert grid data, etc.)
+3. Load template, substitute variables, save
 
-```
-┌──────────────────────────────────────────────────────┐
-│  ADOBE (ADBE)                          April 9, 2026 │
-│                                                      │
-│  ┌─────┐   "The Bloomberg Terminal of creative work  │
-│  │ BUY │    — a dominant franchise at a 57% discount" │
-│  └─────┘                                             │
-│                                                      │
-│  Price: $230.76  │  Buy Zone: $270-$400  │  DCF: $540│
-│                                                      │
-│  ┌────────────────────────────────────────────┐      │
-│  │ ◄━━━━━━━━●━━━━━━━━━━━━━━━━━━━━━━━━━━━━━► │      │
-│  │ $178    $230    $270        $400     $540  │      │
-│  │ Graham  Current  Buy Zone          DCF    │      │
-│  └────────────────────────────────────────────┘      │
-│                                                      │
-│  ROIC: 62.1%  │  FCF: $10.3B  │  P/E: 16x  │  Yield:│
-│  (vs 11% peer)│  (43% margin) │ (vs 35x)   │  10.3% │
-│                                                      │
-│  Council: 7 BUY │ 4 HOLD │ 0 SELL   Conviction: 74% │
-└──────────────────────────────────────────────────────┘
-```
+This makes future HTML iteration trivial — edit HTML directly, no Python redeployment needed.
 
-**Data extraction:** Parse the verdict text for:
-- Buy zone numbers (regex: `\$[\d,]+\s*-\s*\$[\d,]+` or "Buy Zone" label)
-- Key metrics (ROIC, FCF, P/E — from the verdict or pass as parameters)
-- Council vote (regex: `\d+ BUY.*\d+ HOLD.*\d+ SELL`)
-- One-sentence rationale (first sentence of verdict, or the line after "Decision:")
-- Price, Graham Floor, DCF from the verdict text
+## Data Extraction Strategy: Hybrid (Revised)
 
-**The price gauge** is a horizontal bar rendered with CSS (no JS charting library needed):
-- Gray background bar
-- Green zone for buy range
-- Red dot for current price
-- Labeled markers for Graham Floor, Buy Zone edges, DCF
+**Expert data:** Parse `---SUMMARY---` blocks from expert reports. These are structured and reliable (VERDICT, CONFIDENCE, KEY_METRIC, KEY_RISK, BULL_CASE, MOAT_FLAG on separate labeled lines). Graceful degradation: if parsing fails for an expert, show "Analysis available" gray card.
 
-### Section 2: Expert Council Grid (NEW)
+**Verdict data:** Parse first section of Munger's verdict for decision, buy zone, conviction. The verdict follows a consistent structure ("Decision:", "Buy Zone:", "Conviction:").
 
-A 4x3 (desktop) or 2x6 (mobile) grid of compact expert cards replacing the plain accordion list header:
+**Hero metrics:** Pass as optional `key_metrics` dict parameter to `save_to_html`. The `build_initial_dossier` already computes ROIC, FCF, P/E, owner yield — adding a dict is one line. If not passed, omit the metrics strip (graceful degradation).
 
-```
-┌──────────────┐ ┌──────────────┐ ┌──────────────┐ ┌──────────────┐
-│ 🟢 STRONG BUY│ │ 🟢 STRONG BUY│ │ 🟢 STRONG BUY│ │ 🟢 BUY       │
-│ Buffett      │ │ Bezos        │ │ Lynch         │ │ Biologist    │
-│ Moat         │ │ Flywheel     │ │ Contrarian    │ │ Ecosystem    │
-│ ROIC 62.1%   │ │ 9.6x P/FCF   │ │ 10.5% yield  │ │ Keystone     │
-│ 85%          │ │ 82%          │ │ 82%           │ │ 75%          │
-└──────────────┘ └──────────────┘ └──────────────┘ └──────────────┘
-┌──────────────┐ ┌──────────────┐ ┌──────────────┐ ┌──────────────┐
-│ 🟢 BUY       │ │ 🟢 BUY       │ │ 🟢 BUY       │ │ 🟡 HOLD      │
-│ Cook         │ │ Anthropolog. │ │ Historian     │ │ Futurist     │
-│ Operations   │ │ Culture      │ │ Disruption    │ │ Growth       │
-│ 88% margin   │ │ Cultural verb│ │ Autodesk patt.│ │ +4.7% decel  │
-│ 72%          │ │ 72%          │ │ 68%           │ │ 62%          │
-└──────────────┘ └──────────────┘ └──────────────┘ └──────────────┘
-┌──────────────┐ ┌──────────────┐ ┌──────────────┐ ┌──────────────┐
-│ 🟡 HOLD      │ │ 🟡 HOLD      │ │ 🟡 HOLD      │ │ 🟡 HOLD      │
-│ Psychologist │ │ Sherlock     │ │ Jobs          │ │ Burry        │
-│ Behavior     │ │ Corporate Bio│ │ Product Soul  │ │ Forensics    │
-│ Leader risk  │ │ 43% FCF marg.│ │ Defending past│ │ AR +46%      │
-│ 58%          │ │ 65%          │ │ 55%           │ │ 55%          │
-└──────────────┘ └──────────────┘ └──────────────┘ └──────────────┘
+**Peer table:** Pass as optional `peer_data` string parameter. If present, render as styled table. If not, omit section.
+
+### Updated `save_to_html` signature:
+
+```python
+def save_to_html(ticker, verdict, reports, simple_report=None, base_dir=None,
+                 key_metrics=None, peer_data=None):
 ```
 
-**Data extraction:** Parse each expert's `---SUMMARY---` block for VERDICT, CONFIDENCE, KEY METRIC. The summary blocks are structured and regex-parseable.
-
-**Sorting:** Sort experts by verdict strength (STRONG BUY → BUY → HOLD → SELL) then by confidence descending within each group.
-
-**Interaction:** Clicking a card scrolls to and opens that expert's accordion below.
-
-### Section 3: Verdict Summary (REDESIGNED)
-
-Replace the current full-text verdict card with a compact summary + expandable detail:
-
-```
-┌──────────────────────────────────────────────────────┐
-│  Munger's Verdict                                    │
-│                                                      │
-│  BUY at $230.76. Fair value $360-400.                │
-│  74% conviction. Moat Tribunal: 0/5 SEVERE.         │
-│                                                      │
-│  "The business is better than the management.        │
-│   Downside -12%. Upside +56-73%. Asymmetry           │
-│   favors buying."                                    │
-│                                                      │
-│  ▼ Read full synthesis                               │
-│  ┌────────────────────────────────────────────────┐  │
-│  │ [Full Munger text, initially collapsed]         │  │
-│  └────────────────────────────────────────────────┘  │
-└──────────────────────────────────────────────────────┘
+`key_metrics` example:
+```python
+{
+    'price': 230.76,
+    'graham_floor': 178.24,
+    'dcf_conservative': 540.34,
+    'roic': 0.621,
+    'fcf': 10.32e9,
+    'pe_ratio': 16.4,
+    'owner_yield': 0.103,
+}
 ```
 
-**Data extraction:** First 3-5 lines of the verdict (up to the first `---` separator or after "Decision:"). Rest goes behind the expand toggle.
-
-### Section 4: Peer Comparison Table (NEW)
-
-If the verdict or dossier contains a `PEER COMPARISON` section, render it as a styled card:
-
-```
-┌──────────────────────────────────────────────────────┐
-│  Peer Comparison                                     │
-│  Peers: ORCL, CRM, INTU, NOW                        │
-│                                                      │
-│  ┌────────────────────────────────────────────────┐  │
-│  │ Metric      │ ADBE  │ Peer Med. │ vs Peers    │  │
-│  │ ROIC        │ 62.1% │ 11.2%     │ +50.9pp ✦   │  │
-│  │ FCF Margin  │ 43.4% │ 20.3%     │ +23.1pp ✦   │  │
-│  │ P/E Ratio   │ 16.4x │ 23.9x    │ -7.5x  ✦    │  │
-│  └────────────────────────────────────────────────┘  │
-│                                                      │
-│  ✦ = significantly above/below peer median           │
-└──────────────────────────────────────────────────────┘
-```
-
-**Data extraction:** Parse the `PEER COMPARISON` table from the verdict text or pass peer_data as a parameter to `save_to_html`.
-
-### Section 5: Tabs (ENHANCED)
-
-Keep the existing tab structure but add Reality Check as a tab instead of a bottom section:
-
-```
-[ Expert Council ] [ Business Explainer ] [ Reality Check ] [ Newsletter ]
-```
-
-Expert Council tab now shows the full accordions (with verdict badges on each header).
-
-### Section 6: Expert Accordions (ENHANCED)
-
-Add verdict badge and confidence to each accordion header:
-
-```
-┌──────────────────────────────────────────────────────┐
-│  🟢 BUY 85%  │  Warren Buffett — Moat           ▼  │
-├──────────────────────────────────────────────────────┤
-│  [Full analysis, collapsed by default]               │
-└──────────────────────────────────────────────────────┘
-```
-
-**Data extraction:** Parse `---SUMMARY---` block from each expert's report for verdict and confidence.
-
-### Section 7: Footer (MINOR)
-
-Add "Powered by Silicon Council" with link to GitHub repo if desired.
-
----
-
-## Data Extraction Strategy
-
-The hero card and expert grid need structured data that currently lives inside free-text markdown. Two approaches:
-
-**Option A (Recommended): Parse at render time.**
-Add regex parsing in `save_to_html()` to extract:
-- Verdict decision, buy zone, key metrics from verdict text
-- Expert VERDICT, CONFIDENCE, KEY METRIC from each expert's `---SUMMARY---` block
-
-This keeps the pipeline unchanged — experts and Munger output the same text, the HTML renderer extracts structure.
-
-**Option B: Pass structured data as parameters.**
-Add parameters to `save_to_html()` for price, buy_zone, key_metrics, expert_summaries. Requires changes to `build_initial_dossier` and the skill pipeline.
-
-**Recommendation:** Option A for now. The `---SUMMARY---` blocks are already structured and regex-parseable. If parsing proves fragile, upgrade to Option B later.
-
-### Parsing functions needed:
+### Parsing functions:
 
 ```python
 def _parse_expert_summary(report_text):
-    """Extract VERDICT, CONFIDENCE, KEY_METRIC, KEY_RISK, BULL_CASE, MOAT_FLAG
-    from the ---SUMMARY--- block in an expert's report."""
-    # Returns dict or None if no summary block found
+    """Extract structured fields from ---SUMMARY--- block.
+    Returns dict with verdict, confidence, key_metric, key_risk, bull_case, moat_flag.
+    Returns None if no summary block found."""
 
 def _parse_verdict_highlights(verdict_text):
-    """Extract decision, buy_zone, conviction, council_vote, 
-    one_sentence_rationale from Munger's verdict."""
-    # Returns dict
-
-def _parse_peer_table(verdict_text):
-    """Extract peer comparison table if present."""
-    # Returns HTML table string or empty
+    """Extract decision, buy_zone_low, buy_zone_high, conviction, council_vote,
+    rationale from Munger's verdict first section.
+    Returns dict with available fields (partial extraction is OK)."""
 ```
 
----
+## Implementation Phases
 
-## CSS/JS Additions
+### Phase 1: Template extraction + Hero card + Expert grid (HIGH IMPACT)
 
-**New CSS components:**
-- `.hero-card` — full-width gradient accent card
-- `.metrics-strip` — horizontal row of 4 metric boxes
-- `.price-gauge` — horizontal bar with markers (pure CSS, no charting lib)
-- `.expert-grid` — responsive grid (CSS Grid, 4 cols desktop, 2 cols mobile)
-- `.expert-card` — compact card with verdict badge, name, key metric
-- `.verdict-badge-sm` — small colored pill (green/amber/red) for accordion headers
-- `.verdict-summary` — compact verdict with expand toggle
-- `.peer-table` — styled comparison table
+Delivers 80% of the UX improvement. Ship and iterate.
 
-**New JS:**
-- `expandVerdict()` — toggle full verdict text
-- `scrollToExpert(key)` — click grid card → scroll to and open accordion
+**Phase 1 page structure:**
 
-**No external dependencies.** All inline CSS/JS, single HTML file.
+```
+┌─ Header ──────────────────────────────────────────────┐
+│  Silicon Council: ADBE              April 9, 2026     │
+└───────────────────────────────────────────────────────┘
 
----
+┌─ Hero Card ───────────────────────────────────────────┐
+│                                                       │
+│  ┌─────┐  One-sentence rationale from Munger          │
+│  │ BUY │  "A dominant franchise at a 57% discount"    │
+│  └─────┘                                              │
+│                                                       │
+│  ┌──────┐ ┌──────┐ ┌──────┐ ┌──────┐                 │
+│  │$230  │ │62.1% │ │$10.3B│ │ 16x  │                 │
+│  │Price │ │ROIC  │ │FCF   │ │P/E   │                 │
+│  └──────┘ └──────┘ └──────┘ └──────┘                 │
+│                                                       │
+│  Buy Zone: $270 – $400  │  Council: 7 BUY 4 HOLD     │
+│                                                       │
+│  ◄━━━━━━━━●━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━►         │
+│  $178    $230    $270        $400     $540             │
+│  Graham  Current  ├── Buy Zone ──┤    DCF             │
+└───────────────────────────────────────────────────────┘
+
+┌─ Expert Council Grid ─────────────────────────────────┐
+│ ┌─────────┐ ┌─────────┐ ┌─────────┐ ┌─────────┐     │
+│ │🟢 S.BUY │ │🟢 S.BUY │ │🟢 S.BUY │ │🟢 BUY   │     │
+│ │Buffett  │ │Bezos    │ │Lynch    │ │Biologist│     │
+│ │ROIC 62% │ │9.6x FCF │ │10% yld  │ │Keystone │     │
+│ │85%      │ │82%      │ │82%      │ │75%      │     │
+│ └─────────┘ └─────────┘ └─────────┘ └─────────┘     │
+│ ┌─────────┐ ┌─────────┐ ┌─────────┐ ┌─────────┐     │
+│ │🟢 BUY   │ │🟢 BUY   │ │🟢 BUY   │ │🟡 HOLD  │     │
+│ │Cook     │ │Anthropo.│ │Historian│ │Futurist │     │
+│ │88% marg.│ │Cult.verb│ │Autodesk │ │+4.7%    │     │
+│ │72%      │ │72%      │ │68%      │ │62%      │     │
+│ └─────────┘ └─────────┘ └─────────┘ └─────────┘     │
+│ ┌─────────┐ ┌─────────┐ ┌─────────┐ ┌─────────┐     │
+│ │🟡 HOLD  │ │🟡 HOLD  │ │🟡 HOLD  │ │🟡 HOLD  │     │
+│ │Psychol. │ │Sherlock │ │Jobs     │ │Burry    │     │
+│ │Leader   │ │43% FCF  │ │Defend.  │ │AR +46%  │     │
+│ │58%      │ │65%      │ │55%      │ │55%      │     │
+│ └─────────┘ └─────────┘ └─────────┘ └─────────┘     │
+└───────────────────────────────────────────────────────┘
+
+┌─ Verdict (Collapsed) ────────────────────────────────┐
+│  Munger's Verdict                                     │
+│  BUY at $230.76. Fair value $360-400. 74% conviction.│
+│  ▼ Read full synthesis                                │
+└───────────────────────────────────────────────────────┘
+
+┌─ Tabs ────────────────────────────────────────────────┐
+│ [Expert Reports] [Business Explainer] [Reality Check] │
+│                  [Newsletter]                         │
+│                                                       │
+│  Expert Reports tab: 12 accordions with verdict       │
+│  badges (🟢 BUY 85%) in the header                   │
+│                                                       │
+│  Reality Check: moved from bottom to tab              │
+└───────────────────────────────────────────────────────┘
+
+┌─ Footer ──────────────────────────────────────────────┐
+│  Generated by Silicon Council · April 9, 2026         │
+└───────────────────────────────────────────────────────┘
+```
+
+### Phase 2: Peer table + Price gauge polish (ITERATION)
+
+After Phase 1 ships and we see it live:
+- Peer comparison table card (if `peer_data` provided)
+- Price gauge refinement (marker labels, responsive sizing)
+- Any visual tweaks from real-world feedback
 
 ## Files Touched
 
-| File | Changes |
-|------|---------|
-| `modules/tools.py` | Rewrite `save_to_html()` template + add parsing functions |
-| `tests/test_tools.py` | Update HTML structure assertions in `TestSaveToHtml` |
+| File | Change |
+|------|--------|
+| `modules/templates/dashboard.html` | **NEW** — extracted HTML template |
+| `modules/tools.py` | Rewrite `save_to_html()` to load template + add `_parse_expert_summary`, `_parse_verdict_highlights`. Update `build_initial_dossier` to pass `key_metrics`. |
+| `tests/test_tools.py` | Update `TestSaveToHtml` assertions for new structure |
 
-## Out of Scope
+## Expert Card Specifications
 
-- Dark mode (nice-to-have, not critical)
-- Print/PDF export (separate feature)
-- Sticky navigation (low impact for single-page report)
-- External charting libraries (keep it self-contained)
+### Parsing `---SUMMARY---` blocks
+
+```
+---SUMMARY---
+VERDICT: BUY
+CONFIDENCE: 85%
+KEY METRIC: ROIC 62.1% — double Coca-Cola's
+KEY RISK: Gen Z workflow formation (5-year watch)
+BULL CASE: 57% discount to DCF is irrational given moat quality
+MOAT FLAG: NONE
+---END SUMMARY---
+```
+
+Regex pattern for each field:
+```python
+verdict_match = re.search(r'VERDICT:\s*(\w[\w\s]*\w)', block)
+confidence_match = re.search(r'CONFIDENCE:\s*(\d+)%', block)
+key_metric_match = re.search(r'KEY METRIC:\s*(.+?)(?:\n|$)', block)
+```
+
+### Card color mapping
+
+| Verdict | Badge Color | Background |
+|---------|-------------|------------|
+| STRONG BUY | #16A34A (green) | #F0FDF4 |
+| BUY | #16A34A (green) | #F0FDF4 |
+| HOLD | #D97706 (amber) | #FFFBEB |
+| PASS | #D97706 (amber) | #FFFBEB |
+| SELL | #DC2626 (red) | #FEF2F2 |
+
+### Graceful degradation
+
+If `_parse_expert_summary` returns None for an expert:
+- Card shows: expert label, gray background, "Analysis available" text, no badge
+- Accordion still works normally
+- No crash, no empty card
+
+## Price Gauge CSS Spec
+
+Pure CSS horizontal bar, no charting library:
+
+```css
+.gauge-track { height: 8px; background: #E5E7EB; border-radius: 4px; position: relative; }
+.gauge-buy-zone { position: absolute; height: 100%; background: #BBF7D0; border-radius: 4px; }
+.gauge-marker { position: absolute; top: -6px; width: 3px; height: 20px; }
+.gauge-current { background: #111827; border-radius: 2px; }  /* black = current price */
+.gauge-dcf { background: #16A34A; border-radius: 2px; }      /* green = DCF */
+.gauge-graham { background: #9CA3AF; border-radius: 2px; }   /* gray = Graham floor */
+```
+
+Marker positions calculated as percentages of the range (Graham floor to DCF × 1.2).
 
 ## Risks
 
-- **Parsing fragility:** Expert `---SUMMARY---` blocks must follow the exact format. If an expert omits or reformats the block, the grid card shows defaults. Graceful degradation — the accordion still works even if the card is blank.
-- **Template size:** The HTML template in the Python string is already ~200 lines. This redesign adds ~150 more. Manageable but approaching the point where extracting to a Jinja2 template would be cleaner. Out of scope for now.
-- **Price gauge accuracy:** Parsing buy zone from free text is regex-dependent. If Munger uses an unexpected format, the gauge won't render. Falls back to text display.
+- **Parsing fragility:** `---SUMMARY---` blocks are mandatory in expert prompts and reliably produced. If an expert omits it, graceful degradation shows gray card. No crash.
+- **Template file loading:** `string.Template` is stdlib — no new dependency. Template loaded with `Path(__file__).parent / 'templates' / 'dashboard.html'`. File-not-found falls back to inline template (old behavior).
+- **key_metrics parameter:** Optional. If not passed, hero card shows verdict badge + rationale only, no metrics strip. Existing callers don't break.

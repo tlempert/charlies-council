@@ -789,3 +789,83 @@ class TestPeerBenchmarks:
             result = get_peer_companies('ADBE', 'Adobe Inc.', {'sector': 'Technology', 'industry': 'Software—Application', 'marketCap': 100e9})
             assert 'MSFT' in result
             assert 'ADBE' not in result  # should exclude self
+
+
+# --- _parse_expert_summary ---
+
+class TestParseExpertSummary:
+    def test_parses_complete_summary_block(self):
+        from modules.tools import _parse_expert_summary
+        text = """Some analysis text here.
+
+---SUMMARY---
+VERDICT: BUY
+CONFIDENCE: 85%
+KEY METRIC: ROIC 62.1% — double Coca-Cola's
+KEY RISK: Gen Z workflow formation (5-year watch)
+BULL CASE: 57% discount to DCF is irrational given moat quality
+MOAT FLAG: NONE
+---END SUMMARY---
+
+More analysis below."""
+        result = _parse_expert_summary(text)
+        assert result is not None
+        assert result['verdict'] == 'BUY'
+        assert result['confidence'] == 85
+        assert 'ROIC' in result['key_metric']
+        assert result['moat_flag'] == 'NONE'
+
+    def test_parses_strong_buy(self):
+        from modules.tools import _parse_expert_summary
+        text = "---SUMMARY---\nVERDICT: STRONG BUY\nCONFIDENCE: 82%\nKEY METRIC: 9.6x P/FCF\nKEY RISK: risk\nBULL CASE: bull\nMOAT FLAG: MINOR\n---END SUMMARY---"
+        result = _parse_expert_summary(text)
+        assert result['verdict'] == 'STRONG BUY'
+        assert result['confidence'] == 82
+
+    def test_returns_none_when_no_summary_block(self):
+        from modules.tools import _parse_expert_summary
+        text = "Just regular analysis text without any summary block."
+        result = _parse_expert_summary(text)
+        assert result is None
+
+    def test_handles_sell_verdict(self):
+        from modules.tools import _parse_expert_summary
+        text = "---SUMMARY---\nVERDICT: SELL\nCONFIDENCE: 72%\nKEY METRIC: DIO 125 days\nKEY RISK: capex\nBULL CASE: if CUDA holds\nMOAT FLAG: MODERATE\n---END SUMMARY---"
+        result = _parse_expert_summary(text)
+        assert result['verdict'] == 'SELL'
+        assert result['moat_flag'] == 'MODERATE'
+
+
+# --- _parse_verdict_highlights ---
+
+class TestParseVerdictHighlights:
+    def test_parses_buy_verdict(self):
+        from modules.tools import _parse_verdict_highlights
+        text = """## FINAL VERDICT
+
+**Decision: BUY**
+
+**The "Munger Buy Zone": $270 - $400**
+
+**Conviction: 74%**
+
+Council voted 7 BUY, 4 HOLD, 0 SELL."""
+        result = _parse_verdict_highlights(text)
+        assert result['decision'] == 'BUY'
+        assert result['buy_zone_low'] == 270
+        assert result['buy_zone_high'] == 400
+        assert result['conviction'] == 74
+
+    def test_parses_pass_verdict(self):
+        from modules.tools import _parse_verdict_highlights
+        text = '**Decision: PASS**\n**The "Munger Buy Zone": $60 - $99**\nConviction: 65%'
+        result = _parse_verdict_highlights(text)
+        assert result['decision'] == 'PASS'
+        assert result['buy_zone_low'] == 60
+
+    def test_handles_missing_fields_gracefully(self):
+        from modules.tools import _parse_verdict_highlights
+        text = "Some verdict text without structured fields."
+        result = _parse_verdict_highlights(text)
+        assert result['decision'] == ''
+        assert result['buy_zone_low'] is None

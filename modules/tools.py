@@ -2100,6 +2100,58 @@ _EXPERT_LABELS = {
     "lynch": "Peter Lynch — Contrarian Optimist",
 }
 
+def _parse_expert_summary(report_text):
+    """Extract structured fields from ---SUMMARY--- block in expert report."""
+    match = re.search(r'---SUMMARY---(.*?)---END SUMMARY---', report_text, re.DOTALL)
+    if not match:
+        return None
+    block = match.group(1)
+
+    def extract(pattern, default=''):
+        m = re.search(pattern, block)
+        return m.group(1).strip() if m else default
+
+    confidence_str = extract(r'CONFIDENCE:\s*(\d+)')
+    return {
+        'verdict': extract(r'VERDICT:\s*(.+?)(?:\n|$)'),
+        'confidence': int(confidence_str) if confidence_str else 0,
+        'key_metric': extract(r'KEY METRIC:\s*(.+?)(?:\n|$)'),
+        'key_risk': extract(r'KEY RISK:\s*(.+?)(?:\n|$)'),
+        'bull_case': extract(r'BULL CASE:\s*(.+?)(?:\n|$)'),
+        'moat_flag': extract(r'MOAT FLAG:\s*(.+?)(?:\n|$)'),
+    }
+
+
+def _parse_verdict_highlights(verdict_text):
+    """Extract key fields from Munger's verdict for the hero card."""
+    result = {
+        'decision': '',
+        'buy_zone_low': None,
+        'buy_zone_high': None,
+        'conviction': None,
+        'council_vote': '',
+    }
+
+    m = re.search(r'Decision:\s*\**\s*(BUY|SELL|PASS|HOLD|STRONG BUY|AVOID)', verdict_text, re.IGNORECASE)
+    if m:
+        result['decision'] = m.group(1).upper()
+
+    m = re.search(r'Buy Zone["\s:]*\$?([\d,]+)\s*[-\u2013\u2014]\s*\$?([\d,]+)', verdict_text, re.IGNORECASE)
+    if m:
+        result['buy_zone_low'] = int(m.group(1).replace(',', ''))
+        result['buy_zone_high'] = int(m.group(2).replace(',', ''))
+
+    m = re.search(r'Conviction[:\s]*(\d+)%', verdict_text, re.IGNORECASE)
+    if m:
+        result['conviction'] = int(m.group(1))
+
+    m = re.search(r'(\d+\s*BUY[^.]*\d+\s*(?:HOLD|SELL)[^.]*)', verdict_text, re.IGNORECASE)
+    if m:
+        result['council_vote'] = m.group(1).strip()
+
+    return result
+
+
 def save_to_html(ticker, verdict, reports, simple_report=None, base_dir=None):
     """Save an interactive HTML dashboard alongside the markdown reports.
     Returns dict with 'html' key pointing to saved file path."""

@@ -24,7 +24,7 @@ Categories to check:
 3. SEC 10-K sections (Item 1, 1A, 7)
 4. Working Capital (WORKING CAPITAL block or N/A note)
 5. Acquisition notes (if GOODWILL ALERT present, check for acquisition context)
-6. CEO quotes from earnings call (direct quotes vs summary-only)
+6. CEO quotes from earnings call — check for `[TRANSCRIPT_QUALITY: CONTROVERSY_DIALOGUE]` (controversy-specific Q&A found) or `[TRANSCRIPT_QUALITY: SUMMARY_ONLY]` (summary only — Psychologist should weight insider activity and guidance precision over tone analysis)
 7. Customer ROI data (evidence customers are generating returns)
 8. Competitive landscape (SECTION H present)
 9. Earnings velocity (QUARTERLY REVENUE TRAJECTORY present)

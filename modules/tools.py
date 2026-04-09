@@ -716,8 +716,8 @@ def _tavily_query(q, max_results=2, content_limit=800, label="SOURCE",
         return ""
 
 
-def get_earnings_transcript_intel(ticker, company_name=None, ceo_name=None):
-    """Fetch earnings call transcript highlights and CEO quotes."""
+def get_earnings_transcript_intel(ticker, company_name=None, ceo_name=None, controversy_topic=None):
+    """Fetch earnings call transcript highlights, CEO quotes, and controversy responses."""
     print(f"{Fore.CYAN}🎙️  Hunting for Earnings Call Transcript...{Style.RESET_ALL}")
     name = company_name or ticker
     queries = [
@@ -726,21 +726,36 @@ def get_earnings_transcript_intel(ticker, company_name=None, ceo_name=None):
         (f"{name} earnings call transcript {CURRENT_YEAR} key takeaways", "basic"),
         (f"{name} earnings call management guidance quotes {CURRENT_YEAR}", "basic"),
     ]
-    # Add CEO-targeted quote hunt (bypasses paywalls via journalist republishing)
-    if ceo_name:
+    # Controversy-anchored query replaces generic CEO quote search
+    if ceo_name and controversy_topic:
+        queries.append(
+            (f'{name} {ceo_name} responds {controversy_topic} earnings call {CURRENT_YEAR}', "basic"),
+        )
+    elif ceo_name:
         queries.append(
             (f'{ceo_name} said {name} earnings call {CURRENT_YEAR}', "basic"),
         )
     filter_term = name.split()[0] if company_name else None
     with ThreadPoolExecutor(max_workers=len(queries)) as pool:
-        results = pool.map(
+        results = list(pool.map(
             lambda qd: _tavily_query(qd[0], max_results=2, content_limit=2000,
                                      label="TRANSCRIPT", topic="finance",
                                      search_depth=qd[1], relevance_filter=filter_term),
             queries
-        )
+        ))
+
     all_results = [r for r in results if r]
     combined = "\n".join(all_results)
+
+    # Append transcript quality marker when controversy query was used
+    if controversy_topic and ceo_name:
+        # Last query was the controversy one — check if it returned content
+        controversy_result = results[-1] if results else ""
+        if controversy_result:
+            combined += "\n[TRANSCRIPT_QUALITY: CONTROVERSY_DIALOGUE]"
+        else:
+            combined += "\n[TRANSCRIPT_QUALITY: SUMMARY_ONLY]"
+
     return combined[:5000]
 
 
@@ -1211,11 +1226,20 @@ def _derive_cost_stickiness(forensic_data):
     if len(dates) < 2:
         return defaults, None
 
-    # Find a year where revenue declined vs prior year
+    # Find a year where revenue declined or operating income crashed vs prior year
     for i in range(len(dates) - 1):
         curr_rev = yearly[dates[i]].get('revenue', 0)
         prev_rev = yearly[dates[i + 1]].get('revenue', 0)
-        if prev_rev > 0 and curr_rev < prev_rev:
+
+        OI_CRASH_THRESHOLD = 0.70  # 30%+ operating income decline = crash year
+
+        curr_oi = yearly[dates[i]].get('operating_income', 0)
+        prev_oi = yearly[dates[i + 1]].get('operating_income', 0)
+
+        revenue_declined = prev_rev > 0 and curr_rev < prev_rev
+        oi_crashed = prev_oi > 0 and curr_oi < prev_oi * OI_CRASH_THRESHOLD
+
+        if revenue_declined or oi_crashed:
             rev_change_pct = (curr_rev - prev_rev) / prev_rev  # negative
             ratios = {}
             for cost_key in defaults:
@@ -1394,6 +1418,62 @@ def build_earnings_velocity(quarterly_revenues, c_sym='$'):
     return "\n".join(lines)
 
 
+def _get_acquisition_from_8k(cik):
+    """Scan recent 8-K filings for acquisition disclosures (Item 2.01).
+
+    Scans SEC submissions JSON for 8-Ks whose primaryDocDescription or items
+    field contains acquisition-related keywords, then extracts Item 2.01.
+    """
+    try:
+        url = f"https://data.sec.gov/submissions/CIK{cik}.json"
+        r = requests.get(url, headers=SEC_HEADERS)
+        filings = r.json()['filings']['recent']
+
+        acquisition_keywords = ['acquisition', 'completion of', 'merger', 'purchase agreement']
+        target_accession = None
+        target_doc = None
+        cik_num = cik.lstrip("0") or "0"
+
+        for i, form in enumerate(filings['form']):
+            if form != '8-K':
+                continue
+            desc = (filings.get('primaryDocDescription', [''])[i] or '').lower()
+            items_str = (filings.get('items', [''])[i] or '').lower()
+            if any(kw in desc for kw in acquisition_keywords) or '2.01' in items_str:
+                target_accession = filings['accessionNumber'][i].replace("-", "")
+                target_doc = filings['primaryDocument'][i]
+                break
+
+        if not target_accession:
+            return ""
+
+        doc_url = f"https://www.sec.gov/Archives/edgar/data/{cik_num}/{target_accession}/{target_doc}"
+        r_doc = requests.get(doc_url, headers=SEC_HEADERS)
+
+        try:
+            html = r_doc.content.decode('utf-8')
+        except UnicodeDecodeError:
+            html = r_doc.content.decode('latin-1')
+
+        soup = BeautifulSoup(html, 'html.parser')
+        text = soup.get_text(separator="\n")
+
+        pattern = re.compile(
+            r'(Item\s*2\.01[^\n]*\n(?:.*?\n){0,60})',
+            re.IGNORECASE
+        )
+        match = pattern.search(text)
+        if match:
+            content = match.group()[:3000]
+            return f"--- 🏦 ACQUISITION DETAILS (from 8-K) ---\n{content}"
+
+        return f"--- 🏦 ACQUISITION FILING (8-K) ---\n{text[:2000]}"
+
+    except Exception as e:
+        print(f"   ⚠️ 8-K acquisition extraction failed: {e}")
+        return ""
+
+
 def build_initial_dossier(ticker):
     print(f"\n{Fore.MAGENTA}🏗️  Constructing Base Dossier for {ticker}...{Style.RESET_ALL}")
 
@@ -1503,17 +1583,54 @@ def build_initial_dossier(ticker):
         if gw_prior > 0 and ((gw_latest - gw_prior) / gw_prior) > 0.50:
             textblocks_dict_local = sec_result.get('textblocks', {}) if sec_result else {}
             if 'acquisitions' not in textblocks_dict_local:
-                print(f"{Fore.YELLOW}🔍 Goodwill jumped >50% — searching for acquisition context...{Style.RESET_ALL}")
-                try:
-                    fiscal_year = dates_sorted[0][:4]
-                    acq_response = tavily.search(
-                        query=f"{company_name} acquisition purchase {fiscal_year} goodwill",
-                        search_depth='basic', max_results=3
-                    )
-                    for r in acq_response.get('results', []):
-                        acquisition_context += f"ACQUISITION: {r['title']}\n{r['content'][:600]}\n\n"
-                except Exception as e:
-                    print(f"   ⚠️ Acquisition search failed: {e}")
+                print(f"{Fore.YELLOW}🔍 Goodwill jumped >50% — scanning for acquisition details...{Style.RESET_ALL}")
+                # Layer 2: Try 8-K filing
+                if cik:
+                    acquisition_context = _get_acquisition_from_8k(cik)
+                # Layer 3: Improved Tavily fallback
+                if not acquisition_context:
+                    try:
+                        fiscal_year = dates_sorted[0][:4]
+                        gw_change = gw_latest - gw_prior
+                        gw_change_b = abs(gw_change) / 1e9
+                        acq_response = tavily.search(
+                            query=f"{company_name} completed acquisition {fiscal_year} ${gw_change_b:.0f} billion deal closed",
+                            search_depth='basic', max_results=3
+                        )
+                        for r in acq_response.get('results', []):
+                            acquisition_context += f"ACQUISITION: {r['title']}\n{r['content'][:600]}\n\n"
+                    except Exception as e:
+                        print(f"   ⚠️ Acquisition search failed: {e}")
+
+    # Controversy-anchored transcript query (needs forensic data, so runs in Phase 4)
+    controversy_transcript = ""
+    if ceo_name and forensic_data:
+        controversy_topic = "competitive threats growth sustainability"
+        latest_fd = forensic_data.get('latest', {})
+        if not latest_fd and forensic_data.get('sorted_dates'):
+            latest_fd = forensic_data['yearly'].get(forensic_data['sorted_dates'][0], {})
+        fd_dates = forensic_data.get('sorted_dates', [])
+        if len(fd_dates) >= 2:
+            gw_curr = forensic_data['yearly'].get(fd_dates[0], {}).get('goodwill', 0)
+            gw_prev = forensic_data['yearly'].get(fd_dates[1], {}).get('goodwill', 0)
+            if gw_prev > 0 and (gw_curr - gw_prev) / gw_prev > 0.5:
+                controversy_topic = "acquisition goodwill overpayment"
+        sbc = latest_fd.get('sbc', 0)
+        rev = latest_fd.get('revenue', 0)
+        if rev > 0 and sbc / rev > 0.05:
+            controversy_topic = "stock compensation dilution earnings quality"
+        # Fire targeted query
+        controversy_result = _tavily_query(
+            f"{company_name} {ceo_name} responds {controversy_topic} earnings call {CURRENT_YEAR}",
+            max_results=2, content_limit=2000,
+            label="TRANSCRIPT", topic="finance", search_depth="basic",
+            relevance_filter=company_name.split()[0] if company_name else None
+        )
+        if controversy_result:
+            controversy_transcript = f"\n--- CEO CONTROVERSY RESPONSE ---\n{controversy_result}"
+            controversy_transcript += "\n[TRANSCRIPT_QUALITY: CONTROVERSY_DIALOGUE]"
+        else:
+            controversy_transcript = "\n[TRANSCRIPT_QUALITY: SUMMARY_ONLY]"
 
     textblocks_dict = sec_result.get('textblocks', {}) if sec_result else {}
     textblocks = format_textblocks(textblocks_dict)
@@ -1570,6 +1687,7 @@ def build_initial_dossier(ticker):
 
     --- SECTION F: EARNINGS CALL HIGHLIGHTS ---
     {transcript if transcript else '(No transcript data found)'}
+    {controversy_transcript}
 
     --- SECTION G: NET REVENUE RETENTION ---
     {nrr_combined if nrr_combined else '(No NRR data found)'}

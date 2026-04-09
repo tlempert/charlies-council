@@ -524,6 +524,67 @@ class TestAcquisitionDisclosures:
         assert 'GOODWILL ALERT' not in result
 
 
+# --- _get_acquisition_from_8k ---
+
+class TestAcquisitionFrom8K:
+    def test_finds_acquisition_8k_by_items_field(self):
+        """Should find an 8-K with Item 2.01 in the items field."""
+        from modules.tools import _get_acquisition_from_8k
+
+        mock_submissions = {
+            'filings': {
+                'recent': {
+                    'form': ['8-K', '10-Q', '8-K', '8-K'],
+                    'accessionNumber': ['0001-23-000001', '0001-23-000002', '0001-23-000003', '0001-23-000004'],
+                    'primaryDocument': ['doc1.htm', 'doc2.htm', 'doc3.htm', 'doc4.htm'],
+                    'primaryDocDescription': ['Current Report', 'Quarterly Report', 'Current Report', 'Current Report'],
+                    'items': ['8.01,9.01', '', '2.01,9.01', '5.02'],
+                }
+            }
+        }
+
+        mock_8k_html = '<html><body>Item 2.01 Completion of Acquisition\nAcquired WidgetCo for $15B in cash.\nPurchase price includes $10B goodwill.\n</body></html>'
+
+        with patch('modules.tools.requests.get') as mock_get:
+            mock_resp1 = MagicMock()
+            mock_resp1.status_code = 200
+            mock_resp1.json.return_value = mock_submissions
+            mock_resp2 = MagicMock()
+            mock_resp2.content = mock_8k_html.encode('utf-8')
+            mock_get.side_effect = [mock_resp1, mock_resp2]
+
+            result = _get_acquisition_from_8k('0000001234')
+            assert 'WidgetCo' in result
+            assert 'ACQUISITION' in result
+            assert mock_get.call_count == 2
+
+    def test_returns_empty_when_no_acquisition_8k(self):
+        """Should return empty string when no 8-K has acquisition keywords."""
+        from modules.tools import _get_acquisition_from_8k
+
+        mock_submissions = {
+            'filings': {
+                'recent': {
+                    'form': ['8-K', '8-K'],
+                    'accessionNumber': ['0001-23-000001', '0001-23-000002'],
+                    'primaryDocument': ['doc1.htm', 'doc2.htm'],
+                    'primaryDocDescription': ['Earnings Release', 'Leadership Change'],
+                    'items': ['2.02,9.01', '5.02'],
+                }
+            }
+        }
+
+        with patch('modules.tools.requests.get') as mock_get:
+            mock_resp = MagicMock()
+            mock_resp.status_code = 200
+            mock_resp.json.return_value = mock_submissions
+            mock_get.return_value = mock_resp
+
+            result = _get_acquisition_from_8k('0000001234')
+            assert result == ""
+            assert mock_get.call_count == 1
+
+
 # --- get_earnings_transcript_intel ---
 
 class TestCeoQuoteTranscript:
@@ -537,6 +598,40 @@ class TestCeoQuoteTranscript:
             calls = [str(c) for c in mock_tavily.call_args_list]
             ceo_calls = [c for c in calls if 'Jensen Huang' in c]
             assert len(ceo_calls) >= 1, f"No CEO-targeted query found in: {calls}"
+
+    def test_controversy_query_replaces_generic_ceo_query(self):
+        """When controversy_topic is provided, search for CEO response to that issue."""
+        from modules.tools import get_earnings_transcript_intel
+        with patch('modules.tools._tavily_query') as mock_tavily:
+            mock_tavily.return_value = "Jensen defended capex spending"
+            result = get_earnings_transcript_intel(
+                "NVDA", company_name="NVIDIA Corporation",
+                ceo_name="Jensen Huang",
+                controversy_topic="customer concentration capex dependency"
+            )
+            calls = [str(c) for c in mock_tavily.call_args_list]
+            controversy_calls = [c for c in calls if 'capex' in c.lower() or 'concentration' in c.lower()]
+            assert len(controversy_calls) >= 1, f"No controversy query found in: {calls}"
+
+    def test_transcript_quality_marker_when_controversy_provided(self):
+        """Should append TRANSCRIPT_QUALITY marker when controversy_topic is provided."""
+        from modules.tools import get_earnings_transcript_intel
+        with patch('modules.tools._tavily_query') as mock_tavily:
+            mock_tavily.return_value = ""
+            result = get_earnings_transcript_intel(
+                "NVDA", company_name="NVIDIA Corporation",
+                ceo_name="Jensen Huang",
+                controversy_topic="capex sustainability"
+            )
+            assert 'TRANSCRIPT_QUALITY' in result
+
+    def test_no_marker_without_controversy(self):
+        """Without controversy_topic, no quality marker appended."""
+        from modules.tools import get_earnings_transcript_intel
+        with patch('modules.tools._tavily_query') as mock_tavily:
+            mock_tavily.return_value = "generic transcript"
+            result = get_earnings_transcript_intel("NVDA", company_name="NVIDIA Corporation")
+            assert 'TRANSCRIPT_QUALITY' not in result
 
 
 # --- build_stress_test_table ---
@@ -590,6 +685,41 @@ class TestStressTestModel:
         lines = result.split('\n')
         minus_30_lines = [l for l in lines if '-30%' in l]
         assert len(minus_30_lines) >= 1
+
+    def test_selects_oi_crash_year_over_ancient_revenue_decline(self):
+        """When recent year has flat revenue but crashed OI, prefer it over old revenue decline."""
+        from modules.tools import _derive_cost_stickiness
+        data = self._make_forensic_data({
+            '2026-01-25': {'revenue': 216e9, 'sga_expense': 4.6e9, 'rd_expense': 18.5e9,
+                           'sbc': 6.4e9, 'cost_of_goods_sold': 54e9, 'operating_income': 120e9},
+            '2025-01-26': {'revenue': 130e9, 'sga_expense': 3.5e9, 'rd_expense': 12.9e9,
+                           'sbc': 4.7e9, 'cost_of_goods_sold': 32e9, 'operating_income': 73e9},
+            '2024-01-28': {'revenue': 61e9, 'sga_expense': 2.65e9, 'rd_expense': 8.68e9,
+                           'sbc': 3.55e9, 'cost_of_goods_sold': 15e9, 'operating_income': 30e9},
+            '2023-01-29': {'revenue': 27e9, 'sga_expense': 2.44e9, 'rd_expense': 7.34e9,
+                           'sbc': 2.71e9, 'cost_of_goods_sold': 11e9, 'operating_income': 4.2e9},
+            '2022-01-30': {'revenue': 27e9, 'sga_expense': 2.17e9, 'rd_expense': 5.27e9,
+                           'sbc': 2.0e9, 'cost_of_goods_sold': 10e9, 'operating_income': 10.1e9},
+            '2018-01-28': {'revenue': 9.7e9, 'sga_expense': 1.0e9, 'rd_expense': 2.4e9,
+                           'sbc': 0.6e9, 'cost_of_goods_sold': 4e9, 'operating_income': 3.2e9},
+            '2017-01-29': {'revenue': 10.9e9, 'sga_expense': 1.1e9, 'rd_expense': 2.2e9,
+                           'sbc': 0.5e9, 'cost_of_goods_sold': 4.5e9, 'operating_income': 3.9e9},
+        })
+        ratios, source_year = _derive_cost_stickiness(data)
+        assert source_year == '2023', f"Expected 2023 but got {source_year}"
+
+    def test_falls_back_to_defaults_when_no_decline(self):
+        """When no revenue decline or OI crash exists, return defaults."""
+        from modules.tools import _derive_cost_stickiness
+        data = self._make_forensic_data({
+            '2026-01-25': {'revenue': 200e9, 'operating_income': 100e9,
+                           'rd_expense': 18e9, 'sga_expense': 4e9, 'sbc': 6e9, 'cost_of_goods_sold': 50e9},
+            '2025-01-26': {'revenue': 130e9, 'operating_income': 70e9,
+                           'rd_expense': 13e9, 'sga_expense': 3.5e9, 'sbc': 5e9, 'cost_of_goods_sold': 33e9},
+        })
+        ratios, source_year = _derive_cost_stickiness(data)
+        assert source_year is None
+        assert ratios['rd_expense'] == 0.70
 
 
 # --- build_earnings_velocity ---

@@ -2140,25 +2140,79 @@ _EXPERT_LABELS = {
 }
 
 def _parse_expert_summary(report_text):
-    """Extract structured fields from ---SUMMARY--- block in expert report."""
-    match = re.search(r'---SUMMARY---(.*?)---END SUMMARY---', report_text, re.DOTALL)
+    """Extract structured fields from expert report.
+
+    Handles multiple formats:
+    1. Structured ---SUMMARY--- block (with or without ---END SUMMARY---)
+    2. VERDICT:/CONFIDENCE: lines anywhere in the text
+    3. Free-form "Verdict: BUY" or "**Verdict:** HOLD" patterns
+    """
+    def clean(val):
+        """Strip markdown formatting from extracted value."""
+        return val.strip('*').strip(':').strip().strip('*').strip()
+
+    def extract_from(text, pattern, default=''):
+        m = re.search(pattern, text, re.IGNORECASE | re.MULTILINE)
+        if not m:
+            return default
+        return clean(m.group(1))
+
+    # Try structured ---SUMMARY--- block first
+    block = None
+    match = re.search(r'#*\s*---SUMMARY---(.*?)---END SUMMARY---', report_text, re.DOTALL)
     if not match:
-        return None
-    block = match.group(1)
+        match = re.search(r'#*\s*---SUMMARY---(.*?)(?=\n##|\n---[^S]|\Z)', report_text, re.DOTALL)
+    if match:
+        block = match.group(1)
 
-    def extract(pattern, default=''):
-        m = re.search(pattern, block)
-        return m.group(1).strip() if m else default
+    # If no block found, search the entire text
+    search_text = block if block else report_text
 
-    confidence_str = extract(r'CONFIDENCE:\s*(\d+)')
-    return {
-        'verdict': extract(r'VERDICT:\s*(.+?)(?:\n|$)'),
-        'confidence': int(confidence_str) if confidence_str else 0,
-        'key_metric': extract(r'KEY METRIC:\s*(.+?)(?:\n|$)'),
-        'key_risk': extract(r'KEY RISK:\s*(.+?)(?:\n|$)'),
-        'bull_case': extract(r'BULL CASE:\s*(.+?)(?:\n|$)'),
-        'moat_flag': extract(r'MOAT FLAG:\s*(.+?)(?:\n|$)'),
-    }
+    # Extract verdict — multiple patterns
+    verdict = ''
+    for pattern in [
+        r'VERDICT:\s*\**\s*(.+?)(?:\n|$)',
+        r'\*\*(?:Verdict|VERDICT)[:\s]*\**\s*(.+?)(?:\*\*|\n|$)',
+        r'(?:^|\n)\s*Verdict[:\s]+\**(.+?)(?:\*\*|\n|$)',
+    ]:
+        v = extract_from(search_text, pattern)
+        if v and len(v) < 30:  # Verdicts should be short (BUY/SELL/HOLD + qualifier)
+            verdict = v
+            break
+    # If verdict is too long (free-form sentence), try to extract just the signal word
+    if len(verdict) > 20:
+        for word in ['STRONG BUY', 'BUY', 'SELL', 'HOLD', 'PASS']:
+            if word in verdict.upper():
+                verdict = word
+                break
+
+    # Extract confidence
+    conf_str = extract_from(search_text, r'CONFIDENCE[:\s]*\**\s*(\d+)')
+    confidence = int(conf_str) if conf_str else 0
+    # Fallback: look for "XX% confidence" pattern
+    if not confidence:
+        m = re.search(r'(\d{2,3})%\s*confidence', search_text, re.IGNORECASE)
+        if m:
+            confidence = int(m.group(1))
+
+    # Extract other fields
+    key_metric = extract_from(search_text, r'KEY METRIC[:\s]*\**(.+?)(?:\n|$)')
+    key_risk = extract_from(search_text, r'KEY RISK[:\s]*\**(.+?)(?:\n|$)')
+    bull_case = extract_from(search_text, r'BULL CASE[:\s]*\**(.+?)(?:\n|$)')
+    moat_flag = extract_from(search_text, r'MOAT FLAG[:\s]*\**(.+?)(?:\n|$)')
+
+    # If we got at least a verdict, return results
+    if verdict or confidence or key_metric:
+        return {
+            'verdict': verdict,
+            'confidence': confidence,
+            'key_metric': key_metric[:80] if key_metric else '',
+            'key_risk': key_risk,
+            'bull_case': bull_case,
+            'moat_flag': moat_flag,
+        }
+
+    return None
 
 
 def _parse_verdict_highlights(verdict_text):
@@ -2171,22 +2225,42 @@ def _parse_verdict_highlights(verdict_text):
         'council_vote': '',
     }
 
-    m = re.search(r'Decision:\s*\**\s*(BUY|SELL|PASS|HOLD|STRONG BUY|AVOID)', verdict_text, re.IGNORECASE)
-    if m:
-        result['decision'] = m.group(1).upper()
+    # Decision — try multiple patterns (different Munger outputs use different labels)
+    for pattern in [
+        r'(?:Decision|RECOMMENDATION):\s*\**\s*(STRONG BUY|BUY|SELL|PASS|HOLD|AVOID)',
+        r'\*\*(STRONG BUY|BUY|SELL|PASS|HOLD)\*\*.*(?:conviction|at\s+\$)',
+    ]:
+        m = re.search(pattern, verdict_text, re.IGNORECASE)
+        if m:
+            result['decision'] = m.group(1).upper()
+            break
 
-    m = re.search(r'Buy Zone["\s:]*\$?([\d,]+)\s*[-\u2013\u2014]\s*\$?([\d,]+)', verdict_text, re.IGNORECASE)
-    if m:
-        result['buy_zone_low'] = int(m.group(1).replace(',', ''))
-        result['buy_zone_high'] = int(m.group(2).replace(',', ''))
+    # Buy zone — try multiple patterns
+    for pattern in [
+        r'Buy Zone["\s:]*\$?([\d,]+)\s*[-–—]\s*\$?([\d,]+)',
+        r'Fair Value[:\s]*\$?([\d,]+)\s*[-–—]\s*\$?([\d,]+)',
+        r'Entry.*?\$?([\d,]+)\s*[-–—]\s*\$?([\d,]+)',
+    ]:
+        m = re.search(pattern, verdict_text, re.IGNORECASE)
+        if m:
+            result['buy_zone_low'] = int(m.group(1).replace(',', ''))
+            result['buy_zone_high'] = int(m.group(2).replace(',', ''))
+            break
 
-    m = re.search(r'Conviction[:\s]*(\d+)%', verdict_text, re.IGNORECASE)
+    # Conviction
+    m = re.search(r'Conviction[:\s]*\**(\d+)%', verdict_text, re.IGNORECASE)
     if m:
         result['conviction'] = int(m.group(1))
 
-    m = re.search(r'(\d+\s*BUY[^.]*\d+\s*(?:HOLD|SELL)[^.]*)', verdict_text, re.IGNORECASE)
-    if m:
-        result['council_vote'] = m.group(1).strip()
+    # Council vote — try multiple patterns
+    for pattern in [
+        r'(\d+\s*BUY[^*\n]*\d+\s*HOLD[^*\n]*\d+\s*SELL[^*\n]*)',
+        r'(\d+\s*BUY[^.\n]*\d+\s*(?:HOLD|SELL)[^.\n]*)',
+    ]:
+        m = re.search(pattern, verdict_text, re.IGNORECASE)
+        if m:
+            result['council_vote'] = re.sub(r'\*', '', m.group(1)).strip()
+            break
 
     return result
 
@@ -2236,9 +2310,16 @@ def save_to_html(ticker, verdict, reports, simple_report=None, base_dir=None,
     # --- Hero rationale: first non-blank line of verdict ---
     hero_rationale = ""
     for line in verdict_clean.splitlines():
-        line = line.strip()
-        if line and not line.startswith("#"):
-            hero_rationale = esc(line[:120])
+        line = line.strip().strip('*').strip('"').strip("'").strip()
+        # Skip headers, separators, short lines, table rows, metadata lines
+        if (len(line) > 40 and
+            not line.startswith('#') and
+            not line.startswith('|') and
+            not line.startswith('---') and
+            not line.startswith('Date:') and
+            not line.startswith('Price:') and
+            not re.match(r'^[\-=*_\s]+$', line)):
+            hero_rationale = esc(line[:200])
             break
 
     # --- Metrics strip ---

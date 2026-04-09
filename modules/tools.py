@@ -1871,7 +1871,15 @@ def save_to_html(ticker, verdict, reports, simple_report=None, base_dir=None):
         nr = md2html(simple_report)
         newsletter_html = f'<div class="tab-panel" id="tab-newsletter" style="display:none">{nr}</div>'
 
+    # --- Teacher / Business Explainer tab ---
+    teacher_html = ""
+    if "teacher" in reports:
+        th = md2html(reports["teacher"])
+        teacher_html = f'<div class="tab-panel" id="tab-teacher" style="display:none">{th}</div>'
+
     tab_buttons = '<button class="tab active" onclick="switchTab(\'experts\',this)">Expert Council</button>'
+    if "teacher" in reports:
+        tab_buttons += '<button class="tab" onclick="switchTab(\'teacher\',this)">Business Explainer</button>'
     if simple_report:
         tab_buttons += '<button class="tab" onclick="switchTab(\'newsletter\',this)">Family Newsletter</button>'
 
@@ -1983,6 +1991,7 @@ h2{{font-size:18px;font-weight:600;margin-bottom:8px}}
 <section>
   <div class="tabs">{tab_buttons}</div>
   <div class="tab-panel" id="tab-experts">{expert_html}</div>
+  {teacher_html}
   {newsletter_html}
 </section>
 

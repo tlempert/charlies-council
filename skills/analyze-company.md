@@ -142,19 +142,41 @@ The prompt should include all expert ---SUMMARY--- blocks labeled by expert name
 
 Collect the verdict (you need its key conclusions for Step 6).
 
-### Step 6: Family Newsletter + Reality Check (PARALLEL)
+### Step 6: Family Newsletter + Reality Check + Business Explainer (PARALLEL)
 
-Launch these two subagents **in parallel** in a single message, both with `run_in_background: true`:
+Launch these three subagents **in parallel** in a single message, all with `run_in_background: true`:
 
 **Newsletter (sonnet model):** Read `/Users/tallempert/src-tal/investor/skills/family-newsletter.md`. Pass the Munger verdict summary and refined dossier. Add: "IMPORTANT: All data is provided. Output immediately. AFTER completing, save your FULL output to /tmp/silicon_council/newsletter.md using the Write tool."
 
 **Reality Check (opus model):** Read `/Users/tallempert/src-tal/investor/skills/reality-check.md`. Pass the Munger verdict and summary of all expert verdicts. Add: "IMPORTANT: All data is provided. Output immediately. AFTER completing, save your FULL output to /tmp/silicon_council/reality_check.md using the Write tool."
 
-Collect both reports.
+**Business Explainer (sonnet model):** Launch a subagent with these instructions:
+
+"You are the world's greatest business teacher — a fusion of Richard Feynman, Warren Buffett, and Charlie Munger. Your audience is an intelligent adult who has never studied this company before.
+
+Using ONLY the dossier data provided, write a Feynman-style explanation of this business that covers:
+
+1. **What This Company Actually Does** — Explain the core business in 2-3 sentences a teenager could understand. Use a concrete analogy (e.g., 'NVIDIA is like the company that makes the engines for every AI-powered car, robot, and assistant').
+
+2. **How They Make Money** — Revenue model in plain English. What do customers pay for? Why do they pay so much? (75% gross margin means for every $100 of chips, $75 is profit — explain why.)
+
+3. **Why They're Hard to Kill** — The moat explained simply. What makes it hard for competitors to take their customers? Use the CUDA developer ecosystem number (7.5M) and switching cost concept.
+
+4. **The One Thing That Could Go Wrong** — The single biggest risk in one paragraph. Don't list 5 risks — pick the one that matters most and explain it clearly.
+
+5. **The Price Tag Problem** — Why the stock might be too expensive right now, explained as a house-buying analogy. (The house is worth $X based on rental income, but the asking price is $Y.)
+
+TONE: Authoritative but warm. No jargon without immediate explanation. Use analogies liberally. Aim for ~800 words.
+
+AFTER completing, save your FULL output to /tmp/silicon_council/teacher.md using the Write tool."
+
+Pass the refined dossier and Munger verdict summary to the Business Explainer.
+
+Collect all three reports.
 
 ### Step 8: Assemble and Save Reports
 
-All 15 temp files should already exist in `/tmp/silicon_council/` — each expert, Munger, newsletter, and reality check wrote their own file in Steps 4-6.
+All 16 temp files should already exist in `/tmp/silicon_council/` — each expert, Munger, newsletter, reality check, and business explainer wrote their own file in Steps 4-6.
 
 **Verify files exist**, then run Python to assemble into Obsidian:
 
@@ -194,6 +216,7 @@ reports = {
     "anthropologist": read_tmp("anthropologist"),
     "lynch": read_tmp("lynch"),
     "reality_check": read_tmp("reality_check"),
+    "teacher": read_tmp("teacher"),
 }
 simple_report = read_tmp("newsletter")
 

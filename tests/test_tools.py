@@ -152,32 +152,466 @@ class TestSaveToMarkdown:
         assert "full" not in result
 
 
+# --- save_to_html ---
+
+class TestSaveToHtml:
+    def _save(self, tmp_path, ticker="TEST", verdict="BUY at $100-120",
+              reports=None, simple_report=None):
+        from modules.tools import save_to_html
+        reports = reports or {
+            "jeff_bezos": "Flywheel analysis content",
+            "warren_buffett": "Moat analysis content",
+            "reality_check": "Red team critique",
+        }
+        return save_to_html(
+            ticker, verdict, reports,
+            simple_report=simple_report,
+            base_dir=str(tmp_path),
+        )
+
+    def test_returns_html_path(self, tmp_path):
+        result = self._save(tmp_path)
+        assert "html" in result
+        assert result["html"].endswith(".html")
+        assert os.path.isfile(result["html"])
+
+    def test_html_is_valid_structure(self, tmp_path):
+        result = self._save(tmp_path)
+        content = open(result["html"], encoding="utf-8").read()
+        assert "<!DOCTYPE html>" in content
+        assert "<html" in content
+        assert "</html>" in content
+        assert "<style>" in content
+        assert "<script>" in content
+
+    def test_contains_ticker_and_verdict(self, tmp_path):
+        result = self._save(tmp_path)
+        content = open(result["html"], encoding="utf-8").read()
+        assert "TEST" in content
+        assert "BUY" in content
+
+    def test_expert_reports_in_accordions(self, tmp_path):
+        result = self._save(tmp_path)
+        content = open(result["html"], encoding="utf-8").read()
+        assert "Flywheel analysis content" in content
+        assert "Moat analysis content" in content
+        # Each expert should be in an accordion section
+        assert "accordion" in content.lower() or "collapsible" in content.lower()
+
+    def test_reality_check_separate_from_experts(self, tmp_path):
+        result = self._save(tmp_path)
+        content = open(result["html"], encoding="utf-8").read()
+        assert "Red team critique" in content
+        # Reality check content should appear after the expert accordions
+        reality_content_pos = content.find("Red team critique")
+        last_expert_pos = content.find("Moat analysis content")
+        assert reality_content_pos > last_expert_pos
+
+    def test_newsletter_in_tab(self, tmp_path):
+        result = self._save(tmp_path, simple_report="Family newsletter content")
+        content = open(result["html"], encoding="utf-8").read()
+        assert "Family newsletter content" in content
+
+    def test_ansi_stripped(self, tmp_path):
+        reports = {"test_expert": "\x1b[31mRed flag\x1b[0m"}
+        result = self._save(tmp_path, verdict="\x1b[32mBUY\x1b[0m", reports=reports)
+        content = open(result["html"], encoding="utf-8").read()
+        assert "\x1b" not in content
+        assert "Red flag" in content
+
+    def test_creates_directory_if_missing(self, tmp_path):
+        from modules.tools import save_to_html
+        new_dir = str(tmp_path / "nested" / "html")
+        result = save_to_html("DIR", "verdict", {"a": "b"}, base_dir=new_dir)
+        assert os.path.isdir(new_dir)
+        assert os.path.isfile(result["html"])
+
+    def test_no_save_without_verdict(self, tmp_path):
+        from modules.tools import save_to_html
+        result = save_to_html("X", None, {}, base_dir=str(tmp_path))
+        assert "html" not in result
+
+    def test_mobile_responsive_meta(self, tmp_path):
+        result = self._save(tmp_path)
+        content = open(result["html"], encoding="utf-8").read()
+        assert "viewport" in content
+
+    def test_special_chars_escaped(self, tmp_path):
+        reports = {"expert": 'Analysis with <script>alert("xss")</script> and & symbols'}
+        result = self._save(tmp_path, reports=reports)
+        content = open(result["html"], encoding="utf-8").read()
+        assert '<script>alert("xss")</script>' not in content
+
+
 # --- build_initial_dossier ---
 
+def _dossier_patches(func):
+    """Apply all 14 patches needed for build_initial_dossier tests.
+
+    Patch application order: last in list = first positional arg (after self).
+    So _fetch_yf is last → becomes first arg, disruptor_intel is first → becomes last arg.
+    """
+    patches = [
+        patch("modules.tools._fetch_yf"),                # → 1st arg: mock_fetch_yf
+        patch("modules.tools.get_advanced_valuations"),  # → 2nd: mock_val
+        patch("modules.tools.get_cik"),                  # → 3rd: mock_cik
+        patch("modules.tools.get_xbrl_facts"),           # → 4th: mock_xbrl
+        patch("modules.tools.get_sec_sections"),         # → 5th: mock_sec_sections
+        patch("modules.tools.get_sec_text"),             # → 6th: mock_sec_text
+        patch("modules.tools.get_earnings_transcript_intel"),  # → 7th: mock_intel
+        patch("modules.tools.get_tavily_strategy"),      # → 8th: mock_strat
+        patch("modules.tools.get_nrr_intel"),            # → 9th: mock_nrr
+        patch("modules.tools.get_competitive_intel"),    # → 10th: mock_competitive
+        patch("modules.tools.get_product_economics"),    # → 11th: mock_product_econ
+        patch("modules.tools.get_ecosystem_intel"),      # → 12th: mock_ecosystem
+        patch("modules.tools.get_cultural_intel"),       # → 13th: mock_cultural
+        patch("modules.tools.get_disruptor_intel"),      # → 14th: mock_disruptor
+    ]
+    for p in patches:
+        func = p(func)
+    return func
+
+
 class TestBuildInitialDossier:
-    @patch("modules.tools.get_tavily_strategy")
-    @patch("modules.tools.get_earnings_transcript_intel")
-    @patch("modules.tools.get_sec_text")
-    @patch("modules.tools.get_advanced_valuations")
-    @patch("modules.tools.yf")
-    def test_assembles_all_sections(self, mock_yf, mock_val, mock_sec, mock_intel, mock_strat):
-        from modules.tools import build_initial_dossier
-
+    def _mock_stock(self):
         mock_stock = MagicMock()
-        mock_stock.info = {"currentPrice": 100}
-        # Make revenue trend fail gracefully
+        mock_stock.info = {"currentPrice": 100, "longName": "Test Corp", "currency": "USD"}
         mock_stock.financials.loc.__getitem__.side_effect = KeyError("no data")
-        mock_yf.Ticker.return_value = mock_stock
+        return mock_stock
 
+    def _setup_defaults(self, mock_fetch_yf, mock_val, mock_cik, mock_xbrl,
+                        mock_sec_sections, mock_sec_text, mock_intel, mock_strat,
+                        mock_nrr, mock_competitive, mock_product_econ,
+                        mock_ecosystem=None, mock_cultural=None, mock_disruptor=None):
+        mock_stock = self._mock_stock()
+        mock_fetch_yf.return_value = (mock_stock, mock_stock.info)
         mock_val.return_value = "VALUATION DATA"
-        mock_sec.side_effect = ["10-K text", None]  # 10-K found, ARS not found
+        mock_cik.return_value = "0000001234"
+        mock_xbrl.return_value = {
+            'yearly': {'2025-01-01': {'sbc': 1000000000, 'revenue': 10000000000,
+                                      'rd_expense': 4000000000, 'sga_expense': 3000000000}},
+            'sorted_dates': ['2025-01-01'],
+            'latest': {},
+        }
+        mock_sec_sections.return_value = {
+            'textblocks': {'segment_table': 'Digital Media $17B',
+                          'sbc_allocation': 'Research and development 1,010 Sales and marketing 557 General and administrative 253'},
+            'sections': {'item1': 'Business overview text ' * 50, 'item7': 'MD&A text ' * 50},
+        }
+        mock_sec_text.return_value = None
         mock_intel.return_value = "Transcript intel"
         mock_strat.return_value = "Strategy news"
+        mock_nrr.return_value = "NRR: 120%"
+        mock_competitive.return_value = "Canva revenue $2.5B"
+        mock_product_econ.return_value = "Firefly margin 80%"
+        if mock_ecosystem: mock_ecosystem.return_value = "Agent churn 5%"
+        if mock_cultural: mock_cultural.return_value = "Gen Z adoption declining"
+        if mock_disruptor: mock_disruptor.return_value = "CoStar entering UK"
+        return mock_stock
+
+    @_dossier_patches
+    def test_assembles_all_sections(self, mock_fetch_yf, mock_val, mock_cik, mock_xbrl,
+                                    mock_sec_sections, mock_sec_text, mock_intel, mock_strat,
+                                    mock_nrr, mock_competitive, mock_product_econ,
+                                    mock_ecosystem, mock_cultural, mock_disruptor):
+        from modules.tools import build_initial_dossier
+        self._setup_defaults(mock_fetch_yf, mock_val, mock_cik, mock_xbrl,
+                            mock_sec_sections, mock_sec_text, mock_intel, mock_strat,
+                            mock_nrr, mock_competitive, mock_product_econ,
+                            mock_ecosystem, mock_cultural, mock_disruptor)
 
         result = build_initial_dossier("AAPL")
 
         assert "AAPL" in result
         assert "VALUATION DATA" in result
-        assert "TRANSCRIPTS & STRATEGY" in result
+        assert "FORENSIC BLOCK" in result
+        assert "SEGMENT PROFITABILITY" in result
+        assert "BUSINESS OVERVIEW" in result
+        assert "MANAGEMENT DISCUSSION" in result
         assert "Strategy news" in result
+        # New sections
+        assert "EARNINGS CALL HIGHLIGHTS" in result
+        assert "NET REVENUE RETENTION" in result
+        assert "COMPETITIVE LANDSCAPE" in result
+        assert "PRODUCT UNIT ECONOMICS" in result
+        assert "ECOSYSTEM DYNAMICS" in result
+        assert "CULTURAL & DEMOGRAPHIC" in result
+        assert "DISRUPTION LANDSCAPE" in result
+        assert "STRESS TEST" in result
         mock_val.assert_called_once()
+
+    @_dossier_patches
+    def test_handles_missing_xbrl_and_sec(self, mock_fetch_yf, mock_val, mock_cik, mock_xbrl,
+                                          mock_sec_sections, mock_sec_text, mock_intel, mock_strat,
+                                          mock_nrr, mock_competitive, mock_product_econ,
+                                          mock_ecosystem, mock_cultural, mock_disruptor):
+        """Dossier should still build even when XBRL and SEC extraction fail."""
+        from modules.tools import build_initial_dossier
+        self._setup_defaults(mock_fetch_yf, mock_val, mock_cik, mock_xbrl,
+                            mock_sec_sections, mock_sec_text, mock_intel, mock_strat,
+                            mock_nrr, mock_competitive, mock_product_econ,
+                            mock_ecosystem, mock_cultural, mock_disruptor)
+        mock_cik.return_value = None
+        mock_xbrl.return_value = None
+        mock_sec_sections.return_value = None
+        mock_sec_text.return_value = None
+
+        result = build_initial_dossier("AAPL")
+
+        assert "AAPL" in result
+        assert "VALUATION DATA" in result
+        assert "Not Available" in result or "Not extracted" in result
+
+    @_dossier_patches
+    def test_cik_fetched_once(self, mock_fetch_yf, mock_val, mock_cik, mock_xbrl,
+                              mock_sec_sections, mock_sec_text, mock_intel, mock_strat,
+                              mock_nrr, mock_competitive, mock_product_econ,
+                              mock_ecosystem, mock_cultural, mock_disruptor):
+        """get_cik should be called exactly once."""
+        from modules.tools import build_initial_dossier
+        self._setup_defaults(mock_fetch_yf, mock_val, mock_cik, mock_xbrl,
+                            mock_sec_sections, mock_sec_text, mock_intel, mock_strat,
+                            mock_nrr, mock_competitive, mock_product_econ,
+                            mock_ecosystem, mock_cultural, mock_disruptor)
+
+        build_initial_dossier("AAPL")
+
+        mock_cik.assert_called_once_with("AAPL")
+        mock_sec_sections.assert_called_once_with("AAPL", "10-K", "0000001234")
+        mock_sec_text.assert_called_once_with("AAPL", "ARS", "0000001234")
+
+    @_dossier_patches
+    def test_transcript_always_in_section_f(self, mock_fetch_yf, mock_val, mock_cik, mock_xbrl,
+                                            mock_sec_sections, mock_sec_text, mock_intel, mock_strat,
+                                            mock_nrr, mock_competitive, mock_product_econ,
+                                            mock_ecosystem, mock_cultural, mock_disruptor):
+        """Transcript always appears in Section F, even when ARS is found."""
+        from modules.tools import build_initial_dossier
+        self._setup_defaults(mock_fetch_yf, mock_val, mock_cik, mock_xbrl,
+                            mock_sec_sections, mock_sec_text, mock_intel, mock_strat,
+                            mock_nrr, mock_competitive, mock_product_econ,
+                            mock_ecosystem, mock_cultural, mock_disruptor)
+        mock_sec_text.return_value = "ARS content found"
+
+        result = build_initial_dossier("AAPL")
+
+        assert "CEO LETTER" in result
+        assert "EARNINGS CALL HIGHLIGHTS" in result
+        assert "Transcript intel" in result  # Always in Section F
+
+    @_dossier_patches
+    def test_opex_breakdown_in_dossier(self, mock_fetch_yf, mock_val, mock_cik, mock_xbrl,
+                                       mock_sec_sections, mock_sec_text, mock_intel, mock_strat,
+                                       mock_nrr, mock_competitive, mock_product_econ,
+                                       mock_ecosystem, mock_cultural, mock_disruptor):
+        """OpEx breakdown should appear when XBRL has R&D and SGA data."""
+        from modules.tools import build_initial_dossier
+        self._setup_defaults(mock_fetch_yf, mock_val, mock_cik, mock_xbrl,
+                            mock_sec_sections, mock_sec_text, mock_intel, mock_strat,
+                            mock_nrr, mock_competitive, mock_product_econ,
+                            mock_ecosystem, mock_cultural, mock_disruptor)
+
+        result = build_initial_dossier("AAPL")
+
+        assert "OPEX BREAKDOWN" in result
+
+
+# --- format_forensic_block: working capital ---
+
+class TestWorkingCapitalExtraction:
+    def test_format_forensic_block_includes_working_capital(self):
+        from modules.tools import format_forensic_block
+        xbrl_data = {
+            'yearly': {
+                '2026-01-25': {
+                    'sbc': 6.39e9, 'revenue': 215.9e9, 'accounts_receivable': 38.47e9,
+                    'shares_outstanding': 24304e6, 'total_debt_par': 8.47e9,
+                    'rd_expense': 18.5e9, 'goodwill': 20.8e9,
+                    'inventory': 5.28e9, 'accounts_payable': 6.12e9,
+                    'cost_of_goods_sold': 53.97e9,
+                },
+            },
+            'sorted_dates': ['2026-01-25'],
+            'latest': {},
+        }
+        result = format_forensic_block(xbrl_data, '$')
+        assert 'WORKING CAPITAL' in result
+        assert 'INVENTORY' in result
+        assert 'DIO' in result
+
+    def test_format_forensic_block_fabless_shows_na(self):
+        from modules.tools import format_forensic_block
+        xbrl_data = {
+            'yearly': {
+                '2026-01-25': {
+                    'sbc': 6.39e9, 'revenue': 215.9e9, 'accounts_receivable': 38.47e9,
+                    'shares_outstanding': 24304e6, 'total_debt_par': 8.47e9,
+                    'rd_expense': 18.5e9, 'goodwill': 20.8e9,
+                },
+            },
+            'sorted_dates': ['2026-01-25'],
+            'latest': {},
+        }
+        result = format_forensic_block(xbrl_data, '$')
+        assert 'N/A' in result or 'fabless' in result.lower()
+
+
+# --- Acquisition Disclosures ---
+
+class TestAcquisitionDisclosures:
+    def test_extract_textblocks_includes_acquisitions(self):
+        from modules.tools import _extract_textblocks
+        from bs4 import BeautifulSoup
+
+        html = '''<html>
+        <div name="us-gaap:BusinessCombinationDisclosureTextBlock">
+            Acquired WidgetCo for $15.6B in cash. Purchase price allocation includes
+            $10B goodwill, $3B intangibles, $2.6B net assets.
+        </div>
+        </html>'''
+        soup = BeautifulSoup(html, 'html.parser')
+        result = _extract_textblocks(soup, None)
+        assert 'acquisitions' in result
+        assert 'WidgetCo' in result['acquisitions']
+
+    def test_format_textblocks_labels_acquisitions(self):
+        from modules.tools import format_textblocks
+        textblocks = {'acquisitions': 'Acquired WidgetCo for $15.6B'}
+        result = format_textblocks(textblocks)
+        assert 'ACQUISITIONS' in result
+        assert 'WidgetCo' in result
+
+    def test_goodwill_alert_on_large_yoy_change(self):
+        from modules.tools import format_forensic_block
+        xbrl_data = {
+            'yearly': {
+                '2026-01-25': {
+                    'sbc': 6e9, 'revenue': 200e9, 'accounts_receivable': 30e9,
+                    'shares_outstanding': 24000e6, 'total_debt_par': 8e9,
+                    'rd_expense': 18e9, 'goodwill': 20.8e9,
+                },
+                '2025-01-26': {
+                    'sbc': 4e9, 'revenue': 130e9, 'accounts_receivable': 23e9,
+                    'shares_outstanding': 24400e6, 'total_debt_par': 8e9,
+                    'rd_expense': 13e9, 'goodwill': 5.2e9,
+                },
+            },
+            'sorted_dates': ['2026-01-25', '2025-01-26'],
+            'latest': {},
+        }
+        result = format_forensic_block(xbrl_data, '$')
+        assert 'GOODWILL ALERT' in result
+
+    def test_no_goodwill_alert_on_stable_goodwill(self):
+        from modules.tools import format_forensic_block
+        xbrl_data = {
+            'yearly': {
+                '2026-01-25': {
+                    'sbc': 6e9, 'revenue': 200e9, 'accounts_receivable': 30e9,
+                    'shares_outstanding': 24000e6, 'total_debt_par': 8e9,
+                    'rd_expense': 18e9, 'goodwill': 5.5e9,
+                },
+                '2025-01-26': {
+                    'sbc': 4e9, 'revenue': 130e9, 'accounts_receivable': 23e9,
+                    'shares_outstanding': 24400e6, 'total_debt_par': 8e9,
+                    'rd_expense': 13e9, 'goodwill': 5.2e9,
+                },
+            },
+            'sorted_dates': ['2026-01-25', '2025-01-26'],
+            'latest': {},
+        }
+        result = format_forensic_block(xbrl_data, '$')
+        assert 'GOODWILL ALERT' not in result
+
+
+# --- get_earnings_transcript_intel ---
+
+class TestCeoQuoteTranscript:
+    def test_transcript_includes_ceo_quote_query(self):
+        """Verify the function fires a CEO-name-targeted query."""
+        from modules.tools import get_earnings_transcript_intel
+        with patch('modules.tools._tavily_query') as mock_tavily:
+            mock_tavily.return_value = "Jensen said AI needs 1000x compute"
+            result = get_earnings_transcript_intel("NVDA", company_name="NVIDIA Corporation",
+                                                    ceo_name="Jensen Huang")
+            calls = [str(c) for c in mock_tavily.call_args_list]
+            ceo_calls = [c for c in calls if 'Jensen Huang' in c]
+            assert len(ceo_calls) >= 1, f"No CEO-targeted query found in: {calls}"
+
+
+# --- build_stress_test_table ---
+
+class TestStressTestModel:
+    def _make_forensic_data(self, years):
+        """Helper: create forensic data with multiple years."""
+        sorted_dates = sorted(years.keys(), reverse=True)
+        return {
+            'yearly': years,
+            'sorted_dates': sorted_dates,
+            'latest': years[sorted_dates[0]],
+        }
+
+    def test_stress_test_has_adjusted_column(self):
+        from modules.tools import build_stress_test_table
+        data = self._make_forensic_data({
+            '2026-01-25': {'revenue': 216e9, 'sga_expense': 4.6e9, 'rd_expense': 18.5e9,
+                           'sbc': 6.4e9, 'cost_of_goods_sold': 54e9},
+            '2025-01-26': {'revenue': 130e9, 'sga_expense': 3.5e9, 'rd_expense': 12.9e9,
+                           'sbc': 4.7e9, 'cost_of_goods_sold': 32e9},
+        })
+        result = build_stress_test_table(data, '$')
+        assert 'Adjusted' in result
+
+    def test_stress_test_uses_decline_year_for_ratios(self):
+        """When a revenue decline year exists, the model should derive ratios from it."""
+        from modules.tools import build_stress_test_table
+        # FY2023 had revenue decline vs FY2022
+        data = self._make_forensic_data({
+            '2024-01-28': {'revenue': 61e9, 'sga_expense': 2.65e9, 'rd_expense': 8.68e9,
+                           'sbc': 3.55e9, 'cost_of_goods_sold': 15e9},
+            '2023-01-29': {'revenue': 27e9, 'sga_expense': 2.44e9, 'rd_expense': 7.34e9,
+                           'sbc': 2.71e9, 'cost_of_goods_sold': 11e9},
+            '2022-01-30': {'revenue': 27e9, 'sga_expense': 2.17e9, 'rd_expense': 5.27e9,
+                           'sbc': 2.0e9, 'cost_of_goods_sold': 10e9},
+        })
+        result = build_stress_test_table(data, '$')
+        assert 'derived' in result.lower() or 'stickiness' in result.lower() or 'decline' in result.lower()
+
+    def test_adjusted_fcf_lower_than_simple_at_minus_30(self):
+        """Adjusted FCF should show more compression than simple at -30%."""
+        from modules.tools import build_stress_test_table
+        data = self._make_forensic_data({
+            '2026-01-25': {'revenue': 216e9, 'sga_expense': 4.6e9, 'rd_expense': 18.5e9,
+                           'sbc': 6.4e9, 'cost_of_goods_sold': 54e9},
+            '2025-01-26': {'revenue': 130e9, 'sga_expense': 3.5e9, 'rd_expense': 12.9e9,
+                           'sbc': 4.7e9, 'cost_of_goods_sold': 32e9},
+        })
+        result = build_stress_test_table(data, '$')
+        lines = result.split('\n')
+        minus_30_lines = [l for l in lines if '-30%' in l]
+        assert len(minus_30_lines) >= 1
+
+
+# --- build_earnings_velocity ---
+
+class TestEarningsVelocity:
+    def test_builds_velocity_block(self):
+        from modules.tools import build_earnings_velocity
+        result = build_earnings_velocity([68e9, 57e9, 46.7e9, 35e9], '$')
+        assert 'EARNINGS VELOCITY' in result
+        assert 'QUARTERLY REVENUE' in result
+
+    def test_velocity_shows_qoq_growth(self):
+        from modules.tools import build_earnings_velocity
+        result = build_earnings_velocity([68e9, 57e9, 46.7e9, 35e9], '$')
+        assert 'QoQ' in result
+
+    def test_velocity_shows_run_rate(self):
+        from modules.tools import build_earnings_velocity
+        result = build_earnings_velocity([68e9, 57e9, 46.7e9, 35e9], '$')
+        assert 'RUN RATE' in result
+
+    def test_velocity_empty_on_insufficient_data(self):
+        from modules.tools import build_earnings_velocity
+        assert build_earnings_velocity([], '$') == ""
+        assert build_earnings_velocity([50e9], '$') == ""

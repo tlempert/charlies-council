@@ -1477,18 +1477,27 @@ def _get_acquisition_from_8k(cik):
 
 # --- Peer Company Discovery & Benchmarking ---
 
+# Keys are lowercased with non-alphanumeric chars stripped for fuzzy matching
 SECTOR_PEERS = {
     'Technology': {
-        'Software—Application': ['MSFT', 'CRM', 'INTU', 'NOW', 'ORCL'],
-        'Software—Infrastructure': ['MSFT', 'ORCL', 'SNOW', 'MDB', 'DDOG'],
-        'Semiconductors': ['NVDA', 'AMD', 'INTC', 'AVGO', 'QCOM', 'TXN'],
-        'Consumer Electronics': ['AAPL', 'SONY', 'DELL', 'HPQ'],
+        'software application': ['MSFT', 'CRM', 'INTU', 'NOW', 'ORCL'],
+        'software infrastructure': ['MSFT', 'ORCL', 'SNOW', 'MDB', 'DDOG'],
+        'semiconductors': ['NVDA', 'AMD', 'INTC', 'AVGO', 'QCOM', 'TXN'],
+        'consumer electronics': ['AAPL', 'SONY', 'DELL', 'HPQ'],
+        'information technology services': ['ACN', 'IBM', 'CTSH', 'INFY'],
     },
     'Communication Services': {
-        'Internet Content & Information': ['GOOG', 'META', 'SNAP', 'PINS'],
+        'internet content information': ['GOOG', 'META', 'SNAP', 'PINS'],
+        'entertainment': ['NFLX', 'DIS', 'WBD', 'PARA'],
     },
     'Consumer Cyclical': {
-        'Internet Retail': ['AMZN', 'BABA', 'JD', 'MELI'],
+        'internet retail': ['AMZN', 'BABA', 'JD', 'MELI'],
+    },
+    'Healthcare': {
+        'drug manufacturers': ['LLY', 'JNJ', 'PFE', 'MRK', 'ABBV'],
+    },
+    'Financial Services': {
+        'banks': ['JPM', 'BAC', 'WFC', 'GS', 'MS'],
     },
 }
 
@@ -1543,22 +1552,28 @@ def get_peer_companies(ticker, company_name, info):
         pass
 
     # Layer 2: Sector fallback map
-    if len(candidates) < 3:
-        sector_map = SECTOR_PEERS.get(sector, {})
-        industry_peers = sector_map.get(industry, [])
-        if not industry_peers:
-            try:
-                result = _tavily_query(
-                    f"{sector} {industry} largest publicly traded companies stock tickers",
-                    max_results=2, content_limit=600, label="PEERS"
-                )
-                if result:
-                    ticker_pattern = re.compile(r'(?:\(|\$|NASDAQ:\s*|NYSE:\s*)([A-Z]{2,5})(?:\)|\s|,|\.)')
-                    found = ticker_pattern.findall(result)
-                    industry_peers = [t for t in found if t != ticker][:5]
-            except Exception:
-                pass
-        candidates.update(t for t in industry_peers if t != ticker)
+    # Always add sector fallback peers (Tavily may return noise that fails validation)
+    sector_map = SECTOR_PEERS.get(sector, {})
+    # Normalize industry string for fuzzy matching (strip dashes, collapse spaces, lowercase)
+    industry_normalized = re.sub(r'\s+', ' ', re.sub(r'[^a-z0-9 ]', '', industry.lower())).strip()
+    industry_peers = []
+    for key, peers_list in sector_map.items():
+        if key in industry_normalized or industry_normalized in key:
+            industry_peers = peers_list
+            break
+    if not industry_peers:
+        try:
+            result = _tavily_query(
+                f"{sector} {industry} largest publicly traded companies stock tickers",
+                max_results=2, content_limit=600, label="PEERS"
+            )
+            if result:
+                ticker_pattern = re.compile(r'(?:\(|\$|NASDAQ:\s*|NYSE:\s*)([A-Z]{2,5})(?:\)|\s|,|\.)')
+                found = ticker_pattern.findall(result)
+                industry_peers = [t for t in found if t != ticker][:5]
+        except Exception:
+            pass
+    candidates.update(t for t in industry_peers if t != ticker)
 
     # Layer 3: Validate candidates in parallel
     candidates_list = list(candidates)[:8]  # Cap at 8 to validate

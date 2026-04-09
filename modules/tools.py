@@ -7,6 +7,7 @@ from pypdf import PdfReader # <--- Ensure this is imported
 import io
 import os
 import re
+import statistics
 from datetime import datetime
 from concurrent.futures import ThreadPoolExecutor
 
@@ -1474,6 +1475,249 @@ def _get_acquisition_from_8k(cik):
         return ""
 
 
+# --- Peer Company Discovery & Benchmarking ---
+
+SECTOR_PEERS = {
+    'Technology': {
+        'Software—Application': ['MSFT', 'CRM', 'INTU', 'NOW', 'ORCL'],
+        'Software—Infrastructure': ['MSFT', 'ORCL', 'SNOW', 'MDB', 'DDOG'],
+        'Semiconductors': ['NVDA', 'AMD', 'INTC', 'AVGO', 'QCOM', 'TXN'],
+        'Consumer Electronics': ['AAPL', 'SONY', 'DELL', 'HPQ'],
+    },
+    'Communication Services': {
+        'Internet Content & Information': ['GOOG', 'META', 'SNAP', 'PINS'],
+    },
+    'Consumer Cyclical': {
+        'Internet Retail': ['AMZN', 'BABA', 'JD', 'MELI'],
+    },
+}
+
+
+def _validate_ticker(candidate, target_mcap):
+    """Validate a ticker exists in yfinance and has reasonable market cap."""
+    try:
+        t = yf.Ticker(candidate)
+        info = t.info
+        if not info.get('longName'):
+            return None
+        mcap = info.get('marketCap', 0)
+        if mcap < 1e9:  # Skip micro-caps
+            return None
+        # Market cap range: relaxed for mega-caps
+        if target_mcap and target_mcap > 500e9:
+            if mcap < target_mcap * 0.01 or mcap > target_mcap * 100:
+                return None
+        elif target_mcap:
+            if mcap < target_mcap * 0.05 or mcap > target_mcap * 20:
+                return None
+        return candidate
+    except Exception:
+        return None
+
+
+def get_peer_companies(ticker, company_name, info):
+    """Identify 4-5 publicly traded peer companies for benchmarking.
+
+    Three-layer discovery: Tavily search -> sector fallback map -> validation.
+    """
+    print(f"{Fore.CYAN}🏟️  Identifying peer companies for {ticker}...{Style.RESET_ALL}")
+
+    target_mcap = info.get('marketCap', 0)
+    sector = info.get('sector', '')
+    industry = info.get('industry', '')
+    candidates = set()
+
+    # Layer 1: Tavily search for competitors
+    try:
+        result = _tavily_query(
+            f"{company_name} top competitors publicly traded stock ticker {CURRENT_YEAR}",
+            max_results=3, content_limit=800, label="PEERS", topic="finance"
+        )
+        if result:
+            ticker_pattern = re.compile(r'(?:\(|\$|NASDAQ:\s*|NYSE:\s*|AMEX:\s*)([A-Z]{1,5})(?:\)|\s|,|\.)')
+            found = ticker_pattern.findall(result)
+            noise = {'CEO', 'CFO', 'COO', 'CTO', 'IPO', 'ETF', 'LLC', 'INC', 'USA', 'NYSE', 'SEC',
+                     'THE', 'AND', 'FOR', 'NOT', 'ALL', 'NOW', 'NEW', 'ONE', 'TWO', 'ANY', 'OUR'}
+            candidates.update(t for t in found if t != ticker and t not in noise and len(t) >= 2)
+    except Exception:
+        pass
+
+    # Layer 2: Sector fallback map
+    if len(candidates) < 3:
+        sector_map = SECTOR_PEERS.get(sector, {})
+        industry_peers = sector_map.get(industry, [])
+        if not industry_peers:
+            try:
+                result = _tavily_query(
+                    f"{sector} {industry} largest publicly traded companies stock tickers",
+                    max_results=2, content_limit=600, label="PEERS"
+                )
+                if result:
+                    ticker_pattern = re.compile(r'(?:\(|\$|NASDAQ:\s*|NYSE:\s*)([A-Z]{2,5})(?:\)|\s|,|\.)')
+                    found = ticker_pattern.findall(result)
+                    industry_peers = [t for t in found if t != ticker][:5]
+            except Exception:
+                pass
+        candidates.update(t for t in industry_peers if t != ticker)
+
+    # Layer 3: Validate candidates in parallel
+    candidates_list = list(candidates)[:8]  # Cap at 8 to validate
+    validated = []
+    with ThreadPoolExecutor(max_workers=len(candidates_list) or 1) as pool:
+        futures = {pool.submit(_validate_ticker, c, target_mcap): c for c in candidates_list}
+        for future in futures:
+            result = future.result()
+            if result:
+                validated.append(result)
+
+    return validated[:5]  # Return top 5
+
+
+def _extract_company_metrics(ticker_str):
+    """Extract key financial metrics from a yfinance ticker for benchmarking."""
+    try:
+        t = yf.Ticker(ticker_str)
+        info = t.info
+        fin = t.financials
+        bs = t.balance_sheet
+        cf = t.cashflow
+
+        # Revenue and growth
+        try:
+            revs = fin.loc['Total Revenue'].iloc[:2]
+            revenue = revs.iloc[0]
+            rev_prior = revs.iloc[1]
+            rev_growth = (revenue - rev_prior) / rev_prior if rev_prior > 0 else 0
+        except Exception:
+            revenue = 0
+            rev_growth = 0
+
+        # Gross margin
+        try:
+            gp = fin.loc['Gross Profit'].iloc[0]
+            gross_margin = gp / revenue if revenue > 0 else 0
+        except Exception:
+            gross_margin = 0
+
+        # Net income for ROIC
+        try:
+            ni = fin.loc['Net Income'].iloc[0]
+        except Exception:
+            ni = 0
+
+        # Invested capital (equity + LT debt)
+        try:
+            equity = bs.loc['Stockholders Equity'].iloc[0] if 'Stockholders Equity' in bs.index else 0
+            lt_debt = bs.loc['Long Term Debt'].iloc[0] if 'Long Term Debt' in bs.index else 0
+            invested = equity + lt_debt
+            roic = ni / invested if invested > 0 else 0
+        except Exception:
+            roic = 0
+
+        # FCF margin
+        try:
+            fcf = cf.loc['Free Cash Flow'].iloc[0]
+            fcf_margin = fcf / revenue if revenue > 0 else 0
+        except Exception:
+            fcf_margin = 0
+
+        # SBC / Revenue
+        try:
+            sbc = cf.loc['Stock Based Compensation'].iloc[0]
+            sbc_rev = sbc / revenue if revenue > 0 else 0
+        except Exception:
+            sbc_rev = 0
+
+        # P/E
+        pe = info.get('trailingPE', 0) or 0
+
+        return {
+            'roic': roic, 'fcf_margin': fcf_margin, 'sbc_rev': sbc_rev,
+            'gross_margin': gross_margin, 'rev_growth': rev_growth, 'pe_ratio': pe
+        }
+    except Exception:
+        return None
+
+
+def compute_peer_benchmarks(ticker, target_data, peer_data):
+    """Format a peer comparison table with medians.
+
+    Args:
+        ticker: Target company ticker
+        target_data: Dict with keys: roic, fcf_margin, sbc_rev, gross_margin, rev_growth, pe_ratio
+        peer_data: Dict of {peer_ticker: {same keys}} — pre-computed or pass empty for insufficient data
+    """
+    if len(peer_data) < 2:
+        return "PEER COMPARISON: Insufficient peer data (fewer than 2 valid peers found)"
+
+    metrics = [
+        ('ROIC', 'roic', '%', 100),
+        ('FCF Margin', 'fcf_margin', '%', 100),
+        ('SBC/Revenue', 'sbc_rev', '%', 100),
+        ('Gross Margin', 'gross_margin', '%', 100),
+        ('Rev Growth', 'rev_growth', '%', 100),
+        ('P/E Ratio', 'pe_ratio', 'x', 1),
+    ]
+
+    peer_tickers = list(peer_data.keys())
+
+    lines = ["--- PEER COMPARISON ---"]
+    lines.append(f"Peers: {', '.join(peer_tickers)}\n")
+
+    # Header
+    header = f"| {'Metric':<12} | {ticker:<7}"
+    for pt in peer_tickers:
+        header += f" | {pt:<7}"
+    header += f" | {'Peer Median':<11} |"
+    lines.append(header)
+
+    separator = f"|{'-'*14}|{'-'*9}"
+    for _ in peer_tickers:
+        separator += f"|{'-'*9}"
+    separator += f"|{'-'*13}|"
+    lines.append(separator)
+
+    summary_parts = []
+
+    for label, key, suffix, mult in metrics:
+        target_val = target_data.get(key, 0)
+        peer_vals = [peer_data[pt].get(key, 0) for pt in peer_tickers if peer_data[pt].get(key, 0) != 0]
+        median_val = statistics.median(peer_vals) if peer_vals else 0
+
+        if suffix == '%':
+            row = f"| {label:<12} | {target_val*mult:>5.1f}% "
+            for pt in peer_tickers:
+                v = peer_data[pt].get(key, 0)
+                row += f" | {v*mult:>5.1f}% "
+            row += f" | {median_val*mult:>5.1f}%      |"
+            diff = (target_val - median_val) * mult
+            summary_parts.append(f"{label} {diff:+.1f}pp")
+        else:
+            row = f"| {label:<12} | {target_val*mult:>5.1f}x "
+            for pt in peer_tickers:
+                v = peer_data[pt].get(key, 0)
+                row += f" | {v*mult:>5.1f}x "
+            row += f" | {median_val*mult:>5.1f}x       |"
+            diff = (target_val - median_val) * mult
+            summary_parts.append(f"{label} {diff:+.1f}x")
+
+        lines.append(row)
+
+    lines.append(f"\n{ticker} vs Peer Median: {' | '.join(summary_parts)}")
+
+    return "\n".join(lines)
+
+
+def get_customer_segmentation(ticker, company_name):
+    """Search for enterprise vs SMB/prosumer revenue breakdown."""
+    print(f"{Fore.CYAN}🏢 Searching for customer segmentation...{Style.RESET_ALL}")
+    return _tavily_query(
+        f"{company_name} enterprise vs SMB individual revenue breakdown percentage {CURRENT_YEAR}",
+        max_results=3, content_limit=800,
+        label="SEGMENTATION", topic="finance"
+    )
+
+
 def build_initial_dossier(ticker):
     print(f"\n{Fore.MAGENTA}🏗️  Constructing Base Dossier for {ticker}...{Style.RESET_ALL}")
 
@@ -1506,6 +1750,8 @@ def build_initial_dossier(ticker):
         fut_ecosystem = pool.submit(get_ecosystem_intel, ticker, company_name)
         fut_cultural = pool.submit(get_cultural_intel, ticker, company_name)
         fut_disruptor = pool.submit(get_disruptor_intel, company_name)
+        fut_peers = pool.submit(get_peer_companies, ticker, company_name, info)
+        fut_segmentation = pool.submit(get_customer_segmentation, ticker, company_name)
 
         # Phase 2a: As soon as CIK is ready, fan out SEC-dependent tasks
         cik = fut_cik.result()
@@ -1556,6 +1802,31 @@ def build_initial_dossier(ticker):
         ecosystem_intel = fut_ecosystem.result()
         cultural_intel = fut_cultural.result()
         disruptor_intel = fut_disruptor.result()
+
+        # Peer benchmarks (safe — won't break if peer discovery fails)
+        peer_block = ""
+        try:
+            peer_tickers = fut_peers.result()
+            if peer_tickers:
+                target_metrics = _extract_company_metrics(ticker)
+                if target_metrics:
+                    with ThreadPoolExecutor(max_workers=len(peer_tickers)) as peer_pool:
+                        peer_futures = {peer_pool.submit(_extract_company_metrics, pt): pt for pt in peer_tickers}
+                        peer_metrics = {}
+                        for future in peer_futures:
+                            pt = peer_futures[future]
+                            r = future.result()
+                            if r:
+                                peer_metrics[pt] = r
+                    peer_block = compute_peer_benchmarks(ticker, target_metrics, peer_metrics)
+        except Exception as e:
+            print(f"   ⚠️ Peer benchmarks failed: {e}")
+
+        segmentation_data = ""
+        try:
+            segmentation_data = fut_segmentation.result() or ""
+        except Exception:
+            pass
 
     # Currency symbol — needed by multiple formatters below
     price_curr = info.get('currency', 'USD')
@@ -1706,6 +1977,12 @@ def build_initial_dossier(ticker):
 
     --- SECTION L: DISRUPTION LANDSCAPE ---
     {disruptor_intel if disruptor_intel else '(No disruption data found)'}
+
+    --- SECTION M: PEER COMPARISON ---
+    {peer_block if peer_block else '(No peer comparison data found)'}
+
+    --- SECTION N: CUSTOMER SEGMENTATION ---
+    {segmentation_data if segmentation_data else '(No segmentation data found)'}
 
     {build_stress_test_table(forensic_data, c_sym)}
     {build_earnings_velocity(quarterly_revenues, c_sym)}

@@ -745,3 +745,47 @@ class TestEarningsVelocity:
         from modules.tools import build_earnings_velocity
         assert build_earnings_velocity([], '$') == ""
         assert build_earnings_velocity([50e9], '$') == ""
+
+
+# --- Peer Benchmarks ---
+
+class TestPeerBenchmarks:
+    def test_compute_peer_benchmarks_formats_table(self):
+        """Should produce a formatted comparison table with peer median."""
+        from modules.tools import compute_peer_benchmarks
+
+        target_data = {
+            'roic': 0.621, 'fcf_margin': 0.434, 'sbc_rev': 0.103,
+            'gross_margin': 0.881, 'rev_growth': 0.104, 'pe_ratio': 16.4
+        }
+        peer_data = {
+            'MSFT': {'roic': 0.312, 'fcf_margin': 0.371, 'sbc_rev': 0.072,
+                     'gross_margin': 0.694, 'rev_growth': 0.152, 'pe_ratio': 31.2},
+            'CRM': {'roic': 0.184, 'fcf_margin': 0.332, 'sbc_rev': 0.184,
+                    'gross_margin': 0.768, 'rev_growth': 0.111, 'pe_ratio': 42.1},
+        }
+        result = compute_peer_benchmarks('ADBE', target_data, peer_data)
+        assert 'PEER COMPARISON' in result
+        assert 'MSFT' in result
+        assert 'CRM' in result
+        assert 'Peer Median' in result
+        assert 'ADBE' in result
+
+    def test_compute_peer_benchmarks_empty_peers(self):
+        """Should return message when fewer than 2 peers."""
+        from modules.tools import compute_peer_benchmarks
+        target_data = {'roic': 0.5, 'fcf_margin': 0.3, 'sbc_rev': 0.1,
+                       'gross_margin': 0.8, 'rev_growth': 0.1, 'pe_ratio': 20}
+        result = compute_peer_benchmarks('TEST', target_data, {})
+        assert 'Insufficient' in result
+
+    def test_get_peer_companies_extracts_tickers(self):
+        """Should extract valid tickers from Tavily results."""
+        from modules.tools import get_peer_companies
+        with patch('modules.tools._tavily_query') as mock_tavily, \
+             patch('modules.tools._validate_ticker') as mock_validate:
+            mock_tavily.return_value = "Top competitors include Microsoft (MSFT), Salesforce (CRM), and Intuit (INTU)"
+            mock_validate.side_effect = lambda t, *a: t  # pass through
+            result = get_peer_companies('ADBE', 'Adobe Inc.', {'sector': 'Technology', 'industry': 'Software—Application', 'marketCap': 100e9})
+            assert 'MSFT' in result
+            assert 'ADBE' not in result  # should exclude self

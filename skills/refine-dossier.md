@@ -113,5 +113,21 @@ Categories to check:
 ### 13. CRITICAL: PRE-CALCULATED FINANCIAL BLOCKS (DO NOT SUMMARIZE)
 Sections labeled "FINANCIAL PHYSICS", "THE CANNIBAL CHECK", "VALUATION ANCHORS", "MATH DIAGNOSIS" — copy these EXACTLY as they appear. Do not rewrite or alter the numbers.
 
+### 14. PEER COMPARISON (For ALL experts)
+Extract the PEER COMPARISON table from Section M. For each of the 6 metrics,
+state whether the company is above or below peer median and by how much.
+This is critical context:
+- A company at 16x P/E with 62% ROIC when peers trade at 35x with 27% ROIC
+  is likely mispriced.
+- A company with 10% SBC/revenue when peer median is 15% has BETTER comp
+  discipline than the headline number suggests.
+Always cite the peer comparison when discussing financial metrics.
+
+### 15. CUSTOMER TIER SEGMENTATION (For ALL experts)
+If data exists in Section N, extract it. If not, ESTIMATE based on product
+pricing tiers and segment revenue. State clearly:
+"ESTIMATED: ~X% Enterprise / ~Y% SMB / ~Z% Individual"
+Enterprise lock-in is durable; individual/prosumer is vulnerable to disruption.
+
 ## CONSTRAINT
 Output a dense, high-signal summary (approx 2500 words). Remove legal boilerplate, keep the financial and strategic meat.

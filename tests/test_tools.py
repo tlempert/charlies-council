@@ -198,14 +198,33 @@ class TestSaveToHtml:
         # Each expert should be in an accordion section
         assert "accordion" in content.lower() or "collapsible" in content.lower()
 
-    def test_reality_check_separate_from_experts(self, tmp_path):
+    def test_reality_check_in_tab(self, tmp_path):
         result = self._save(tmp_path)
         content = open(result["html"], encoding="utf-8").read()
         assert "Red team critique" in content
-        # Reality check content should appear after the expert accordions
-        reality_content_pos = content.find("Red team critique")
-        last_expert_pos = content.find("Moat analysis content")
-        assert reality_content_pos > last_expert_pos
+
+    def test_expert_grid_present(self, tmp_path):
+        result = self._save(tmp_path)
+        content = open(result["html"], encoding="utf-8").read()
+        assert "expert-grid" in content
+
+    def test_hero_card_with_metrics(self, tmp_path):
+        from modules.tools import save_to_html
+        reports = {
+            "jeff_bezos": (
+                "---SUMMARY---\nVERDICT: BUY\nCONFIDENCE: 82%\nKEY METRIC: test metric\n"
+                "KEY RISK: risk\nBULL CASE: bull\nMOAT FLAG: NONE\n---END SUMMARY---\nAnalysis."
+            ),
+            "warren_buffett": "Moat analysis",
+        }
+        result = save_to_html(
+            "TEST", "Decision: BUY\nBuy Zone: $100 - $200\nConviction: 75%",
+            reports, base_dir=str(tmp_path),
+            key_metrics={"price": 150.0, "roic": 0.25, "fcf": 5e9, "pe_ratio": 20.0},
+        )
+        content = open(result["html"], encoding="utf-8").read()
+        assert "metrics-strip" in content
+        assert "25.0%" in content
 
     def test_newsletter_in_tab(self, tmp_path):
         result = self._save(tmp_path, simple_report="Family newsletter content")

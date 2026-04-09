@@ -2152,9 +2152,11 @@ def _parse_verdict_highlights(verdict_text):
     return result
 
 
-def save_to_html(ticker, verdict, reports, simple_report=None, base_dir=None):
+def save_to_html(ticker, verdict, reports, simple_report=None, base_dir=None,
+                 key_metrics=None, peer_data=None):
     """Save an interactive HTML dashboard alongside the markdown reports.
     Returns dict with 'html' key pointing to saved file path."""
+    import string as _string
     base_dir = base_dir or DEFAULT_REPORT_DIR
     if not os.path.exists(base_dir):
         os.makedirs(base_dir)
@@ -2168,13 +2170,16 @@ def save_to_html(ticker, verdict, reports, simple_report=None, base_dir=None):
 
     import markdown as _md
     def md2html(text):
-        """Convert markdown text to HTML."""
+        """Convert markdown text to HTML, with HTML-injection prevention."""
         cleaned = clean_ansi(str(text))
-        return _md.markdown(cleaned, extensions=["tables", "fenced_code"])
+        safe = _html.escape(cleaned)
+        return _md.markdown(safe, extensions=["tables", "fenced_code"])
 
-    # --- Parse verdict for badge color ---
+    # --- Parse verdict for badge color and highlights ---
     verdict_clean = clean_ansi(str(verdict))
     verdict_upper = verdict_clean.upper()
+    highlights = _parse_verdict_highlights(verdict_clean)
+
     if "BUY" in verdict_upper and "DON" not in verdict_upper:
         badge_color, badge_bg = "#16A34A", "#F0FDF4"
     elif "SELL" in verdict_upper or "AVOID" in verdict_upper:
@@ -2182,7 +2187,6 @@ def save_to_html(ticker, verdict, reports, simple_report=None, base_dir=None):
     else:
         badge_color, badge_bg = "#D97706", "#FFFBEB"
 
-    # Extract signal word for badge
     for word in ["STRONG BUY", "BUY", "SELL", "AVOID", "WAIT", "HOLD", "WATCH"]:
         if word in verdict_upper:
             badge_word = word
@@ -2190,177 +2194,248 @@ def save_to_html(ticker, verdict, reports, simple_report=None, base_dir=None):
     else:
         badge_word = "ANALYSIS"
 
-    # --- Build expert accordions ---
+    # --- Hero rationale: first non-blank line of verdict ---
+    hero_rationale = ""
+    for line in verdict_clean.splitlines():
+        line = line.strip()
+        if line and not line.startswith("#"):
+            hero_rationale = esc(line[:120])
+            break
+
+    # --- Metrics strip ---
+    metrics_html = ""
+    if key_metrics:
+        boxes = []
+        price = key_metrics.get("price")
+        roic = key_metrics.get("roic")
+        fcf = key_metrics.get("fcf")
+        pe = key_metrics.get("pe_ratio")
+        if price is not None:
+            boxes.append(("Price", f"${price:,.0f}"))
+        if roic is not None:
+            boxes.append(("ROIC", f"{roic*100:.1f}%"))
+        if fcf is not None:
+            fcf_b = fcf / 1e9
+            boxes.append(("FCF", f"${fcf_b:.1f}B"))
+        if pe is not None:
+            boxes.append(("P/E", f"{pe:.1f}x"))
+        for label, value in boxes:
+            boxes_html = (
+                f'<div class="metric-box">'
+                f'<div class="metric-value">{esc(value)}</div>'
+                f'<div class="metric-label">{esc(label)}</div>'
+                f'</div>'
+            )
+            metrics_html += boxes_html
+        if metrics_html:
+            metrics_html = f'<div class="metrics-strip">{metrics_html}</div>'
+
+    # --- Buy zone text ---
+    buy_zone_text = ""
+    if highlights["buy_zone_low"] and highlights["buy_zone_high"]:
+        buy_zone_text = f"Buy Zone: ${highlights['buy_zone_low']:,} \u2013 ${highlights['buy_zone_high']:,}"
+
+    # --- Conviction and council vote ---
+    conviction = f"{highlights['conviction']}%" if highlights["conviction"] else ""
+    council_vote = esc(highlights["council_vote"]) if highlights["council_vote"] else ""
+
+    # --- Price gauge ---
+    price_gauge_html = ""
+    price = key_metrics.get("price") if key_metrics else None
+    bz_low = highlights["buy_zone_low"]
+    bz_high = highlights["buy_zone_high"]
+    if price and bz_low and bz_high:
+        margin = (bz_high - bz_low) * 0.5
+        g_min = min(price, bz_low) - margin
+        g_max = max(price, bz_high) + margin
+        g_range = g_max - g_min or 1
+
+        def pct(v):
+            return max(0.0, min(100.0, (v - g_min) / g_range * 100))
+
+        bz_left = pct(bz_low)
+        bz_width = pct(bz_high) - bz_left
+        curr_left = pct(price)
+
+        price_gauge_html = f'''
+<div class="gauge-container">
+  <div class="gauge-track">
+    <div class="gauge-buy-zone" style="left:{bz_left:.1f}%;width:{bz_width:.1f}%"></div>
+    <div class="gauge-marker gauge-current" style="left:{curr_left:.1f}%"></div>
+  </div>
+  <div class="gauge-labels">
+    <span style="left:{bz_left:.1f}%">${bz_low:,}<br>BZ Low</span>
+    <span style="left:{curr_left:.1f}%">${price:,.0f}<br>Current</span>
+    <span style="left:{pct(bz_high):.1f}%">${bz_high:,}<br>BZ High</span>
+  </div>
+</div>'''
+
+    # --- Expert grid and accordions ---
     expert_keys = [k for k in reports if k not in ("teacher", "reality_check")]
-    expert_html = ""
-    for i, key in enumerate(expert_keys):
+
+    # Parse summaries and sort by verdict strength then confidence
+    _verdict_order = {"STRONG BUY": 0, "BUY": 1, "HOLD": 2, "PASS": 2, "WAIT": 3, "SELL": 4, "AVOID": 4}
+    def _sort_key(k):
+        s = _parse_expert_summary(reports[k])
+        v = (s.get("verdict", "") or "").upper() if s else ""
+        order = _verdict_order.get(v, 5)
+        conf = s.get("confidence", 0) if s else 0
+        return (order, -conf)
+
+    expert_keys_sorted = sorted(expert_keys, key=_sort_key)
+
+    def _verdict_colors(v):
+        v_up = (v or "").upper()
+        if "BUY" in v_up:
+            return "#16A34A", "#F0FDF4"
+        elif "SELL" in v_up or "AVOID" in v_up:
+            return "#DC2626", "#FEF2F2"
+        else:
+            return "#D97706", "#FFFBEB"
+
+    expert_grid_html = '<div class="expert-grid">'
+    expert_accordions = ""
+
+    for key in expert_keys_sorted:
         label = _EXPERT_LABELS.get(key, key.replace("_", " ").title())
+        parts = label.split(" \u2014 ")
+        name = parts[0]
+        role = parts[1] if len(parts) > 1 else ""
+        summary = _parse_expert_summary(reports[key])
+        ev = summary["verdict"] if summary else ""
+        conf = summary["confidence"] if summary else 0
+        key_metric = summary["key_metric"] if summary else ""
+        ev_color, ev_bg = _verdict_colors(ev)
+
+        # Grid card
+        expert_grid_html += (
+            f'<div class="expert-card" onclick="scrollToExpert(\'{esc(key)}\')" '
+            f'style="border-top:3px solid {ev_color}">'
+            f'<div class="card-verdict" style="color:{ev_color}">{esc(ev) if ev else "—"}</div>'
+            f'<div class="card-name">{esc(name)}</div>'
+            f'<div class="card-role">{esc(role)}</div>'
+            f'<div class="card-metric" title="{esc(key_metric)}">{esc(key_metric) if key_metric else ""}</div>'
+            f'<div class="card-confidence">{conf}% confidence</div>'
+            f'</div>'
+        )
+
+        # Accordion with badge
         content_formatted = md2html(reports[key])
-        expert_html += f'''
-        <div class="accordion">
-          <button class="accordion-btn" onclick="toggleAccordion(this)" aria-expanded="false">
-            <span>{esc(label)}</span>
-            <svg class="chevron" width="20" height="20" viewBox="0 0 20 20" fill="none">
-              <path d="M6 8l4 4 4-4" stroke="currentColor" stroke-width="2" stroke-linecap="round"/>
-            </svg>
-          </button>
-          <div class="accordion-body">
-            <div class="accordion-content">{content_formatted}</div>
-          </div>
-        </div>'''
+        badge_sm = (
+            f'<span class="verdict-badge-sm" style="color:{ev_color};background:{ev_bg}">'
+            f'{esc(ev) if ev else "—"}</span>'
+        )
+        conf_sm = f'<span style="font-size:11px;color:#9CA3AF">{conf}%</span>' if conf else ""
+        expert_accordions += f'''
+<div class="accordion" id="expert-{esc(key)}">
+  <button class="accordion-btn" onclick="toggleAccordion(this)" aria-expanded="false">
+    <span>{badge_sm}{esc(label)}{conf_sm}</span>
+    <svg class="chevron" width="20" height="20" viewBox="0 0 20 20" fill="none">
+      <path d="M6 8l4 4 4-4" stroke="currentColor" stroke-width="2" stroke-linecap="round"/>
+    </svg>
+  </button>
+  <div class="accordion-body">
+    <div class="accordion-content">{content_formatted}</div>
+  </div>
+</div>'''
+
+    expert_grid_html += "</div>"
+
+    # --- Collapsible verdict ---
+    verdict_formatted = md2html(verdict)
+    verdict_lines = verdict_formatted.splitlines()
+    # Show first ~5 lines as summary
+    summary_lines = verdict_lines[:5]
+    full_lines = verdict_lines[5:]
+    verdict_summary = "\n".join(summary_lines)
+    verdict_full = "\n".join(full_lines)
 
     # --- Newsletter tab ---
     newsletter_html = ""
     if simple_report:
         nr = md2html(simple_report)
-        newsletter_html = f'<div class="tab-panel" id="tab-newsletter" style="display:none">{nr}</div>'
+        newsletter_html = (
+            f'<div class="tab-panel tab-content" id="tab-newsletter" style="display:none">{nr}</div>'
+        )
 
     # --- Teacher / Business Explainer tab ---
     teacher_html = ""
     if "teacher" in reports:
         th = md2html(reports["teacher"])
-        teacher_html = f'<div class="tab-panel" id="tab-teacher" style="display:none">{th}</div>'
+        teacher_html = (
+            f'<div class="tab-panel tab-content" id="tab-teacher" style="display:none">{th}</div>'
+        )
 
-    tab_buttons = '<button class="tab active" onclick="switchTab(\'experts\',this)">Expert Council</button>'
-    if "teacher" in reports:
-        tab_buttons += '<button class="tab" onclick="switchTab(\'teacher\',this)">Business Explainer</button>'
-    if simple_report:
-        tab_buttons += '<button class="tab" onclick="switchTab(\'newsletter\',this)">Family Newsletter</button>'
-
-    # --- Reality check ---
+    # --- Reality Check tab ---
     reality_html = ""
     if "reality_check" in reports:
         rc = md2html(reports["reality_check"])
-        reality_html = f'''
-        <section class="card reality-card">
-          <h2>Reality Check</h2>
-          <p class="subtitle">A critique from the historical personas of Munger and Buffett.</p>
-          <div class="reality-content">{rc}</div>
-        </section>'''
+        reality_html = (
+            f'<div class="tab-panel tab-content" id="tab-reality" style="display:none">'
+            f'<div class="card reality-card">'
+            f'<h2>Reality Check</h2>'
+            f'<p class="subtitle">A red team critique from the historical personas of Munger and Buffett.</p>'
+            f'{rc}'
+            f'</div>'
+            f'</div>'
+        )
 
-    # --- Verdict section (always visible) ---
-    verdict_formatted = md2html(verdict)
+    # --- Tab buttons ---
+    tab_buttons = '<button class="tab active" onclick="switchTab(\'experts\',this)">Expert Council</button>'
+    if "teacher" in reports:
+        tab_buttons += '<button class="tab" onclick="switchTab(\'teacher\',this)">Business Explainer</button>'
+    if "reality_check" in reports:
+        tab_buttons += '<button class="tab" onclick="switchTab(\'reality\',this)">Reality Check</button>'
+    if simple_report:
+        tab_buttons += '<button class="tab" onclick="switchTab(\'newsletter\',this)">Family Newsletter</button>'
 
-    page = f'''<!DOCTYPE html>
-<html lang="en">
-<head>
-<meta charset="UTF-8">
-<meta name="viewport" content="width=device-width, initial-scale=1.0">
-<title>Silicon Council: {esc(ticker)}</title>
-<style>
-*,*::before,*::after{{box-sizing:border-box;margin:0;padding:0}}
-body{{font-family:'Inter',-apple-system,BlinkMacSystemFont,'Segoe UI',sans-serif;
-  background:#F9FAFB;color:#111827;line-height:1.6;font-size:14px}}
-.container{{max-width:900px;margin:0 auto;padding:24px}}
-h1{{font-size:28px;font-weight:700;letter-spacing:-0.025em}}
-h2{{font-size:18px;font-weight:600;margin-bottom:8px}}
-.subtitle{{font-size:13px;color:#6B7280;margin-bottom:16px}}
-.header{{text-align:center;padding:32px 0 16px}}
-.badge{{display:inline-block;padding:6px 18px;border-radius:20px;font-weight:700;
-  font-size:15px;color:{badge_color};background:{badge_bg};
-  border:1px solid {badge_color}22;margin-top:12px}}
-.card{{background:#fff;border:1px solid #E5E7EB;border-radius:12px;
-  padding:20px 24px;margin-bottom:16px;
-  box-shadow:0 1px 3px rgba(0,0,0,.08)}}
-.verdict-card{{border-left:4px solid {badge_color}}}
-.verdict-content{{font-size:14px}}
-.tabs{{display:flex;gap:4px;background:#F3F4F6;border-radius:8px;
-  padding:4px;margin-bottom:16px}}
-.tab{{padding:8px 16px;border-radius:6px;font-size:14px;font-weight:500;
-  cursor:pointer;border:none;background:transparent;color:#6B7280}}
-.tab.active{{background:#fff;color:#111827;box-shadow:0 1px 2px rgba(0,0,0,.06)}}
-.accordion{{border:1px solid #E5E7EB;border-radius:10px;margin-bottom:8px;
-  background:#fff;overflow:hidden}}
-.accordion-btn{{width:100%;display:flex;justify-content:space-between;
-  align-items:center;padding:14px 18px;border:none;background:none;
-  font-size:14px;font-weight:600;cursor:pointer;color:#111827}}
-.accordion-btn:hover{{background:#F9FAFB}}
-.chevron{{transition:transform .2s ease}}
-.accordion-btn[aria-expanded="true"] .chevron{{transform:rotate(180deg)}}
-.accordion-body{{max-height:0;overflow:hidden;transition:max-height .3s ease}}
-.accordion-content{{padding:0 18px 16px;font-size:13px;color:#374151;line-height:1.7}}
-.accordion-content h1,.accordion-content h2,.accordion-content h3,
-.verdict-content h1,.verdict-content h2,.verdict-content h3,
-.reality-content h1,.reality-content h2,.reality-content h3{{
-  margin-top:16px;margin-bottom:8px;color:#111827}}
-.accordion-content h1,.verdict-content h1,.reality-content h1{{font-size:18px}}
-.accordion-content h2,.verdict-content h2,.reality-content h2{{font-size:16px}}
-.accordion-content h3,.verdict-content h3,.reality-content h3{{font-size:14px}}
-.accordion-content ul,.accordion-content ol,
-.verdict-content ul,.verdict-content ol,
-.reality-content ul,.reality-content ol{{padding-left:20px;margin:8px 0}}
-.accordion-content li,.verdict-content li,.reality-content li{{margin-bottom:4px}}
-.accordion-content p,.verdict-content p,.reality-content p{{margin:8px 0}}
-.accordion-content table,.verdict-content table,.reality-content table{{
-  width:100%;border-collapse:collapse;margin:12px 0;font-size:12px}}
-.accordion-content th,.verdict-content th,.reality-content th{{
-  background:#F3F4F6;padding:8px 12px;text-align:left;font-weight:600;
-  border:1px solid #E5E7EB}}
-.accordion-content td,.verdict-content td,.reality-content td{{
-  padding:8px 12px;border:1px solid #E5E7EB}}
-.accordion-content tr:nth-child(even),.verdict-content tr:nth-child(even),
-.reality-content tr:nth-child(even){{background:#F9FAFB}}
-.accordion-content code,.verdict-content code,.reality-content code{{
-  background:#F3F4F6;padding:2px 6px;border-radius:4px;font-size:12px}}
-.accordion-content strong,.verdict-content strong,.reality-content strong{{
-  font-weight:600;color:#111827}}
-.accordion-content hr,.verdict-content hr,.reality-content hr{{
-  border:none;border-top:1px solid #E5E7EB;margin:16px 0}}
-.reality-card{{border-left:4px solid #8B5CF6;margin-top:24px}}
-.reality-content{{font-size:13px;color:#374151;line-height:1.7}}
-.footer{{text-align:center;padding:24px 0;font-size:12px;color:#9CA3AF}}
-@media(max-width:768px){{
-  .container{{padding:16px}}
-  h1{{font-size:22px}}
-  .card{{padding:16px}}
-  .accordion-btn{{padding:12px 14px}}
-  .accordion-content{{padding:0 14px 14px}}
-}}
-</style>
-</head>
-<body>
-<div class="container">
-
-<div class="header">
-  <h1>Silicon Council: {esc(ticker)}</h1>
-  <div class="subtitle">{date_display}</div>
-  <span class="badge">{esc(badge_word)}</span>
-</div>
-
-<section class="card verdict-card">
-  <h2>Munger&#39;s Verdict</h2>
-  <div class="verdict-content">{verdict_formatted}</div>
-</section>
-
-<section>
-  <div class="tabs">{tab_buttons}</div>
-  <div class="tab-panel" id="tab-experts">{expert_html}</div>
-  {teacher_html}
-  {newsletter_html}
-</section>
-
-{reality_html}
-
-<div class="footer">Generated by Silicon Council &middot; {date_display}</div>
-
-</div>
-<script>
-function toggleAccordion(btn){{
-  const expanded=btn.getAttribute("aria-expanded")==="true";
-  btn.setAttribute("aria-expanded",!expanded);
-  const body=btn.nextElementSibling;
-  if(!expanded){{body.style.maxHeight=body.scrollHeight+"px"}}
-  else{{body.style.maxHeight="0"}}
-}}
-function switchTab(name,btn){{
-  document.querySelectorAll(".tab-panel").forEach(p=>p.style.display="none");
-  document.querySelectorAll(".tab").forEach(t=>t.classList.remove("active"));
-  document.getElementById("tab-"+name).style.display="block";
-  btn.classList.add("active");
-}}
-</script>
-</body>
-</html>'''
+    # --- Load template ---
+    template_path = os.path.join(os.path.dirname(__file__), "templates", "dashboard.html")
+    try:
+        with open(template_path, encoding="utf-8") as f:
+            template_src = f.read()
+        tmpl = _string.Template(template_src)
+        page = tmpl.substitute(
+            ticker=esc(ticker),
+            date_display=esc(date_display),
+            badge_word=esc(badge_word),
+            badge_color=badge_color,
+            badge_bg=badge_bg,
+            hero_rationale=hero_rationale,
+            metrics_html=metrics_html,
+            buy_zone_text=esc(buy_zone_text),
+            price_gauge_html=price_gauge_html,
+            council_vote=council_vote,
+            conviction=esc(conviction),
+            expert_grid_html=expert_grid_html,
+            verdict_summary=verdict_summary,
+            verdict_full=verdict_full,
+            tab_buttons=tab_buttons,
+            expert_accordions=expert_accordions,
+            teacher_html=teacher_html,
+            newsletter_html=newsletter_html,
+            reality_html=reality_html,
+            footer_date=esc(date_display),
+        )
+    except FileNotFoundError:
+        # Minimal inline fallback
+        verdict_formatted = md2html(verdict)
+        page = (
+            f'<!DOCTYPE html><html lang="en"><head>'
+            f'<meta charset="UTF-8"><meta name="viewport" content="width=device-width,initial-scale=1.0">'
+            f'<title>Silicon Council: {esc(ticker)}</title>'
+            f'<style>body{{font-family:sans-serif;max-width:900px;margin:0 auto;padding:24px}}'
+            f'.expert-grid{{display:grid;grid-template-columns:repeat(4,1fr);gap:8px;margin:16px 0}}'
+            f'.metrics-strip{{display:flex;gap:12px;margin:16px 0}}'
+            f'</style></head><body>'
+            f'<h1>Silicon Council: {esc(ticker)}</h1>'
+            f'<div class="expert-grid">{expert_grid_html}</div>'
+            f'<div class="metrics-strip">{metrics_html}</div>'
+            f'{verdict_formatted}'
+            f'{expert_accordions}'
+            f'{reality_html}'
+            f'</body></html>'
+        )
 
     filename = f"{base_dir}/{ticker}_Dashboard_{date_str}.html"
     try:

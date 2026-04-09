@@ -1939,6 +1939,45 @@ def build_initial_dossier(ticker):
     except Exception:
         trend_line = "N/A"
 
+    # Compute key_metrics for HTML dashboard hero card
+    key_metrics = {
+        'price': info.get('currentPrice', 0) or info.get('regularMarketPrice', 0),
+        'pe_ratio': info.get('trailingPE', 0) or 0,
+        'roic': 0,
+        'fcf': 0,
+        'owner_yield': 0,
+    }
+    try:
+        fcf = stock.cashflow.loc['Free Cash Flow'].iloc[0]
+        key_metrics['fcf'] = fcf
+        mcap = info.get('marketCap', 0)
+        if mcap > 0:
+            key_metrics['owner_yield'] = fcf / mcap
+        ni = stock.financials.loc['Net Income'].iloc[0]
+        equity = stock.balance_sheet.loc['Stockholders Equity'].iloc[0] if 'Stockholders Equity' in stock.balance_sheet.index else 0
+        lt_debt = stock.balance_sheet.loc['Long Term Debt'].iloc[0] if 'Long Term Debt' in stock.balance_sheet.index else 0
+        invested = equity + lt_debt
+        if invested > 0:
+            key_metrics['roic'] = ni / invested
+    except Exception:
+        pass
+    try:
+        gf_match = re.search(r'GRAHAM FLOOR.*?:\s*\$?([\d,.]+)', val_report)
+        if gf_match:
+            key_metrics['graham_floor'] = float(gf_match.group(1).replace(',', ''))
+        dcf_match = re.search(r'CONSERVATIVE.*?:\s*\$?([\d,.]+)', val_report)
+        if dcf_match:
+            key_metrics['dcf_conservative'] = float(dcf_match.group(1).replace(',', ''))
+    except Exception:
+        pass
+    # Save key_metrics for HTML assembly
+    try:
+        import json as _json
+        with open('/tmp/silicon_council/key_metrics.json', 'w') as _f:
+            _json.dump(key_metrics, _f)
+    except Exception:
+        pass
+
     return f"""
     TARGET: {ticker}
     COMPANY: {company_name}

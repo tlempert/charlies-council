@@ -221,7 +221,20 @@ reports = {
 simple_report = read_tmp("newsletter")
 
 paths = save_to_markdown(ticker, verdict, reports, simple_report=simple_report)
-html_paths = save_to_html(ticker, verdict, reports, simple_report=simple_report)
+
+# Load key metrics for HTML dashboard hero card
+import json
+key_metrics = {}
+try:
+    km_path = os.path.join(tmp, 'key_metrics.json')
+    if os.path.exists(km_path):
+        with open(km_path) as f:
+            key_metrics = json.load(f)
+except Exception:
+    pass
+
+html_paths = save_to_html(ticker, verdict, reports, simple_report=simple_report,
+                          key_metrics=key_metrics)
 paths.update(html_paths)
 
 # Deploy to GitHub Pages

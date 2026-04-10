@@ -1,4 +1,5 @@
 import requests
+import sys
 import yfinance as yf
 from bs4 import BeautifulSoup
 from colorama import Fore, Style
@@ -2216,51 +2217,126 @@ def _parse_expert_summary(report_text):
 
 
 def _parse_verdict_highlights(verdict_text):
-    """Extract key fields from Munger's verdict for the hero card."""
+    """Extract key fields from Munger's verdict for the hero card.
+
+    Reads the structured EXECUTIVE SUMMARY block (anywhere in the file).
+    If the block is missing, returns a DEGRADED result with minimal info
+    derived from the council vote count. Does NOT fall back to legacy
+    regex parsing of the prose — that's what produced the BABA bug.
+    """
     result = {
         'decision': '',
+        'trigger': '',
+        'conviction': '',
+        'council_vote': '',
+        'thesis_sentence': '',
         'buy_zone_low': None,
         'buy_zone_high': None,
-        'conviction': None,
-        'council_vote': '',
+        'load_bearing': [],
+        'primary_disagreement': '',
+        'evidence_to_watch': [],
+        'degraded': False,
     }
 
-    # Decision — try multiple patterns (different Munger outputs use different labels)
-    for pattern in [
-        r'(?:Decision|RECOMMENDATION):\s*\**\s*(STRONG BUY|BUY|SELL|PASS|HOLD|AVOID)',
-        r'\*\*(STRONG BUY|BUY|SELL|PASS|HOLD)\*\*.*(?:conviction|at\s+\$)',
-    ]:
-        m = re.search(pattern, verdict_text, re.IGNORECASE)
-        if m:
-            result['decision'] = m.group(1).upper()
-            break
+    block_match = re.search(
+        r'##\s*EXECUTIVE\s+SUMMARY[^\n]*\n(.*?)(?=\n##[^#]|\Z)',
+        verdict_text,
+        re.DOTALL | re.IGNORECASE,
+    )
 
-    # Buy zone — try multiple patterns
-    for pattern in [
-        r'Buy Zone["\s:]*\$?([\d,]+)\s*[-–—]\s*\$?([\d,]+)',
-        r'Fair Value[:\s]*\$?([\d,]+)\s*[-–—]\s*\$?([\d,]+)',
-        r'Entry.*?\$?([\d,]+)\s*[-–—]\s*\$?([\d,]+)',
-    ]:
-        m = re.search(pattern, verdict_text, re.IGNORECASE)
-        if m:
-            result['buy_zone_low'] = int(m.group(1).replace(',', ''))
-            result['buy_zone_high'] = int(m.group(2).replace(',', ''))
-            break
+    if block_match:
+        block = block_match.group(1)
 
-    # Conviction
-    m = re.search(r'Conviction[:\s]*\**(\d+)%', verdict_text, re.IGNORECASE)
-    if m:
-        result['conviction'] = int(m.group(1))
+        def extract_field(pattern, default=''):
+            m = re.search(pattern, block, re.IGNORECASE)
+            if not m:
+                return default
+            val = m.group(1).strip()
+            val = val.strip('*').strip('_').strip()
+            return val
 
-    # Council vote — try multiple patterns
-    for pattern in [
-        r'(\d+\s*BUY[^*\n]*\d+\s*HOLD[^*\n]*\d+\s*SELL[^*\n]*)',
-        r'(\d+\s*BUY[^.\n]*\d+\s*(?:HOLD|SELL)[^.\n]*)',
-    ]:
-        m = re.search(pattern, verdict_text, re.IGNORECASE)
-        if m:
-            result['council_vote'] = re.sub(r'\*', '', m.group(1)).strip()
-            break
+        result['decision'] = extract_field(r'\*\*Decision:\*\*\s*([^\n]+)').upper()
+        result['trigger'] = extract_field(r'\*\*Trigger:\*\*\s*([^\n]+)')
+        result['conviction'] = extract_field(r'\*\*Conviction:\*\*\s*([^\n]+)')
+        result['council_vote'] = extract_field(r'\*\*Council Vote:\*\*\s*([^\n]+)')
+        result['thesis_sentence'] = extract_field(r'\*\*Thesis in One Sentence:\*\*\s*([^\n]+)')
+
+        zone_match = re.search(r'\$(\d+(?:\.\d+)?)\s*[-–—]\s*\$?(\d+(?:\.\d+)?)', result['trigger'])
+        if zone_match:
+            try:
+                result['buy_zone_low'] = float(zone_match.group(1))
+                result['buy_zone_high'] = float(zone_match.group(2))
+            except ValueError:
+                pass
+        else:
+            single_match = re.search(r'[≤<=]\s*\$?(\d+(?:\.\d+)?)', result['trigger'])
+            if single_match:
+                try:
+                    result['buy_zone_high'] = float(single_match.group(1))
+                except ValueError:
+                    pass
+            floor_match = re.search(r'floor\s+\$?(\d+(?:\.\d+)?)', result['trigger'], re.IGNORECASE)
+            if floor_match:
+                try:
+                    result['buy_zone_low'] = float(floor_match.group(1))
+                except ValueError:
+                    pass
+
+        lb_section = re.search(
+            r'###\s*Load[- ]Bearing\s+Factors[^\n]*\n(.*?)(?=###|\Z)',
+            block,
+            re.DOTALL | re.IGNORECASE,
+        )
+        if lb_section:
+            for m in re.finditer(
+                r'^\s*\d+\.\s+\*\*([^*]+)\*\*\s*[—\-–]\s*(.+?)$',
+                lb_section.group(1),
+                re.MULTILINE,
+            ):
+                result['load_bearing'].append((m.group(1).strip(), m.group(2).strip()))
+
+        pd_match = re.search(
+            r'###\s*Primary\s+Disagreement\s*\n(.*?)(?=###|\Z)',
+            block,
+            re.DOTALL | re.IGNORECASE,
+        )
+        if pd_match:
+            result['primary_disagreement'] = pd_match.group(1).strip()
+
+        ev_match = re.search(
+            r'###\s*Evidence[^\n]*\n(.*?)(?=###|\Z|---)',
+            block,
+            re.DOTALL | re.IGNORECASE,
+        )
+        if ev_match:
+            for m in re.finditer(r'^\s*[-*]\s+(.+?)$', ev_match.group(1), re.MULTILINE):
+                result['evidence_to_watch'].append(m.group(1).strip())
+
+        return result
+
+    # Degraded path: structured block is missing
+    print("⚠️ No EXECUTIVE SUMMARY block found in verdict — hero card degraded", file=sys.stderr)
+    result['degraded'] = True
+
+    vote_match = re.search(
+        r'(\d+)\s*BUY[^.\n]*?(\d+)\s*HOLD(?:[^.\n]*?(\d+)\s*PASS)?[^.\n]*?(\d+)\s*SELL',
+        verdict_text,
+        re.IGNORECASE | re.DOTALL,
+    )
+    if vote_match:
+        buy_n = int(vote_match.group(1))
+        hold_n = int(vote_match.group(2))
+        pass_n = int(vote_match.group(3) or 0)
+        sell_n = int(vote_match.group(4))
+        result['council_vote'] = f"{buy_n} BUY, {hold_n} HOLD, {pass_n} PASS, {sell_n} SELL"
+        total = buy_n + hold_n + pass_n + sell_n
+        if total > 0:
+            if buy_n / total >= 0.5:
+                result['decision'] = 'BUY'
+            elif sell_n / total >= 0.25:
+                result['decision'] = 'SELL'
+            else:
+                result['decision'] = 'HOLD'
 
     return result
 

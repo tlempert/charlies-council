@@ -858,33 +858,118 @@ More analysis below."""
 # --- _parse_verdict_highlights ---
 
 class TestParseVerdictHighlights:
-    def test_parses_buy_verdict(self):
-        from modules.tools import _parse_verdict_highlights
-        text = """## FINAL VERDICT
+    STRUCTURED_VERDICT = """# MUNGER VERDICT: TEST
 
+## Full prose synthesis goes here.
+
+The moat tribunal found 0 severe flags. The council voted 5 BUY.
+The fair value limit is $105.
+
+---
+
+## EXECUTIVE SUMMARY (distilled from synthesis above)
+
+**Decision:** WAIT
+**Trigger:** Buy anywhere ≤ $105 (absurdly cheap floor $95 | fair value limit $105)
+**Conviction:** Moderate
+**Council Vote:** 3 BUY, 6 HOLD, 2 PASS, 1 SELL
+**Thesis in One Sentence:** World-class business inside a regime that can override fundamentals — wait for the margin of safety the regime risk demands.
+
+### Load-Bearing Factors (ranked)
+1. **Chinese government posture** — dominates all other variables
+2. **Cloud segment growth rate** — validates the pivot
+3. **Gross margin in core commerce** — indicates pricing power
+
+### Primary Disagreement
+**Lynch (BUY, 72%)** sees a cash machine at 4x P/E.
+**Jobs (PASS, 65%)** argues no margin of safety compensates for regime risk.
+The disagreement is about framing — whether fundamentals are the right frame.
+
+### Evidence That Would Resolve This
+- Xi's language about private enterprise
+- Any new anti-monopoly enforcement action
+- Cloud external revenue growth rate
+"""
+
+    def test_parses_decision_from_structured_block(self):
+        from modules.tools import _parse_verdict_highlights
+        result = _parse_verdict_highlights(self.STRUCTURED_VERDICT)
+        assert result['decision'] == 'WAIT'
+        assert result.get('degraded') is False or result.get('degraded') is None
+
+    def test_parses_buy_zone_from_trigger_field(self):
+        from modules.tools import _parse_verdict_highlights
+        result = _parse_verdict_highlights(self.STRUCTURED_VERDICT)
+        assert result['buy_zone_low'] == 95
+        assert result['buy_zone_high'] == 105
+
+    def test_parses_conviction_as_qualitative_string(self):
+        from modules.tools import _parse_verdict_highlights
+        result = _parse_verdict_highlights(self.STRUCTURED_VERDICT)
+        assert result['conviction'] == 'Moderate'
+
+    def test_parses_thesis_sentence(self):
+        from modules.tools import _parse_verdict_highlights
+        result = _parse_verdict_highlights(self.STRUCTURED_VERDICT)
+        assert 'regime' in result['thesis_sentence'].lower()
+
+    def test_parses_council_vote(self):
+        from modules.tools import _parse_verdict_highlights
+        result = _parse_verdict_highlights(self.STRUCTURED_VERDICT)
+        assert '3 BUY' in result['council_vote']
+        assert '6 HOLD' in result['council_vote']
+
+    def test_parses_load_bearing_factors(self):
+        from modules.tools import _parse_verdict_highlights
+        result = _parse_verdict_highlights(self.STRUCTURED_VERDICT)
+        assert len(result['load_bearing']) >= 2
+        assert 'Chinese government posture' in result['load_bearing'][0][0]
+
+    def test_parses_evidence_to_watch(self):
+        from modules.tools import _parse_verdict_highlights
+        result = _parse_verdict_highlights(self.STRUCTURED_VERDICT)
+        assert len(result['evidence_to_watch']) >= 2
+        assert any('Xi' in e for e in result['evidence_to_watch'])
+
+    def test_degraded_when_no_structured_block(self):
+        from modules.tools import _parse_verdict_highlights
+        prose_only = """# Munger Verdict
 **Decision: BUY**
-
-**The "Munger Buy Zone": $270 - $400**
-
-**Conviction: 74%**
-
-Council voted 7 BUY, 4 HOLD, 0 SELL."""
-        result = _parse_verdict_highlights(text)
-        assert result['decision'] == 'BUY'
-        assert result['buy_zone_low'] == 270
-        assert result['buy_zone_high'] == 400
-        assert result['conviction'] == 74
-
-    def test_parses_pass_verdict(self):
-        from modules.tools import _parse_verdict_highlights
-        text = '**Decision: PASS**\n**The "Munger Buy Zone": $60 - $99**\nConviction: 65%'
-        result = _parse_verdict_highlights(text)
-        assert result['decision'] == 'PASS'
-        assert result['buy_zone_low'] == 60
-
-    def test_handles_missing_fields_gracefully(self):
-        from modules.tools import _parse_verdict_highlights
-        text = "Some verdict text without structured fields."
-        result = _parse_verdict_highlights(text)
-        assert result['decision'] == ''
+Buy zone: $95 - $105
+Council voted 5 BUY, 7 HOLD."""
+        result = _parse_verdict_highlights(prose_only)
+        assert result.get('degraded') is True
+        assert result['decision'] in ('BUY', 'HOLD', 'SELL', '')
         assert result['buy_zone_low'] is None
+        assert result['buy_zone_high'] is None
+
+    def test_degraded_uses_majority_vote_for_decision(self):
+        from modules.tools import _parse_verdict_highlights
+        prose = "Some prose. Council: 2 BUY, 7 HOLD, 2 PASS, 1 SELL. More prose."
+        result = _parse_verdict_highlights(prose)
+        assert result['decision'] == 'HOLD'
+        assert result['degraded'] is True
+
+    def test_parses_too_uncertain_verdict(self):
+        from modules.tools import _parse_verdict_highlights
+        too_uncertain = """# Munger Verdict
+Prose synthesis here.
+---
+
+## EXECUTIVE SUMMARY (distilled from synthesis above)
+
+**Decision:** TOO UNCERTAIN
+**Trigger:** None — variable is uncalculable
+**Conviction:** Too Uncertain
+**Council Vote:** 1 BUY, 4 HOLD, 6 PASS, 1 SELL
+**Thesis in One Sentence:** The dominant variable is uncalculable; the Too Hard pile is the right answer.
+
+### Load-Bearing Factors (ranked)
+1. **Political regime** — cannot be priced
+2. **Binary event risk** — we cannot forecast
+3. **Fundamental unknowability** — our edge is zero
+"""
+        result = _parse_verdict_highlights(too_uncertain)
+        assert result['decision'] == 'TOO UNCERTAIN'
+        assert result['buy_zone_low'] is None
+        assert result['conviction'] == 'Too Uncertain'

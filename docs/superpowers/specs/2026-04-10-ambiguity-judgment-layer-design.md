@@ -36,12 +36,25 @@ The BABA bug is the cleanest possible demonstration of this weakness. The counci
 
 ### What Changes
 
-The Munger verdict output gains a new structured EXECUTIVE SUMMARY block at the TOP of every verdict file. The existing prose synthesis is preserved in full below, unchanged. The executive summary is produced AFTER the prose synthesis is written, as a distillation step — not as a checkbox to be filled in before thinking.
+The Munger verdict output gains a new structured EXECUTIVE SUMMARY block at the **BOTTOM** of every verdict file, after the full prose synthesis. The prose synthesis appears first and is preserved in full, unchanged. The executive summary is produced AFTER the prose is written, as a distillation step — both logically (it compresses reasoning that already exists) and physically (it lives at the end of the file as a structured footer).
+
+### Why Prose-First, Structure-Last
+
+The reader opening a Munger verdict in Obsidian gets the immersive reading experience first — voice, analogies, hard choices between experts, memorable lines like "value harvest, not compounder." That is the product's intellectual character, and nothing should be above it.
+
+The structured EXECUTIVE SUMMARY at the bottom serves two machines and zero humans: the hero card parser reads it to render the dashboard correctly, and a skimming reader can jump to it for decision-grade fields. Neither of those users needs the structured block to appear first. The parser finds it anywhere in the file via anchor regex; the skimmer scrolls past prose they choose to skip.
+
+This flip solves the "corporate feel" concern: the first 200 words of the file are Munger reasoning, not a checkbox table.
 
 ### The Executive Summary Schema
 
 ```markdown
-## EXECUTIVE SUMMARY
+[Full prose synthesis: Moat Tribunal, Bull-Bear Balance, Decision Logic,
+ Final Decision. Unchanged from current format.]
+
+---
+
+## EXECUTIVE SUMMARY (distilled from synthesis above)
 
 **Decision:** [BUY | WAIT | HOLD | PASS | SELL | TOO UNCERTAIN]
 **Trigger:** [For WAIT: specific price + conditions | For others: "none" or the key evidence that would change the decision]
@@ -63,26 +76,73 @@ The Munger verdict output gains a new structured EXECUTIVE SUMMARY block at the 
 - [Specific observable signal #1]
 - [Specific observable signal #2]
 - [Specific observable signal #3]
-
----
-
-## FULL SYNTHESIS
-
-[All current prose sections: Moat Tribunal, Bull-Bear Balance, Decision Logic, Final Decision. Unchanged.]
 ```
 
 ### The Verdict Vocabulary (5+1)
 
 | Verdict | Meaning | When Munger Uses It |
 |---------|---------|---------------------|
-| **BUY** | Price is in the zone, fundamentals clear, action now | Current price ≤ fair value AND moat tribunal clean |
-| **WAIT** | Conditional buy at a lower price; fundamentals clear but margin of safety missing | Current price > buy zone AND fundamentals support a buy IF price comes in |
+| **BUY** | Price is at or below fair value; fundamentals clear; action now | `current_price ≤ buy_zone_high` AND moat tribunal clean |
+| **WAIT** | Conditional buy; fundamentals clear but current price above margin-of-safety ceiling | `current_price > buy_zone_high` AND fundamentals would support a buy IF price comes in |
 | **HOLD** | Already owned, don't add; not a fresh-capital buy | Owned position with evolving thesis, no new capital recommendation |
 | **PASS** | Price might be right but business isn't; Munger's "too hard" for quality reasons | Business outside circle of competence OR quality bar not met regardless of price |
 | **SELL** | Negative action; thesis broken or valuation terminal | Active short thesis or existing holders should exit |
 | **TOO UNCERTAIN** | The dominant variable in this decision cannot be calculated or meaningfully estimated | Regime risk, binary geopolitical events, or fundamental unknowability dominates the analysis |
 
 The last one deserves special framing in the prose section — see Part 4.
+
+### Buy Zone Semantics (Important)
+
+The "buy zone" follows Munger's framing, not a literal range:
+
+- **`buy_zone_low`** = absurdly cheap (Graham Floor, ~10x earnings) — where Munger says "back up the truck"
+- **`buy_zone_high`** = fair value limit (Quality Floor/Ceiling, ~15-18x earnings) — where Munger says "still worth buying, but margin of safety is thinning"
+
+You buy **anywhere at or below buy_zone_high**, not only within the range. So for a stock with buy zone $270-$400 trading at $228, the verdict is still BUY — the price is deeply below the fair value limit, which is the most attractive outcome.
+
+The executive summary must label the two endpoints clearly:
+
+```
+**Trigger:** Buy anywhere ≤ $105 (absurdly cheap floor $95 | fair value limit $105)
+```
+
+This framing removes the ambiguity from the structured output. The hero card parser extracts `buy_zone_high` and compares current price to that number alone — `buy_zone_low` is shown for context but doesn't affect the BUY/WAIT decision logic.
+
+### TOO UNCERTAIN Tripwires (Critical)
+
+LLMs have a strong bias toward confident outputs. Adding TOO UNCERTAIN to the vocabulary is necessary but not sufficient — Munger will naturally default to BUY/WAIT/HOLD even when the variables don't support a decision. The BABA analysis in this session is direct proof: Munger had every reason to output TOO UNCERTAIN (regime risk is the textbook case) and instead produced "BUY with a conditional buy zone."
+
+To fix this, the Munger prompt must include explicit tripwires that actively push toward TOO UNCERTAIN when specific conditions are met:
+
+```markdown
+## TOO UNCERTAIN TRIPWIRES (MANDATORY CHECK)
+
+After completing your synthesis, check these tripwires. If TWO OR MORE are true, your 
+default verdict is TOO UNCERTAIN and you must argue your way OUT of it — not INTO it:
+
+1. The moat tribunal returned 3+ SEVERE flags
+2. The load-bearing factor is a political/regime decision, a binary regulatory event, 
+   or a geopolitical variable (anything where fundamental analysis tools structurally 
+   cannot price the risk)
+3. Two or more experts returned PASS specifically citing uncalculable variables — not 
+   price, not quality, but "we can't know"
+4. You find yourself writing "we can't really know" or "depends on what happens with 
+   [unknowable]" in your synthesis
+5. Your buy zone requires a margin of safety so large that it implies you don't trust 
+   your own fair value estimate
+
+**The test:** imagine you had to defend your BUY/WAIT/HOLD verdict to a skeptical 
+Munger who asked "how confident are you in the dominant variable here?" If your honest 
+answer is "I can't really estimate it, but I assumed [X]," your verdict is TOO UNCERTAIN.
+
+**The discipline:** LLMs are biased toward committing to verdicts because it feels 
+productive. Real Charlie Munger says "too hard" far more often than he says BUY. The 
+Too Hard pile is the single biggest source of edge in his investment career. If your 
+analysis keeps returning BUY/WAIT/HOLD for every company you look at, you are not 
+performing Munger's discipline — you are performing AI confidence bias.
+```
+
+This isn't a passive vocabulary option — it's an active tripwire that forces TOO UNCERTAIN to become the default on specific signals, requiring Munger to argue away from it rather than toward it. Without this, we ship a feature that never fires.
 
 ### Prompt Order Requirement
 
@@ -91,20 +151,43 @@ The Munger prompt must enforce reasoning-first, distillation-second. Current pro
 ```markdown
 ## OUTPUT ORDER (MANDATORY)
 
-1. **First, write your full synthesis.** Complete the Moat Tribunal, Bull-Bear Balance, 
-   Decision Logic, and Final Decision sections as you currently do. Take as much space as 
-   you need to actually reason through the conflicts between experts.
+1. **Write your full prose synthesis first.** Complete the Moat Tribunal, Bull-Bear Balance, 
+   Decision Logic, and Final Decision sections as you currently do. This is the intellectual 
+   heart of the analysis — take the space you need to reason through the conflicts between 
+   experts and arrive at a judgment. The prose synthesis appears FIRST in your output file.
 
-2. **Then, go back to the top of your output and write the EXECUTIVE SUMMARY block.** 
-   This is a distillation of reasoning that already exists in your synthesis below — not 
-   a set of fields to fill in before thinking. Every field in the executive summary must 
-   be directly traceable to a claim in the full synthesis.
+2. **Then, at the end of the file, add an EXECUTIVE SUMMARY block.** After your full 
+   synthesis, insert a `---` horizontal rule and write the structured EXECUTIVE SUMMARY block. 
+   This is a distillation of the reasoning that already exists above — not a shortcut around 
+   thinking. Every field in the executive summary must be directly traceable to a claim in the 
+   prose synthesis.
 
-3. **The executive summary appears FIRST in the file** (at the top), followed by the full 
-   synthesis. This is the standard investment memo structure: commitment first, defense below.
+3. **The structured block lives at the BOTTOM of the file.** The reader opening your verdict 
+   sees prose first (voice, reasoning, analogies). The machine parser and the skimming reader 
+   find the structured block at the end. This serves both audiences without compromise.
 
 Do not write the executive summary as a shortcut around reasoning. It exists to make your 
 synthesis scannable and machine-parseable, not to replace the thinking.
+```
+
+### Output Size Guidelines
+
+Munger's prompt has grown over successive iterations. To prevent instruction bloat from eating into reasoning tokens, add section-level size guidelines:
+
+```markdown
+## OUTPUT SIZE TARGETS
+
+- **Moat Tribunal Resolution:** 1 paragraph (~100 words)
+- **Bull-Bear Balance + Private Buyer Test:** 3-4 paragraphs (~400-500 words)
+- **Decision Logic (Ceiling + Floor):** 2-3 paragraphs (~300 words)
+- **Final Decision section:** 4-6 paragraphs (~600-800 words)
+- **EXECUTIVE SUMMARY block:** ~250 words
+- **Total target:** ~2000-2200 words
+
+If you find yourself writing significantly more than this, check whether you're repeating 
+points across sections. The goal is density, not length. A tight synthesis is more valuable 
+than a comprehensive one — Charlie would rather say less and be right than say more and be 
+muddled.
 ```
 
 ### Conviction as Qualitative, Not Percentage
@@ -139,7 +222,20 @@ The hero card stops regex-parsing Munger's prose and instead reads the structure
 
 ### Parser: Structured Extraction
 
-`_parse_verdict_highlights` is rewritten to prefer the structured block, falling back to the current regex parser only if the block is missing (for backward compatibility with older reports).
+`_parse_verdict_highlights` is rewritten to read the structured EXECUTIVE SUMMARY block as the primary source. If the block is missing or malformed, the parser does NOT fall back to the legacy regex (which is what produced the BABA bug). Instead it returns a **minimal degraded result** that causes the hero card to render with less confidence.
+
+**Degraded rendering behavior when structured block is missing:**
+
+- Decision: derived from council vote count (`majority_buy → BUY`, `majority_hold → HOLD`, etc.) — no attempt to regex the prose
+- Trigger: empty
+- Conviction: empty
+- Thesis: empty
+- Load-bearing / disagreement / evidence: empty
+- Hero card badge: shows decision from vote count with a `⚠` warning icon
+- Hero card subtitle: "Structured summary unavailable — see full synthesis below"
+- Terminal/stderr: `"⚠️ No EXECUTIVE SUMMARY block found in {ticker} verdict, hero card degraded"`
+
+This makes missing/malformed structured blocks **visible** rather than silently reintroducing the BABA bug. The degraded state shows LESS rather than WRONG. A user seeing the warning icon knows the analysis completed but the scan-friendly layer failed, and can read the prose directly.
 
 New parsing logic:
 
@@ -199,26 +295,49 @@ def _parse_verdict_highlights(verdict_text):
         
         return result
     
-    # Fallback: current regex parser (unchanged)
-    return _parse_verdict_highlights_legacy(verdict_text)
+    # Degraded fallback: derive minimal info from council vote count
+    # Do NOT fall back to legacy regex — that's what produced the BABA bug
+    print(f"⚠️ No EXECUTIVE SUMMARY block found, hero card degraded", file=sys.stderr)
+    
+    vote_match = re.search(r'(\d+)\s*BUY.*?(\d+)\s*HOLD.*?(?:(\d+)\s*PASS.*?)?(\d+)\s*SELL', 
+                           verdict_text, re.IGNORECASE | re.DOTALL)
+    if vote_match:
+        buy_n = int(vote_match.group(1))
+        hold_n = int(vote_match.group(2))
+        pass_n = int(vote_match.group(3) or 0)
+        sell_n = int(vote_match.group(4))
+        result['council_vote'] = f"{buy_n} BUY, {hold_n} HOLD, {pass_n} PASS, {sell_n} SELL"
+        # Derive decision from majority — minimal safe default
+        total = buy_n + hold_n + pass_n + sell_n
+        if total > 0:
+            if buy_n / total >= 0.5:
+                result['decision'] = 'BUY'
+            elif sell_n / total >= 0.25:
+                result['decision'] = 'SELL'
+            else:
+                result['decision'] = 'HOLD'
+    result['degraded'] = True  # Hero card renders warning icon
+    return result
 ```
 
 ### Hero Card Visual Logic
 
 The hero card renders different visual treatments based on the decision:
 
-| Decision | Badge Color | Icon | Price Context Displayed |
-|----------|-------------|------|------------------------|
-| BUY | Green (#16A34A) | ✓ | "At or below buy zone" |
-| WAIT | Amber (#D97706) | ⏳ | "Currently $X, N% above buy zone of $Y-Z" |
-| HOLD | Gray (#6B7280) | ◎ | "For existing holders" |
-| PASS | Gray (#6B7280) | ✗ | "Outside circle of competence" |
-| SELL | Red (#DC2626) | ▼ | "Exit recommendation" |
-| TOO UNCERTAIN | Purple (#7C3AED) | ? | "Rarest Munger output — wisdom, not failure" |
+| Decision | Badge Color | Icon | Subtitle |
+|----------|-------------|------|----------|
+| BUY | Green (#16A34A) | ✓ | "At or below fair value limit" |
+| WAIT | Amber (#D97706) | ⏳ | "Currently $X, N% above buy trigger of $Y-Z" |
+| HOLD | Gray (#6B7280) | ◎ | "For existing holders — don't add, don't sell" |
+| PASS | Gray (#6B7280) | ✗ | "Outside circle of competence — move on" |
+| SELL | Red (#DC2626) | ▼ | "Thesis broken — exit recommendation" |
+| TOO UNCERTAIN | Purple (#7C3AED) | ? | "Dominant variable is uncalculable — deliberate step-away" |
 
-The WAIT case explicitly shows the math: "Currently $127.68, 21% above buy zone of $95-105." This makes the conditional nature of the judgment impossible to misread.
+**HOLD vs PASS visual distinction:** Both use the same gray color family intentionally — they're both "don't buy at current price" outcomes. The distinction lives in the **icon** (`◎` neutral circle for HOLD vs `✗` active rejection for PASS) and the **subtitle** (existing holder guidance vs circle of competence rejection). A reader scanning the badge alone sees "gray = inaction"; a reader reading the subtitle understands why.
 
-The TOO UNCERTAIN case uses a distinct purple color to signal that it's not a neutral hold — it's a deliberate step-away. The badge says "TOO UNCERTAIN" and the subtitle reads "Variable we can't estimate dominates this decision."
+**The WAIT case** explicitly shows the math in the subtitle: "Currently $127.68, 21% above buy trigger of $95-105." This makes the conditional nature of the judgment impossible to misread.
+
+**The TOO UNCERTAIN case** uses a distinct purple color to signal that it's not a neutral hold — it's a deliberate, wisdom-driven step-away. The badge says "TOO UNCERTAIN" and the subtitle makes the rarity and discipline clear.
 
 ### New Hero Card Sections
 
@@ -388,9 +507,30 @@ This framing is mandatory for TOO UNCERTAIN verdicts. Without it, users will mis
 - **Expert functional boundaries** (forbidden zones per expert) — valuable but second-order; can ship separately after this lands
 - **Dossier layer improvements** — the data layer is fine; this spec is entirely about representation
 
+## Live Validation Requirement
+
+Prompt and template changes don't have meaningful unit tests — the real validation is running the pipeline end-to-end on a case that exercises the new behavior. The implementation plan must include a **BABA live re-run** as an explicit acceptance test:
+
+**Acceptance criteria for BABA re-run:**
+
+1. Munger verdict file contains a structured `## EXECUTIVE SUMMARY` block at the BOTTOM of the file (after prose synthesis)
+2. Hero card badge shows **WAIT** (not BUY), with subtitle showing "Currently $X, N% above buy trigger"
+3. Munger's decision in the structured block is one of WAIT / TOO UNCERTAIN / HOLD — not BUY (the BABA fundamentals + regime risk should trigger at least the WAIT logic; if TOO UNCERTAIN tripwires fire, that's the correct output)
+4. Load-bearing factors list includes Chinese regime/political risk as one of the top 3
+5. Primary Disagreement section names Lynch (BUY on math) vs Jobs/Buffett/Burry (PASS on regime) or equivalent
+6. Teacher output includes Section 2 ("What Kind of Problem This Is") that classifies BABA as regime/political, not as a clean analytical case
+7. Teacher Section 3 ("How to Think About This Kind of Problem") explains the regime risk framework in reusable terms
+
+**Rollback trigger:** if the BABA re-run still shows BUY in the hero card, the implementation is broken and must be fixed before merging. This is a hard gate.
+
+**Also run one clean case (AAPL or MSFT):** verify that clean cases still produce BUY/HOLD correctly, the teacher's new sections 2-3 acknowledge the clean case with short content (~100 words), and the structured block is present and parseable.
+
 ## Risks
 
-- **Lazy distillation:** If Munger treats the executive summary as a checkbox-fill exercise instead of a compression of existing reasoning, the structured data will be garbage and the prose will be an afterthought. Mitigation: the prompt explicitly orders synthesis-first, distillation-second.
+- **Lazy distillation:** If Munger treats the executive summary as a checkbox-fill exercise instead of a compression of existing reasoning, the structured data will be garbage and the prose will be an afterthought. Mitigation: the prompt explicitly orders prose-first, distillation-second, AND the structured block lives at the bottom of the file (prose comes first visually).
+- **TOO UNCERTAIN bias:** LLMs default to confident outputs. Adding the vocabulary option isn't enough — the tripwire section actively pushes toward TOO UNCERTAIN on specific signals, requiring Munger to argue OUT of it rather than INTO it. Without active tripwires, this feature will never fire. Mitigation: the tripwire discipline is mandatory and spec'd explicitly in Part 1.
 - **TOO UNCERTAIN feels like failure to users:** If the framing paragraph is missing or weak, users will interpret the verdict as "product couldn't figure it out." Mitigation: the framing paragraph is mandatory, and the distinctive purple color + dedicated subtitle signals deliberate wisdom rather than analytical gap.
-- **Parser failures silently fall back to regex:** If the structured block is malformed or missing, the parser falls back to the legacy regex which has all the current bugs. Mitigation: the parser logs a stderr warning `"⚠️ No EXECUTIVE SUMMARY block found, falling back to legacy regex parser for {ticker}"`. This appears in the terminal output of the analysis pipeline so the user notices and can re-run or fix the Munger prompt upstream. The HTML itself does not show a user-facing warning — silent degradation is better than scary UI.
-- **Teacher output too long:** Adding two sections increases teacher output by ~30-50%. Mitigation: clean-case sections are deliberately short (~100 extra words), and the Business Explainer lives in a dedicated tab where length is acceptable.
+- **Parser silent degradation to broken regex:** The original spec had this problem. Now fixed: parser does NOT fall back to legacy regex. Missing structured block produces a degraded hero card that shows minimal information (decision from vote count, warning icon, "structured summary unavailable" subtitle). Degrading to LESS is better than degrading to WRONG.
+- **Munger prompt bloat:** The prompt is approaching the point where instruction tokens may crowd out reasoning tokens. The new Output Size Targets section caps total output at ~2,200 words, with per-section guidelines. This doesn't solve prompt input bloat directly, but it forces Munger to stay focused. If future iterations show the synthesis getting shorter or less thoughtful, the instruction-to-thinking ratio may have tipped and the prompt will need to be compressed.
+- **Teacher output too long:** Adding two sections increases teacher output by ~30-50% on ambiguous cases. Mitigation: clean-case sections are deliberately short (~100 extra words), and the Business Explainer lives in a dedicated tab where length is acceptable.
+- **Prose-first changes the parsing assumption:** The parser must anchor-search for `## EXECUTIVE SUMMARY` anywhere in the file, not just at the top. This is a small change but worth noting — the regex must use `re.DOTALL` to match across the file body, not `^## EXECUTIVE SUMMARY` which would anchor to the start. Already handled in the parser code above.

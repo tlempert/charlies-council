@@ -2364,24 +2364,47 @@ def save_to_html(ticker, verdict, reports, simple_report=None, base_dir=None,
         safe = _html.escape(cleaned)
         return _md.markdown(safe, extensions=["tables", "fenced_code"])
 
+    def _verdict_visual(decision_str, degraded=False):
+        """Map parsed decision to badge color, icon, and subtitle template."""
+        d = (decision_str or '').upper().strip()
+        if degraded:
+            return {
+                'color': '#9CA3AF',
+                'bg': '#F3F4F6',
+                'icon': '⚠',
+                'subtitle': 'Structured summary unavailable — see full synthesis below',
+                'word': d or 'ANALYSIS',
+            }
+        if d == 'BUY':
+            return {'color': '#16A34A', 'bg': '#F0FDF4', 'icon': '✓',
+                    'subtitle': 'At or below fair value limit', 'word': 'BUY'}
+        if d == 'WAIT':
+            return {'color': '#D97706', 'bg': '#FFFBEB', 'icon': '⏳',
+                    'subtitle': '', 'word': 'WAIT'}
+        if d == 'HOLD':
+            return {'color': '#6B7280', 'bg': '#F3F4F6', 'icon': '◎',
+                    'subtitle': "For existing holders — don't add, don't sell", 'word': 'HOLD'}
+        if d == 'PASS':
+            return {'color': '#6B7280', 'bg': '#F3F4F6', 'icon': '✗',
+                    'subtitle': 'Outside circle of competence — move on', 'word': 'PASS'}
+        if d == 'SELL':
+            return {'color': '#DC2626', 'bg': '#FEF2F2', 'icon': '▼',
+                    'subtitle': 'Thesis broken — exit recommendation', 'word': 'SELL'}
+        if d in ('TOO UNCERTAIN', 'TOO_UNCERTAIN'):
+            return {'color': '#7C3AED', 'bg': '#F5F3FF', 'icon': '?',
+                    'subtitle': 'Dominant variable is uncalculable — deliberate step-away',
+                    'word': 'TOO UNCERTAIN'}
+        return {'color': '#D97706', 'bg': '#FFFBEB', 'icon': '◎',
+                'subtitle': '', 'word': d or 'ANALYSIS'}
+
     # --- Parse verdict for badge color and highlights ---
     verdict_clean = clean_ansi(str(verdict))
-    verdict_upper = verdict_clean.upper()
-    highlights = _parse_verdict_highlights(verdict_clean)
-
-    if "BUY" in verdict_upper and "DON" not in verdict_upper:
-        badge_color, badge_bg = "#16A34A", "#F0FDF4"
-    elif "SELL" in verdict_upper or "AVOID" in verdict_upper:
-        badge_color, badge_bg = "#DC2626", "#FEF2F2"
-    else:
-        badge_color, badge_bg = "#D97706", "#FFFBEB"
-
-    for word in ["STRONG BUY", "BUY", "SELL", "AVOID", "WAIT", "HOLD", "WATCH"]:
-        if word in verdict_upper:
-            badge_word = word
-            break
-    else:
-        badge_word = "ANALYSIS"
+    vh = _parse_verdict_highlights(verdict_clean)
+    visual = _verdict_visual(vh.get('decision', ''), degraded=vh.get('degraded', False))
+    badge_color = visual['color']
+    badge_bg = visual['bg']
+    badge_word = visual['word']
+    badge_icon = visual['icon']
 
     # --- Hero rationale: first non-blank line of verdict ---
     hero_rationale = ""
@@ -2426,20 +2449,63 @@ def save_to_html(ticker, verdict, reports, simple_report=None, base_dir=None,
         if metrics_html:
             metrics_html = f'<div class="metrics-strip">{metrics_html}</div>'
 
-    # --- Buy zone text ---
+    # --- WAIT subtitle with actual price context ---
+    badge_subtitle = visual['subtitle']
+    if (vh.get('decision', '').upper() == 'WAIT' and vh.get('buy_zone_high')
+            and key_metrics and key_metrics.get('price')):
+        current_price = key_metrics['price']
+        bz_high_sub = vh['buy_zone_high']
+        bz_low_sub = vh.get('buy_zone_low') or bz_high_sub
+        if current_price > bz_high_sub and bz_high_sub > 0:
+            pct_above = ((current_price - bz_high_sub) / bz_high_sub) * 100
+            badge_subtitle = (f"Currently ${current_price:.2f}, {pct_above:.0f}% above buy trigger "
+                              f"of ${bz_low_sub:.0f}-${bz_high_sub:.0f}")
+
+    # --- Thesis sentence ---
+    thesis_html = ""
+    if vh.get('thesis_sentence'):
+        thesis_html = (f'<div class="hero-thesis" style="font-size:14px;color:#374151;'
+                       f'font-style:italic;margin:12px 0;padding:10px 14px;'
+                       f'background:#F9FAFB;border-left:3px solid {badge_color};border-radius:4px">'
+                       f'"{esc(vh["thesis_sentence"])}"</div>')
+
+    # --- Load-bearing factors ---
+    load_bearing_html = ""
+    if vh.get('load_bearing') and len(vh['load_bearing']) >= 2:
+        items = ''.join(
+            f'<li style="margin-bottom:4px"><strong>{esc(name)}</strong> — {esc(desc)}</li>'
+            for name, desc in vh['load_bearing'][:3]
+        )
+        load_bearing_html = (f'<div class="hero-load-bearing" style="margin-top:12px;'
+                             f'font-size:13px;color:#374151">'
+                             f'<div style="font-weight:600;color:#111827;margin-bottom:6px;'
+                             f'font-size:12px;text-transform:uppercase;letter-spacing:0.04em">'
+                             f'Load-Bearing Factors</div>'
+                             f'<ol style="padding-left:18px;margin:0">{items}</ol></div>')
+
+    # --- Degraded warning banner ---
+    degraded_html = ""
+    if vh.get('degraded'):
+        degraded_html = (f'<div style="background:#FEF3C7;border:1px solid #FCD34D;'
+                         f'border-radius:6px;padding:8px 12px;margin-bottom:12px;'
+                         f'font-size:12px;color:#92400E">'
+                         f'⚠ Structured summary unavailable — hero card showing minimal info. '
+                         f'See full synthesis below.</div>')
+
+    # --- Buy zone text (kept for backward compat, no longer in hero card) ---
     buy_zone_text = ""
-    if highlights["buy_zone_low"] and highlights["buy_zone_high"]:
-        buy_zone_text = f"Buy Zone: ${highlights['buy_zone_low']:,} \u2013 ${highlights['buy_zone_high']:,}"
+    if vh.get("buy_zone_low") and vh.get("buy_zone_high"):
+        buy_zone_text = f"Buy Zone: ${vh['buy_zone_low']:,} \u2013 ${vh['buy_zone_high']:,}"
 
     # --- Conviction and council vote ---
-    conviction = f"{highlights['conviction']}%" if highlights["conviction"] else ""
-    council_vote = esc(highlights["council_vote"]) if highlights["council_vote"] else ""
+    conviction = esc(vh.get('conviction', '') or '—')
+    council_vote = esc(vh["council_vote"]) if vh.get("council_vote") else ""
 
     # --- Price gauge ---
     price_gauge_html = ""
     price = key_metrics.get("price") if key_metrics else None
-    bz_low = highlights["buy_zone_low"]
-    bz_high = highlights["buy_zone_high"]
+    bz_low = vh["buy_zone_low"]
+    bz_high = vh["buy_zone_high"]
     if price and bz_low and bz_high:
         margin = (bz_high - bz_low) * 0.5
         g_min = min(price, bz_low) - margin
@@ -2591,18 +2657,23 @@ def save_to_html(ticker, verdict, reports, simple_report=None, base_dir=None,
         with open(template_path, encoding="utf-8") as f:
             template_src = f.read()
         tmpl = _string.Template(template_src)
-        page = tmpl.substitute(
+        page = tmpl.safe_substitute(
             ticker=esc(ticker),
             date_display=esc(date_display),
             badge_word=esc(badge_word),
             badge_color=badge_color,
             badge_bg=badge_bg,
+            badge_icon=badge_icon,
+            badge_subtitle=esc(badge_subtitle),
+            thesis_html=thesis_html,
+            load_bearing_html=load_bearing_html,
+            degraded_html=degraded_html,
             hero_rationale=hero_rationale,
             metrics_html=metrics_html,
             buy_zone_text=esc(buy_zone_text),
             price_gauge_html=price_gauge_html,
             council_vote=council_vote,
-            conviction=esc(conviction),
+            conviction=conviction,
             expert_grid_html=expert_grid_html,
             verdict_summary=verdict_summary,
             verdict_full=verdict_full,

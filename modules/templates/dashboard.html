@@ -136,16 +136,18 @@ h2{font-size:18px;font-weight:600;margin-bottom:8px}
 
   <!-- Hero Card -->
   <section class="card hero-card" style="border-left-color:$badge_color">
-    <div style="display:flex;align-items:center;gap:16px;margin-bottom:12px">
-      <span class="badge" style="color:$badge_color;background:$badge_bg;border:1px solid ${badge_color}22">$badge_word</span>
-      <span style="font-size:14px;color:#374151;font-style:italic">$hero_rationale</span>
+    $degraded_html
+    <div style="display:flex;align-items:center;gap:16px;margin-bottom:8px">
+      <span class="badge" style="color:$badge_color;background:$badge_bg;border:1px solid ${badge_color}22">$badge_icon $badge_word</span>
     </div>
+    <div style="font-size:13px;color:#6B7280;margin-bottom:12px">$badge_subtitle</div>
+    $thesis_html
     $metrics_html
-    <div style="display:flex;justify-content:space-between;align-items:center;font-size:13px;color:#6B7280;margin:8px 0">
-      <span>$buy_zone_text</span>
+    <div style="display:flex;justify-content:space-between;align-items:center;font-size:13px;color:#6B7280;margin:8px 0;flex-wrap:wrap;gap:8px">
       <span>$council_vote</span>
       <span>Conviction: $conviction</span>
     </div>
+    $load_bearing_html
     $price_gauge_html
   </section>
 

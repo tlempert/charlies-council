@@ -973,3 +973,119 @@ Prose synthesis here.
         assert result['decision'] == 'TOO UNCERTAIN'
         assert result['buy_zone_low'] is None
         assert result['conviction'] == 'Too Uncertain'
+
+    def test_parses_dashed_executive_summary_format(self):
+        """Verdict using ---EXECUTIVE SUMMARY--- wrapper (TCEHY format)."""
+        from modules.tools import _parse_verdict_highlights
+        verdict = """# Munger Verdict
+Prose synthesis here.
+---
+
+---EXECUTIVE SUMMARY---
+VERDICT: BUY
+CONFIDENCE: 72
+PRICE: $63.98
+BUY_ZONE_LOW: $32.89
+BUY_ZONE_HIGH: $69.00
+
+HEADLINE: WeChat moat at 18x earnings.
+
+TRIPWIRES:
+- Sanctions list addition
+- CCP regulatory re-escalation
+
+MOAT_TRIBUNAL: 0/5 SEVERE, 5/5 MODERATE
+---END EXECUTIVE SUMMARY---"""
+        result = _parse_verdict_highlights(verdict)
+        assert result.get('degraded') is False
+        assert result['decision'] == 'BUY'
+
+
+class TestExpertExtractionFromVerdict:
+    """When expert reports are accidentally concatenated into the verdict,
+    save_to_html should detect and extract them into the expert grid."""
+
+    VERDICT_WITH_EXPERTS = """# Munger Verdict: ACME
+
+The council votes BUY.
+
+## EXECUTIVE SUMMARY
+
+**Decision:** BUY
+**Trigger:** $100–$120
+**Conviction:** High
+**Council Vote:** 8 BUY, 2 HOLD, 1 PASS, 1 SELL
+**Thesis in One Sentence:** Great company at a discount.
+
+## EVIDENCE & ANALYSIS
+
+### 🕵️ JEFF BEZOS REPORT
+Flywheel analysis content here.
+
+---SUMMARY---
+VERDICT: BUY
+CONFIDENCE: 85%
+KEY METRIC: ROIC 40%
+KEY RISK: competition
+BULL CASE: flywheel
+MOAT FLAG: NONE
+---END SUMMARY---
+
+### 🕵️ WARREN BUFFETT REPORT
+Moat analysis content here.
+
+---SUMMARY---
+VERDICT: BUY
+CONFIDENCE: 78%
+KEY METRIC: P/E 13x
+KEY RISK: disruption
+BULL CASE: pricing power
+MOAT FLAG: NONE
+---END SUMMARY---
+
+### 🕵️ MICHAEL BURRY REPORT
+Forensic accounting content here.
+
+---SUMMARY---
+VERDICT: HOLD
+CONFIDENCE: 65%
+KEY METRIC: SBC 20%
+KEY RISK: cash flow
+BULL CASE: hidden value
+MOAT FLAG: MODERATE
+---END SUMMARY---
+"""
+
+    def test_extracts_experts_from_verdict_into_grid(self, tmp_path):
+        from modules.tools import save_to_html
+        reports = {
+            "jeff_bezos": "",
+            "warren_buffett": "",
+            "michael_burry": "",
+            "reality_check": "Red team critique",
+        }
+        result = save_to_html(
+            "ACME", self.VERDICT_WITH_EXPERTS, reports,
+            base_dir=str(tmp_path),
+        )
+        content = open(result["html"], encoding="utf-8").read()
+        assert 'expert-jeff_bezos' in content
+        assert 'expert-warren_buffett' in content
+        assert 'expert-michael_burry' in content
+        assert 'Flywheel analysis content' in content
+
+    def test_no_extraction_when_experts_already_populated(self, tmp_path):
+        from modules.tools import save_to_html
+        reports = {
+            "jeff_bezos": "Separate flywheel report",
+            "warren_buffett": "Separate moat report",
+            "michael_burry": "",
+            "reality_check": "Red team critique",
+        }
+        result = save_to_html(
+            "ACME", self.VERDICT_WITH_EXPERTS, reports,
+            base_dir=str(tmp_path),
+        )
+        content = open(result["html"], encoding="utf-8").read()
+        # Should use the explicitly provided report, not extract from verdict
+        assert 'Separate flywheel report' in content

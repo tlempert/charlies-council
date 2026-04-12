@@ -727,6 +727,7 @@ def get_earnings_transcript_intel(ticker, company_name=None, ceo_name=None, cont
         (f"{name} earnings call Q&A analyst questions {CURRENT_YEAR}", "advanced"),
         (f"{name} earnings call transcript {CURRENT_YEAR} key takeaways", "basic"),
         (f"{name} earnings call management guidance quotes {CURRENT_YEAR}", "basic"),
+        (f"{name} earnings call transcript Q4 {LAST_YEAR} CEO quotes results", "basic"),
     ]
     # Controversy-anchored query replaces generic CEO quote search
     if ceo_name and controversy_topic:
@@ -746,8 +747,18 @@ def get_earnings_transcript_intel(ticker, company_name=None, ceo_name=None, cont
             queries
         ))
 
-    all_results = [r for r in results if r]
-    combined = "\n".join(all_results)
+    # Deduplicate by content similarity (first 200 chars)
+    seen = set()
+    unique_results = []
+    for r in results:
+        if not r:
+            continue
+        for block in r.split('\nTRANSCRIPT: '):
+            key = block[:200].strip()
+            if key not in seen:
+                seen.add(key)
+                unique_results.append(block)
+    combined = "\nTRANSCRIPT: ".join(unique_results) if unique_results else ""
 
     # Append transcript quality marker when controversy query was used
     if controversy_topic and ceo_name:
@@ -1020,6 +1031,7 @@ def format_buyback_analysis(xbrl_data):
     lines.append("|------|--------------|---------------|----------------|")
     lines.extend(rows)
     lines.append("*Estimated from share count change (includes SBC issuance offset)")
+    lines.append("⚠️ BUYBACK AVG PRICE IS ESTIMATED — derived from share count delta, NOT actual repurchase data. Do not treat as precise evidence of capital allocation quality.")
 
     return "\n".join(lines)
 
@@ -1496,9 +1508,15 @@ SECTOR_PEERS = {
     },
     'Healthcare': {
         'drug manufacturers': ['LLY', 'JNJ', 'PFE', 'MRK', 'ABBV'],
+        'drug manufacturers specialty generic': ['TCNNF', 'CURLF', 'GTBIF', 'CRLBF', 'MRMD'],
     },
     'Financial Services': {
         'banks': ['JPM', 'BAC', 'WFC', 'GS', 'MS'],
+    },
+    'Basic Materials': {
+        'gold': ['NEM', 'AEM', 'GFI', 'KGC', 'AGI', 'WPM'],
+        'copper': ['FCX', 'SCCO', 'HBM', 'TECK'],
+        'steel': ['NUE', 'STLD', 'CLF', 'X'],
     },
 }
 
@@ -1511,7 +1529,8 @@ def _validate_ticker(candidate, target_mcap):
         if not info.get('longName'):
             return None
         mcap = info.get('marketCap', 0)
-        if mcap < 1e9:  # Skip micro-caps
+        mcap_floor = 200e6 if (target_mcap and target_mcap < 5e9) else 1e9
+        if mcap < mcap_floor:
             return None
         # Market cap range: relaxed for mega-caps
         if target_mcap and target_mcap > 500e9:
@@ -1821,6 +1840,7 @@ def build_initial_dossier(ticker):
 
         # Peer benchmarks (safe — won't break if peer discovery fails)
         peer_block = ""
+        _peer_bench_data = None
         try:
             peer_tickers = fut_peers.result()
             if peer_tickers:
@@ -1835,6 +1855,11 @@ def build_initial_dossier(ticker):
                             if r:
                                 peer_metrics[pt] = r
                     peer_block = compute_peer_benchmarks(ticker, target_metrics, peer_metrics)
+                    # Preserve structured data for HTML dashboard (merged into key_metrics later)
+                    _peer_bench_data = {
+                        'target': target_metrics,
+                        'peers': peer_metrics,
+                    }
         except Exception as e:
             print(f"   ⚠️ Peer benchmarks failed: {e}")
 
@@ -1948,12 +1973,26 @@ def build_initial_dossier(ticker):
         'fcf': 0,
         'owner_yield': 0,
     }
+    # Currency conversion: financials may be in local currency while marketCap is USD
+    _fin_currency = info.get('financialCurrency', 'USD')
+    _price_currency = info.get('currency', 'USD')
+    _fx_rate = 1.0
+    if _fin_currency != _price_currency:
+        try:
+            _fx_ticker = yf.Ticker(f'{_fin_currency}{_price_currency}=X')
+            _fx_rate = _fx_ticker.info.get('regularMarketPrice', 1.0) or 1.0
+        except Exception:
+            _fx_rate = 1.0
+
     try:
         fcf = stock.cashflow.loc['Free Cash Flow'].iloc[0]
-        key_metrics['fcf'] = fcf
+        key_metrics['fcf'] = fcf * _fx_rate
         mcap = info.get('marketCap', 0)
         if mcap > 0:
-            key_metrics['owner_yield'] = fcf / mcap
+            key_metrics['owner_yield'] = key_metrics['fcf'] / mcap
+    except Exception:
+        pass
+    try:
         ni = stock.financials.loc['Net Income'].iloc[0]
         equity = stock.balance_sheet.loc['Stockholders Equity'].iloc[0] if 'Stockholders Equity' in stock.balance_sheet.index else 0
         lt_debt = stock.balance_sheet.loc['Long Term Debt'].iloc[0] if 'Long Term Debt' in stock.balance_sheet.index else 0
@@ -1971,13 +2010,19 @@ def build_initial_dossier(ticker):
             key_metrics['dcf_conservative'] = float(dcf_match.group(1).replace(',', ''))
     except Exception:
         pass
+    # Merge peer bench data if available
+    if _peer_bench_data:
+        key_metrics['peer_bench'] = _peer_bench_data
     # Save key_metrics for HTML assembly
+    key_metrics['ticker'] = ticker
     try:
         import json as _json
+        import os as _os
+        _os.makedirs('/tmp/silicon_council', exist_ok=True)
         with open('/tmp/silicon_council/key_metrics.json', 'w') as _f:
             _json.dump(key_metrics, _f)
-    except Exception:
-        pass
+    except Exception as e:
+        print(f"⚠️  Could not save key_metrics.json: {e}")
 
     return f"""
     TARGET: {ticker}
@@ -2042,6 +2087,24 @@ def build_initial_dossier(ticker):
     {build_stress_test_table(forensic_data, c_sym)}
     {build_earnings_velocity(quarterly_revenues, c_sym)}
     """
+
+    # --- Data quality warning: count empty Tavily-dependent sections ---
+    _tavily_sections = {
+        'F (Earnings Call)': transcript, 'G (NRR)': nrr_combined,
+        'H (Competitive)': competitive_intel, 'I (Product Econ)': product_econ,
+        'J (Ecosystem)': ecosystem_intel, 'K (Cultural)': cultural_intel,
+        'L (Disruption)': disruptor_intel, 'M (Peers)': peer_block,
+        'N (Segmentation)': segmentation_data,
+    }
+    _empty = [k for k, v in _tavily_sections.items() if not v]
+    if _empty:
+        _total = len(_tavily_sections)
+        print(f"\n{Fore.YELLOW}⚠️  DATA QUALITY: {len(_empty)}/{_total} Tavily sections empty "
+              f"({', '.join(_empty)}). API may be exhausted.{Style.RESET_ALL}")
+        _sec_ok = [s for s in ['C (10-K Item 1)', 'D (Risk Factors)', 'E (MD&A)']
+                   if any([item1, item1a, item7])]
+        if _sec_ok:
+            print(f"   SEC sections populated: {', '.join(_sec_ok)}")
 
 DEFAULT_REPORT_DIR = "/Users/tallempert/Library/Mobile Documents/iCloud~md~obsidian/Documents/Tal/reports"
 
@@ -2239,7 +2302,7 @@ def _parse_verdict_highlights(verdict_text):
     }
 
     block_match = re.search(
-        r'##\s*EXECUTIVE\s+SUMMARY[^\n]*\n(.*?)(?=\n##[^#]|\Z)',
+        r'(?:^|\n)(?:#{1,3}\s*)?(?:---\s*)?EXECUTIVE\s+SUMMARY[^\n]*\n(.*?)(?=\n##[^#]|\Z)',
         verdict_text,
         re.DOTALL | re.IGNORECASE,
     )
@@ -2255,11 +2318,28 @@ def _parse_verdict_highlights(verdict_text):
             val = val.strip('*').strip('_').strip()
             return val
 
-        result['decision'] = extract_field(r'\*\*Decision:\*\*\s*([^\n]+)').upper()
-        result['trigger'] = extract_field(r'\*\*Trigger:\*\*\s*([^\n]+)')
-        result['conviction'] = extract_field(r'\*\*Conviction:\*\*\s*([^\n]+)')
-        result['council_vote'] = extract_field(r'\*\*Council Vote:\*\*\s*([^\n]+)')
-        result['thesis_sentence'] = extract_field(r'\*\*Thesis in One Sentence:\*\*\s*([^\n]+)')
+        result['decision'] = (
+            extract_field(r'\*\*Decision:\*\*\s*([^\n]+)')
+            or extract_field(r'(?:^|\n)VERDICT:\s*([^\n]+)')
+            or extract_field(r'(?:^|\n)DECISION:\s*([^\n]+)')
+        ).upper()
+        result['trigger'] = (
+            extract_field(r'\*\*Trigger:\*\*\s*([^\n]+)')
+            or extract_field(r'(?:^|\n)BUY[ _]ZONE:\s*([^\n]+)')
+        )
+        result['conviction'] = (
+            extract_field(r'\*\*Conviction:\*\*\s*([^\n]+)')
+            or extract_field(r'(?:^|\n)CONVICTION:\s*([^\n]+)')
+        )
+        result['council_vote'] = (
+            extract_field(r'\*\*Council Vote:\*\*\s*([^\n]+)')
+            or extract_field(r'(?:^|\n)COUNCIL[ _](?:VOTE|SPLIT):\s*([^\n]+)')
+        )
+        result['thesis_sentence'] = (
+            extract_field(r'\*\*Thesis in One Sentence:\*\*\s*([^\n]+)')
+            or extract_field(r'(?:^|\n)ONE[- ]LINE:\s*([^\n]+)')
+            or extract_field(r'(?:^|\n)THESIS:\s*([^\n]+)')
+        )
 
         zone_match = re.search(r'\$(\d+(?:\.\d+)?)\s*[-–—]\s*\$?(\d+(?:\.\d+)?)', result['trigger'])
         if zone_match:
@@ -2283,17 +2363,30 @@ def _parse_verdict_highlights(verdict_text):
                     pass
 
         lb_section = re.search(
-            r'###\s*Load[- ]Bearing\s+Factors[^\n]*\n(.*?)(?=###|\Z)',
+            r'(?:###\s*Load[- ]Bearing\s+Factors|TRIPWIRES:|LOAD[- ]BEARING)[^\n]*\n(.*?)(?=###|\n[A-Z]{2,}[:\s]|\Z)',
             block,
             re.DOTALL | re.IGNORECASE,
         )
         if lb_section:
+            # Format 1: numbered with bold names: "1. **Name** — description"
             for m in re.finditer(
                 r'^\s*\d+\.\s+\*\*([^*]+)\*\*\s*[—\-–]\s*(.+?)$',
                 lb_section.group(1),
                 re.MULTILINE,
             ):
                 result['load_bearing'].append((m.group(1).strip(), m.group(2).strip()))
+            # Format 2: bullet list: "- description → action"
+            if not result['load_bearing']:
+                for m in re.finditer(
+                    r'^\s*[-*]\s+(.+?)$',
+                    lb_section.group(1),
+                    re.MULTILINE,
+                ):
+                    line = m.group(1).strip()
+                    parts = re.split(r'\s*[→—\-–]\s*', line, maxsplit=1)
+                    name = parts[0][:60]
+                    desc = parts[1] if len(parts) > 1 else ''
+                    result['load_bearing'].append((name, desc))
 
         pd_match = re.search(
             r'###\s*Primary\s+Disagreement\s*\n(.*?)(?=###|\Z)',
@@ -2342,7 +2435,7 @@ def _parse_verdict_highlights(verdict_text):
 
 
 def save_to_html(ticker, verdict, reports, simple_report=None, base_dir=None,
-                 key_metrics=None, peer_data=None):
+                 key_metrics=None):
     """Save an interactive HTML dashboard alongside the markdown reports.
     Returns dict with 'html' key pointing to saved file path."""
     import string as _string
@@ -2532,8 +2625,95 @@ def save_to_html(ticker, verdict, reports, simple_report=None, base_dir=None,
   </div>
 </div>'''
 
+    # --- Peer comparison table ---
+    peer_table_html = ""
+    if key_metrics and key_metrics.get('peer_bench'):
+        pb = key_metrics['peer_bench']
+        t_data = pb.get('target', {})
+        p_data = pb.get('peers', {})
+        if t_data and len(p_data) >= 2:
+            peer_tickers = list(p_data.keys())
+            _peer_metrics = [
+                ('ROIC', 'roic', '%', 100),
+                ('FCF Margin', 'fcf_margin', '%', 100),
+                ('SBC/Rev', 'sbc_rev', '%', 100),
+                ('Gross Margin', 'gross_margin', '%', 100),
+                ('Rev Growth', 'rev_growth', '%', 100),
+                ('P/E', 'pe_ratio', 'x', 1),
+            ]
+            # Header row
+            th = f'<th style="text-align:left">Metric</th><th>{esc(ticker)}</th>'
+            for pt in peer_tickers:
+                th += f'<th>{esc(pt)}</th>'
+            th += '<th>Peer Median</th>'
+            rows = ""
+            for label, key, suffix, mult in _peer_metrics:
+                t_val = t_data.get(key, 0) or 0
+                p_vals = [p_data[pt].get(key, 0) for pt in peer_tickers
+                          if p_data[pt].get(key, 0)]
+                median_val = statistics.median(p_vals) if p_vals else 0
+                # Format helper
+                def _fmt(v, s=suffix, m=mult):
+                    if not v:
+                        return '—'
+                    return f'{v*m:.1f}{s}' if s == '%' else f'{v*m:.1f}x'
+                # Color: green if target beats median (higher is better, except P/E and SBC where lower is better)
+                lower_is_better = key in ('pe_ratio', 'sbc_rev')
+                if t_val and median_val:
+                    beats = t_val < median_val if lower_is_better else t_val > median_val
+                    t_color = '#16A34A' if beats else '#DC2626'
+                else:
+                    t_color = '#374151'
+                t_cell = f'<td style="color:{t_color};font-weight:600">{_fmt(t_val)}</td>'
+                p_cells = ''.join(f'<td>{_fmt(p_data[pt].get(key, 0))}</td>' for pt in peer_tickers)
+                m_cell = f'<td style="font-weight:600">{_fmt(median_val)}</td>'
+                rows += f'<tr><td style="text-align:left">{label}</td>{t_cell}{p_cells}{m_cell}</tr>'
+            peer_table_html = (
+                f'<section style="margin:24px 0">'
+                f'<h2 style="font-size:16px;margin-bottom:12px">Peer Comparison</h2>'
+                f'<div style="overflow-x:auto">'
+                f'<table style="width:100%;border-collapse:collapse;font-size:13px">'
+                f'<thead><tr style="border-bottom:2px solid #E5E7EB">{th}</tr></thead>'
+                f'<tbody>{rows}</tbody></table></div></section>'
+            )
+
     # --- Expert grid and accordions ---
     expert_keys = [k for k in reports if k not in ("teacher", "reality_check")]
+
+    # Guard: detect expert reports accidentally concatenated into verdict
+    _all_empty = expert_keys and all(not reports.get(k, "").strip() for k in expert_keys)
+    if _all_empty and verdict:
+        _EXPERT_MARKER_MAP = {
+            "jeff_bezos": r'JEFF\s+BEZOS\s+REPORT',
+            "warren_buffett": r'WARREN\s+BUFFETT\s+REPORT',
+            "michael_burry": r'MICHAEL\s+BURRY\s+REPORT',
+            "tim_cook": r'TIM\s+COOK\s+REPORT',
+            "steve_jobs": r'STEVE\s+JOBS\s+REPORT',
+            "psychologist": r'PSYCHOLOGIST\s+REPORT',
+            "sherlock": r'SHERLOCK\s+REPORT',
+            "futurist": r'FUTURIST\s+REPORT',
+            "biologist": r'BIOLOGIST\s+REPORT',
+            "historian": r'HISTORIAN\s+REPORT',
+            "anthropologist": r'ANTHROPOLOGIST\s+REPORT',
+            "lynch": r'(?:PETER\s+)?LYNCH\s+REPORT',
+        }
+        # Find all expert marker positions in the verdict
+        _marker_hits = []
+        for _key, _pat in _EXPERT_MARKER_MAP.items():
+            _m = re.search(r'(?:^|\n).*?' + _pat, verdict, re.IGNORECASE)
+            if _m:
+                _marker_hits.append((_m.start(), _key, _pat))
+        if _marker_hits:
+            print(f"⚠️  Expert reports found embedded in verdict text — extracting {len(_marker_hits)} experts", file=sys.stderr)
+            _marker_hits.sort()
+            for _i, (_pos, _key, _pat) in enumerate(_marker_hits):
+                # Slice from this marker's line start to the next marker (or end)
+                _line_start = verdict.rfind('\n', 0, _pos)
+                _line_start = _line_start + 1 if _line_start >= 0 else _pos
+                _end = _marker_hits[_i + 1][0] if _i + 1 < len(_marker_hits) else len(verdict)
+                _next_line = verdict.rfind('\n', 0, _end)
+                _end = _next_line if _next_line > _line_start else _end
+                reports[_key] = verdict[_line_start:_end].strip()
 
     # Parse summaries and sort by verdict strength then confidence
     _verdict_order = {"STRONG BUY": 0, "BUY": 1, "HOLD": 2, "PASS": 2, "WAIT": 3, "SELL": 4, "AVOID": 4}
@@ -2674,6 +2854,7 @@ def save_to_html(ticker, verdict, reports, simple_report=None, base_dir=None,
             price_gauge_html=price_gauge_html,
             council_vote=council_vote,
             conviction=conviction,
+            peer_table_html=peer_table_html,
             expert_grid_html=expert_grid_html,
             verdict_summary=verdict_summary,
             verdict_full=verdict_full,

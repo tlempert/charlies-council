@@ -69,6 +69,29 @@ def get_advanced_valuations(ticker, info, stock):
             except Exception as e:
                 print(f"   ⚠️ FX Error: {e}")
 
+            # SANITY CHECK: yfinance sometimes mislabels financialCurrency for 20-F filers
+            # (e.g. PBR: labeled BRL, values actually USD). Cross-check raw Net Income against
+            # trailingEps × implied_shares (which is always in price currency). If raw matches
+            # the price-currency expectation, financials are NOT in fin_curr — skip conversion.
+            try:
+                raw_fin = stock.financials
+                trailing_eps = info.get('trailingEps')
+                mc_for_check = info.get('marketCap')
+                if (price > 0 and mc_for_check and trailing_eps
+                        and not raw_fin.empty and 'Net Income' in raw_fin.index):
+                    impl_shares = mc_for_check / price
+                    expected_ni = trailing_eps * impl_shares
+                    raw_ni = raw_fin.loc['Net Income'].iloc[0]
+                    if raw_ni and expected_ni and raw_ni == raw_ni:  # last clause is NaN guard
+                        ratio_no_convert = abs(raw_ni) / abs(expected_ni)
+                        ratio_with_convert = abs(raw_ni * fx_rate) / abs(expected_ni)
+                        # If un-converted ratio is near 1.0 AND converted is not, yfinance metadata is wrong.
+                        if 0.7 < ratio_no_convert < 1.4 and not (0.7 < ratio_with_convert < 1.4):
+                            print(f"   ⚠️ yfinance financialCurrency='{fin_curr}' appears wrong; raw values match price currency '{price_curr}'. Skipping FX conversion.")
+                            fx_rate = 1.0
+            except Exception:
+                pass
+
         c_sym = get_currency_symbol({'currency': price_curr})
         
         # 2. DATA PREPARATION (Apply FX Rate)

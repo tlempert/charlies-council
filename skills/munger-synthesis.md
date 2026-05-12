@@ -49,6 +49,23 @@ You buy **anywhere at or below buy_zone_high**, not only within the range. A pri
 - `current_price ≤ buy_zone_high` → BUY
 - `current_price > buy_zone_high` → WAIT (with specific trigger)
 
+## FRANCHISE PREMIUM ADJUSTMENT (MANDATORY FOR PLATFORM MONOPOLIES)
+
+The default 10x-18x range assumes average-quality businesses. **Dominant platform monopolies with deep switching costs deserve higher multiples.** If ALL of the following are true, RAISE both the floor and ceiling:
+
+1. Moat Tribunal returned 0 SEVERE flags
+2. Operating margins >35% sustained over 3+ years
+3. Revenue >75% recurring (subscriptions, contracts)
+4. Switching costs are organizational (multi-month migration), not individual (one-click)
+
+**If all 4 are met:** Use 18x-25x as the quality range instead of 15x-18x. The Graham Floor rises to 14x (not 10x).
+
+**CRITICAL DISTINCTION — capex-cycle compression vs structural decline:**
+- **Temporary**: FCF compressed because the company is building infrastructure against validated demand (contracted backlog, growing revenue). Use normalized post-cycle earnings for the multiple, not trough-cycle FCF.
+- **Permanent**: FCF compressed because the moat is eroding, pricing power declining, or customers leaving. Use current FCF.
+
+If Bezos flags a capex cycle with validated demand AND the Historian confirms it matches prior successful buildout patterns (AWS 2010-2015, Azure 2018-2022), apply the multiple to **normalized earnings** (pre-capex-peak or projected post-normalization), not the capex-trough FCF. Do NOT double-penalize by applying low multiples to already-depressed FCF.
+
 ## TOO UNCERTAIN TRIPWIRES (MANDATORY CHECK)
 
 After completing your synthesis, check these tripwires. If TWO OR MORE are true, your default verdict is **TOO UNCERTAIN** and you must argue your way OUT of it — not INTO it:
@@ -109,6 +126,7 @@ Before making your final decision, you MUST explicitly:
 5. **Calculate the Adjustment:**
    - Weak moat, bad product, or decaying ecosystem → keep "Graham Floor" (~10x)
    - High-quality compounder with healthy ecosystem → **RAISE** Floor to "Quality Floor" (15x-18x)
+   - Dominant platform monopoly meeting all 4 Franchise Premium criteria → **RAISE** Floor to "Franchise Floor" (18x-25x)
 
 ## TOO UNCERTAIN FRAMING (REQUIRED FOR TOO UNCERTAIN VERDICTS)
 
@@ -121,6 +139,8 @@ When your decision is TOO UNCERTAIN, include the following framing paragraph at 
 > [Then 2-3 sentences on why this specific case is TOO UNCERTAIN — what the uncalculable variable is and why it dominates.]
 
 Without this framing, readers will misread the verdict as a product defect rather than as Charlie-style discipline.
+
+**VALUATION DISCIPLINE FOR TOO UNCERTAIN VERDICTS:** When your verdict is TOO UNCERTAIN, do not cite point-estimate valuations for the scenario you declared uncalculable. Use conditional framing: "If [specific event] resolves favorably, normalized earnings of $X-$Y at Z-Wx multiples imply $A-$B per share." Never state a single valuation number without naming the assumption it depends on. The report is strongest when humble, weakest when it slips into precision on the very variable it declared unknowable.
 
 ## FINAL DECISION SECTION (IN THE PROSE SYNTHESIS)
 

@@ -1,0 +1,122 @@
+Feature: Analyze Company Skill
+
+  The /analyze-company skill runs a full investment analysis pipeline
+  via Claude Code, using only Tavily as an external API key.
+  All LLM reasoning is done by Claude Code subagents.
+
+  ## Data Collection
+
+  Scenario: Build initial dossier for a valid US ticker
+    Given a valid US ticker "AAPL"
+    When the dossier builder runs
+    Then the dossier contains a revenue trend line
+    And the dossier contains valuation anchors with Graham floor and DCF scenarios
+    And the dossier contains SEC 10-K extracts for business, risks, and MD&A
+    And the dossier contains earnings transcript intel from Tavily
+    And the dossier contains market strategy context from Tavily
+
+  Scenario: Build dossier for an ADR ticker with currency mismatch
+    Given an ADR ticker "BIDU" with financials in CNY and price in USD
+    When the dossier builder runs
+    Then the FX rate is fetched and applied to all financial data
+    And the valuation anchors are denominated in USD
+    And the implied share count is calculated from market cap divided by price
+
+  Scenario: Build dossier when SEC filing is unavailable
+    Given a foreign ticker "RY.TO" with no SEC filing
+    When the dossier builder runs
+    Then the dossier proceeds with "(10-K Not Found)" noted
+    And earnings transcripts and strategy data are still collected
+
+  Scenario: Fail fast when Tavily key is missing
+    Given the TAVILY_API_KEY environment variable is not set
+    When the config module loads
+    Then it raises an error with a clear message about the missing key
+
+  Scenario: Config does not require Gemini key
+    Given the GEMINI_API_KEY environment variable is not set
+    And the TAVILY_API_KEY is set
+    When the config module loads
+    Then it initializes successfully with only the Tavily client
+
+  ## Forensic Interrogation
+
+  Scenario: Generate and execute forensic search queries
+    Given a completed dossier for "AAPL"
+    When forensic interrogation runs
+    Then 5 search queries are generated covering red flags, cost dumping, smart money, and accounting
+    And each query is executed via Tavily search
+    And the results are appended to the dossier under forensic answers
+
+  ## Expert Council
+
+  Scenario: All 8 experts analyze in parallel
+    Given a refined dossier for "AAPL"
+    When the expert council convenes
+    Then 8 expert subagents run in parallel using the haiku model
+    And each expert produces a structured analysis from their unique framework
+    And the experts are Bezos, Buffett, Burry, Cook, Jobs, Psychologist, Sherlock, and Futurist
+
+  ## Munger Synthesis
+
+  Scenario: Synthesize expert reports into verdict
+    Given 8 completed expert reports and the full dossier
+    When Munger synthesis runs using the opus model
+    Then it produces a verdict of BUY, SELL, or PASS
+    And it includes a buy zone with absurdly cheap and fair value limit prices
+    And it addresses conflicts between experts
+    And it includes hidden value and moat quality adjustments
+
+  ## Reality Check
+
+  Scenario: Red-team the verdict
+    Given a Munger verdict and all expert reports
+    When the reality check runs using the opus model
+    Then Charlie Munger's persona critiques SBC, EBITDA quality, complexity, and pricing power
+    And Warren Buffett's persona evaluates circle of competence, toll bridge test, and capital preservation
+    And a Graham-Dodd scorecard grade is produced
+
+  ## Report Output
+
+  Scenario: Save full and simple reports to Obsidian
+    Given a completed analysis with verdict, expert reports, and reality check
+    When reports are saved
+    Then a full analysis markdown file is saved to the Obsidian vault
+    And a simple "dinner table" markdown file is saved to the Obsidian vault
+    And both files are named with the ticker and current date
+    And the Obsidian path is ~/Library/Mobile Documents/iCloud~md~obsidian/Documents/Tal/reports/
+
+  Scenario: Fallback when Obsidian path does not exist
+    Given the Obsidian vault path does not exist
+    When reports are saved
+    Then the reports directory is created
+    And the reports are saved successfully
+
+  ## Skill Structure
+
+  Scenario: Master skill file exists with correct structure
+    Given the skills directory
+    When the analyze-company skill is checked
+    Then skills/analyze-company.md exists
+    And it defines the orchestration flow for data collection, experts, synthesis, and output
+
+  Scenario: All 8 expert prompt files exist
+    Given the skills/experts directory
+    When expert files are checked
+    Then bezos.md, buffett.md, burry.md, cook.md, jobs.md, psychologist.md, sherlock.md, and futurist.md all exist
+    And each contains the expert's specific analytical framework
+
+  Scenario: Synthesis and reality check skill files exist
+    Given the skills directory
+    When synthesis files are checked
+    Then skills/munger-synthesis.md exists with the Munger synthesis prompt
+    And skills/reality-check.md exists with the red-team critique prompt
+
+  ## Cleanup
+
+  Scenario: No Gemini dependency remains
+    Given the project codebase
+    When imports are checked
+    Then no Python file imports google.generativeai
+    And no Python file references ask_gemini or model_reasoning from Gemini
+    And requirements.txt does not include google-generativeai

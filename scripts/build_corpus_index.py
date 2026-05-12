@@ -1,0 +1,156 @@
+#!/usr/bin/env python3
+"""Build CORPUS_INDEX.md from Silicon Council analysis reports.
+
+Scans the Obsidian reports folder for *_Analysis_YYYY-MM-DD.md files, extracts the
+Munger verdict from each latest-per-ticker file, and writes a sortable index
+that the portfolio-advisor skill reads first.
+
+Re-run after every analyze-company invocation to keep the index current.
+"""
+from __future__ import annotations
+
+import os
+import re
+from collections import Counter, defaultdict
+from datetime import datetime
+
+REPORTS_DIR = "/Users/tallempert/Library/Mobile Documents/iCloud~md~obsidian/Documents/Tal/reports/"
+FILE_PATTERN = re.compile(r'^(?P<ticker>[A-Z0-9.\-]+)_Analysis_(?P<date>\d{4}-\d{2}-\d{2})\.md$')
+
+HOLD_SET = {
+    'MSFT', 'BRK-B', 'AEM', 'BABA', 'PLTR', 'META', 'TCEHY', 'TCNNF',
+    'BIDU', 'BEPC', 'GBTC', 'CSIQ', 'CRSR', 'PLNH', 'GRNWF', 'PLTH.CN',
+    'GRTUF', 'CNX.V', 'NXGWF',
+}
+
+DECISION_WORDS = r'(BUY|SELL|PASS|HOLD|WAIT|TOO UNCERTAIN|SPECULATIVE BUY|STRONG BUY|LIQUIDATION)'
+
+DECISION_ORDER = {
+    'BUY': 0, 'STRONG BUY': 0, 'SPECULATIVE BUY': 1,
+    'WAIT': 2, 'HOLD': 3, 'PASS': 4,
+    'SELL': 5, 'LIQUIDATION': 5, 'PASS/SELL': 5,
+    'TOO UNCERTAIN': 6,
+}
+
+
+def parse_verdict(path: str) -> dict:
+    with open(path, encoding='utf-8') as f:
+        head = f.read()[:15000]
+
+    decision = None
+    for pat in [
+        rf'\*\*Decision:\s*{DECISION_WORDS}\.?\*\*',
+        rf'\*\*Decision:\*\*\s*{DECISION_WORDS}',
+        rf'###?\s*🚀?\s*DECISION:\s*{DECISION_WORDS}',
+        rf'(?:^|\n)\s*VERDICT:\s*{DECISION_WORDS}',
+        rf'\*\*Verdict:\*?\*?\s*{DECISION_WORDS}',
+        rf'The Munger verdict:\s*\*?\*?\s*{DECISION_WORDS}',
+        r'\*\*PASS\s*/\s*SELL\*\*',
+    ]:
+        m = re.search(pat, head, re.I)
+        if m:
+            decision = m.group(1) if m.groups() else 'PASS/SELL'
+            break
+
+    buy_zone = None
+    for pat in [
+        r'Munger Buy Zone[:\s\*]*\$?([\d,.]+)\s*(?:[–\-\–])\s*\$?([\d,.]+)',
+        r'Munger Buy Zone[:\s\*]*\$?([\d,.]+)[^$]*?to\s*\$?([\d,.]+)',
+        r'Buy Zone[:\s\*]*\$?([\d,.]+)\s*(?:[–\-\–])\s*\$?([\d,.]+)',
+    ]:
+        m = re.search(pat, head, re.I)
+        if m:
+            lo, hi = m.group(1).rstrip('.'), m.group(2).rstrip('.')
+            if lo and hi:
+                buy_zone = f"${lo}–${hi}"
+                break
+
+    council = None
+    m = re.search(r'Council [Vv]ote:\*?\*?\s*(.+?)(?:\n|$)', head)
+    if m:
+        council = m.group(1).strip().replace('**', '')[:50]
+
+    price = None
+    for pat in [r'\*\*Current [Pp]rice:\*\*\s*\$?([\d,.]+)',
+                r'\*\*Price:\*\*\s*\$?([\d,.]+)',
+                r'CURRENT PRICE:\s*\$?([\d,.]+)']:
+        m = re.search(pat, head)
+        if m:
+            price = f"${m.group(1)}"
+            break
+
+    conviction = None
+    m = re.search(r'\*\*Conviction:\*\*\s*([A-Za-z\-]+)', head)
+    if m:
+        conviction = m.group(1)
+
+    return {
+        'decision': (decision or '—').upper().strip(),
+        'buy_zone': buy_zone or '—',
+        'council': council or '—',
+        'price': price or '—',
+        'conviction': conviction or '—',
+    }
+
+
+def main() -> None:
+    files_by_ticker: dict[str, list[tuple[str, str]]] = defaultdict(list)
+    for fname in os.listdir(REPORTS_DIR):
+        m = FILE_PATTERN.match(fname)
+        if m:
+            files_by_ticker[m.group('ticker')].append((m.group('date'), fname))
+
+    today = datetime.now()
+    rows = []
+    for ticker, dates in sorted(files_by_ticker.items()):
+        dates.sort()
+        latest_date, latest_file = dates[-1]
+        v = parse_verdict(os.path.join(REPORTS_DIR, latest_file))
+        age = (today - datetime.strptime(latest_date, '%Y-%m-%d')).days
+        stale = '⚠️' if age > 60 else ''
+        rows.append((ticker, latest_date, len(dates), v['decision'], v['buy_zone'],
+                     v['price'], v['conviction'], v['council'], stale, latest_file))
+
+    rows.sort(key=lambda r: (DECISION_ORDER.get(r[3], 99), r[1]))
+
+    lines = [
+        "# Silicon Council — Corpus Index",
+        f"**Last updated:** {today.strftime('%Y-%m-%d')} | "
+        f"**Tickers analyzed:** {len(rows)} | "
+        f"**Total analysis runs:** {sum(r[2] for r in rows)}",
+        "",
+        "Sorted by verdict then date. ⚠️ = verdict >60 days old (likely stale). ✅ = currently held in portfolio.",
+        "",
+        "| Ticker | Held | Decision | Buy Zone | Price @ Analysis | Conv. | Council Vote | Date | Runs | Stale |",
+        "|--------|------|----------|---------|------------------|-------|-------------|------|------|-------|",
+    ]
+    for r in rows:
+        ticker, date, runs, decision, bz, price, conv, council, stale, fname = r
+        held = '✅' if ticker in HOLD_SET else ''
+        link = f"[{ticker}]({fname.replace(' ', '%20')})"
+        lines.append(
+            f"| {link} | {held} | **{decision}** | {bz} | {price} | {conv} | {council} | {date} | {runs} | {stale} |"
+        )
+
+    lines.extend([
+        "",
+        "## How this index is built",
+        "- Generated by `scripts/build_corpus_index.py` from `*_Analysis_*.md` files in this folder",
+        "- `analyze-company` skill re-runs it after each deploy",
+        "- `portfolio-advisor` skill reads this index first; falls back to globbing if missing",
+        "- Verdict parsing is best-effort — click through to the source report for nuance",
+        "",
+        "## Corpus by decision",
+    ])
+    counts = Counter(r[3] for r in rows)
+    for decision, n in sorted(counts.items(), key=lambda x: DECISION_ORDER.get(x[0], 99)):
+        lines.append(f"- **{decision}:** {n}")
+
+    index_path = os.path.join(REPORTS_DIR, "CORPUS_INDEX.md")
+    with open(index_path, 'w', encoding='utf-8') as f:
+        f.write('\n'.join(lines))
+    print(f"Wrote {index_path} ({len(rows)} tickers)")
+
+
+if __name__ == '__main__':
+    main()

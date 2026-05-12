@@ -2041,8 +2041,8 @@ def build_initial_dossier(ticker):
     try:
         import json as _json
         import os as _os
-        _os.makedirs('/tmp/silicon_council', exist_ok=True)
-        with open('/tmp/silicon_council/key_metrics.json', 'w') as _f:
+        _os.makedirs(f'/tmp/silicon_council/{ticker}', exist_ok=True)
+        with open(f'/tmp/silicon_council/{ticker}/key_metrics.json', 'w') as _f:
             _json.dump(key_metrics, _f)
     except Exception as e:
         print(f"⚠️  Could not save key_metrics.json: {e}")
@@ -2255,38 +2255,80 @@ def _parse_expert_summary(report_text):
     # If no block found, search the entire text
     search_text = block if block else report_text
 
-    # Extract verdict — multiple patterns
+    # Extract verdict — multiple patterns (including common aliases)
     verdict = ''
     for pattern in [
         r'VERDICT:\s*\**\s*(.+?)(?:\n|$)',
-        r'\*\*(?:Verdict|VERDICT)[:\s]*\**\s*(.+?)(?:\*\*|\n|$)',
-        r'(?:^|\n)\s*Verdict[:\s]+\**(.+?)(?:\*\*|\n|$)',
+        r'SIGNAL:\s*\**\s*(.+?)(?:\n|$)',
+        r'STANCE:\s*\**\s*(.+?)(?:\n|$)',
+        r'RECOMMENDATION:\s*\**\s*(.+?)(?:\n|$)',
+        r'\*\*(?:Verdict|VERDICT|Signal|Stance)[:\s]*\**\s*(.+?)(?:\*\*|\n|$)',
+        r'(?:^|\n)\s*(?:Verdict|Signal|Stance)[:\s]+\**(.+?)(?:\*\*|\n|$)',
     ]:
         v = extract_from(search_text, pattern)
-        if v and len(v) < 30:  # Verdicts should be short (BUY/SELL/HOLD + qualifier)
+        if v and len(v) < 80:
             verdict = v
             break
-    # If verdict is too long (free-form sentence), try to extract just the signal word
-    if len(verdict) > 20:
-        for word in ['STRONG BUY', 'BUY', 'SELL', 'HOLD', 'PASS']:
-            if word in verdict.upper():
+    # Extract just the signal word from longer verdict text
+    _VERDICT_WORDS = ['STRONG BUY', 'CAUTIOUS BUY', 'BUY', 'SELL', 'HOLD', 'WAIT', 'PASS', 'TOO UNCERTAIN']
+    # Also map non-standard verdict phrases to standard words
+    _VERDICT_ALIASES = {
+        'GROWTH PREMIUM JUSTIFIED': 'BUY', 'PREMIUM JUSTIFIED': 'BUY',
+        'KEYSTONE SPECIES': 'BUY', 'SURVIVOR': 'BUY', 'DURABLE COMPOUNDER': 'BUY',
+        'CAUTIOUS WATCH': 'HOLD', 'ACCUMULATE': 'BUY', 'CAUTIOUS HOLD': 'HOLD',
+    }
+    if not verdict or len(verdict) > 20:
+        scan = verdict.upper() if verdict else search_text[:800].upper()
+        # Try exact verdict words first
+        for word in _VERDICT_WORDS:
+            if word in scan:
                 verdict = word
                 break
+        # Then try aliases
+        if not verdict or len(verdict) > 20:
+            for alias, mapped in _VERDICT_ALIASES.items():
+                if alias in scan:
+                    verdict = mapped
+                    break
 
-    # Extract confidence
-    conf_str = extract_from(search_text, r'CONFIDENCE[:\s]*\**\s*(\d+)')
+    # Extract confidence — multiple field names
+    conf_str = ''
+    for conf_pattern in [
+        r'CONFIDENCE[:\s]*\**\s*(\d+)',
+        r'CONVICTION[:\s]*\**\s*(\d+)',
+    ]:
+        conf_str = extract_from(search_text, conf_pattern)
+        if conf_str:
+            break
     confidence = int(conf_str) if conf_str else 0
-    # Fallback: look for "XX% confidence" pattern
+    # Fallback: look for "XX% confidence" or "XX/100" patterns
     if not confidence:
-        m = re.search(r'(\d{2,3})%\s*confidence', search_text, re.IGNORECASE)
+        m = re.search(r'(\d{2,3})%?\s*(?:confidence|conviction)', search_text, re.IGNORECASE)
+        if not m:
+            m = re.search(r'(\d{2,3})/100', search_text, re.IGNORECASE)
         if m:
             confidence = int(m.group(1))
 
-    # Extract other fields
-    key_metric = extract_from(search_text, r'KEY METRIC[:\s]*\**(.+?)(?:\n|$)')
-    key_risk = extract_from(search_text, r'KEY RISK[:\s]*\**(.+?)(?:\n|$)')
+    # Extract other fields (with aliases)
+    key_metric = extract_from(search_text, r'KEY (?:METRIC|INSIGHT|FINDING)[:\s]*\**(.+?)(?:\n|$)')
+    key_risk = extract_from(search_text, r'(?:KEY RISK|TRIPWIRE|PRIMARY RISK)[:\s]*\**(.+?)(?:\n|$)')
     bull_case = extract_from(search_text, r'BULL CASE[:\s]*\**(.+?)(?:\n|$)')
     moat_flag = extract_from(search_text, r'MOAT FLAG[:\s]*\**(.+?)(?:\n|$)')
+
+    # Last-resort fallback: if we have a ---SUMMARY--- block but no structured fields,
+    # scan the block text for verdict words and use the first sentence as key_metric
+    if not verdict and block:
+        for word in _VERDICT_WORDS:
+            if word in block.upper():
+                verdict = word
+                break
+        if not key_metric and block.strip():
+            # Use first non-empty line as key_metric
+            for line in block.strip().split('\n'):
+                line = line.strip()
+                if line and not line.startswith('EXPERT:') and not line.startswith('TICKER:'):
+                    key_metric = line[:80]
+                    break
 
     # If we got at least a verdict, return results
     if verdict or confidence or key_metric:

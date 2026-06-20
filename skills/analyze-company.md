@@ -381,11 +381,13 @@ Replace `TICKER_HERE` with the actual ticker.
 
 ### Step 8.5: Refresh Corpus Index
 
-After the report is deployed, refresh `CORPUS_INDEX.md` so `portfolio-advisor` can find the new verdict without re-globbing:
+Refresh `CORPUS_INDEX.md` so `portfolio-advisor` can find the new verdict without re-globbing. Run this **even if the GitHub Pages deploy was skipped or denied** — the index is local and must stay current regardless:
 
 ```bash
 cd /Users/tallempert/src-tal/investor && ./venv/bin/python3 scripts/build_corpus_index.py
 ```
+
+The index captures per-ticker: Decision, **Δ vs Prior** (how the verdict moved vs the previous run — ↑/↓/＝/NEW), Buy Zone and Price @ Analysis (currency-aware: £/$/€), Conviction, Council Vote, Date, Runs, and a >60-day stale flag. Parsing is best-effort and anchored on the verdict's `**Buy Zone: …**` / price lines.
 
 ### Step 9: Report to User
 

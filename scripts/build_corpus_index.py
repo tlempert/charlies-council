@@ -25,6 +25,8 @@ HOLD_SET = {
 
 DECISION_WORDS = r'(BUY|SELL|PASS|HOLD|WAIT|TOO UNCERTAIN|SPECULATIVE BUY|STRONG BUY|LIQUIDATION)'
 
+CUR = r'[£$€]'  # currency symbols the parser recognizes
+
 DECISION_ORDER = {
     'BUY': 0, 'STRONG BUY': 0, 'SPECULATIVE BUY': 1,
     'WAIT': 2, 'HOLD': 3, 'PASS': 4,
@@ -52,17 +54,23 @@ def parse_verdict(path: str) -> dict:
             decision = m.group(1) if m.groups() else 'PASS/SELL'
             break
 
+    # Currency-aware (£/$/€). Require a colon after "Buy Zone" so we anchor on the
+    # actual zone *declaration* ("Buy Zone: $50-75") and skip prose mentions that
+    # quote a different figure ("buy zone $11-13 on normalized FCF"). The low bound
+    # must carry a currency symbol and start with a digit (rejects "14x-20x" multiples).
+    # The gap between bounds may hold a parenthetical with its own digits, so span it
+    # with `.` and stop only at a real separator: en/em dash, hyphen, or " to ".
     buy_zone = None
     for pat in [
-        r'Munger Buy Zone[:\s\*]*\$?([\d,.]+)\s*(?:[–\-\–])\s*\$?([\d,.]+)',
-        r'Munger Buy Zone[:\s\*]*\$?([\d,.]+)[^$]*?to\s*\$?([\d,.]+)',
-        r'Buy Zone[:\s\*]*\$?([\d,.]+)\s*(?:[–\-\–])\s*\$?([\d,.]+)',
+        rf'Buy Zone:[\s\*]*({CUR})(\d[\d,.]*).{{0,120}}?(?:[–—-]|\bto\b)\s*({CUR}?)(\d[\d,.]*)',
     ]:
         m = re.search(pat, head, re.I)
         if m:
-            lo, hi = m.group(1).rstrip('.'), m.group(2).rstrip('.')
+            sym1, lo, sym2, hi = m.groups()
+            sym = sym1 or sym2 or '$'
+            lo, hi = lo.rstrip('.'), hi.rstrip('.')
             if lo and hi:
-                buy_zone = f"${lo}–${hi}"
+                buy_zone = f"{sym}{lo}–{sym}{hi}"
                 break
 
     council = None
@@ -70,13 +78,17 @@ def parse_verdict(path: str) -> dict:
     if m:
         council = m.group(1).strip().replace('**', '')[:50]
 
+    # Currency-aware. Patterns 1-2 require a currency symbol so we never grab a
+    # buy-zone or prose number; pattern 3 is a labelled fallback. Handles the hero
+    # "· Price £15.95 ·", "Current Price:** $195.16", "price is £15.95", "price of £4.18".
     price = None
-    for pat in [r'\*\*Current [Pp]rice:\*\*\s*\$?([\d,.]+)',
-                r'\*\*Price:\*\*\s*\$?([\d,.]+)',
-                r'CURRENT PRICE:\s*\$?([\d,.]+)']:
-        m = re.search(pat, head)
+    for pat in [rf'(?:Current\s+)?Price[:\s\*·]*({CUR})(\d[\d,.]*)',
+                rf'price\s+(?:is|of|at)\s*\*{{0,2}}({CUR})(\d[\d,.]*)',
+                rf'CURRENT PRICE:\s*({CUR}?)(\d[\d,.]*)']:
+        m = re.search(pat, head, re.I)
         if m:
-            price = f"${m.group(1)}"
+            sym, num = m.group(1) or '$', m.group(2).rstrip('.')
+            price = f"{sym}{num}"
             break
 
     conviction = None
@@ -93,6 +105,24 @@ def parse_verdict(path: str) -> dict:
     }
 
 
+def verdict_change(current: str, prior: str | None) -> str:
+    """Direction of the latest verdict vs the previous run for the same ticker.
+
+    Uses DECISION_ORDER (lower = more bullish): a move to a lower rank is an
+    upgrade (↑), higher rank a downgrade (↓), equal rank unchanged (＝).
+    """
+    if prior is None:
+        return 'NEW'
+    if prior == '—' or current == '—':
+        return '?'
+    if prior == current:
+        return '＝'
+    cur_rank = DECISION_ORDER.get(current, 99)
+    prior_rank = DECISION_ORDER.get(prior, 99)
+    arrow = '↑' if cur_rank < prior_rank else '↓'
+    return f"{arrow} from {prior}"
+
+
 def main() -> None:
     files_by_ticker: dict[str, list[tuple[str, str]]] = defaultdict(list)
     for fname in os.listdir(REPORTS_DIR):
@@ -106,10 +136,14 @@ def main() -> None:
         dates.sort()
         latest_date, latest_file = dates[-1]
         v = parse_verdict(os.path.join(REPORTS_DIR, latest_file))
+        prior_decision = None
+        if len(dates) > 1:
+            prior_decision = parse_verdict(os.path.join(REPORTS_DIR, dates[-2][1]))['decision']
+        change = verdict_change(v['decision'], prior_decision)
         age = (today - datetime.strptime(latest_date, '%Y-%m-%d')).days
         stale = '⚠️' if age > 60 else ''
         rows.append((ticker, latest_date, len(dates), v['decision'], v['buy_zone'],
-                     v['price'], v['conviction'], v['council'], stale, latest_file))
+                     v['price'], v['conviction'], v['council'], stale, latest_file, change))
 
     rows.sort(key=lambda r: (DECISION_ORDER.get(r[3], 99), r[1]))
 
@@ -120,16 +154,17 @@ def main() -> None:
         f"**Total analysis runs:** {sum(r[2] for r in rows)}",
         "",
         "Sorted by verdict then date. ⚠️ = verdict >60 days old (likely stale). ✅ = currently held in portfolio.",
+        "**Δ vs Prior** = how the latest verdict moved vs the previous run (↑ upgrade / ↓ downgrade / ＝ unchanged / NEW first run).",
         "",
-        "| Ticker | Held | Decision | Buy Zone | Price @ Analysis | Conv. | Council Vote | Date | Runs | Stale |",
-        "|--------|------|----------|---------|------------------|-------|-------------|------|------|-------|",
+        "| Ticker | Held | Decision | Δ vs Prior | Buy Zone | Price @ Analysis | Conv. | Council Vote | Date | Runs | Stale |",
+        "|--------|------|----------|-----------|---------|------------------|-------|-------------|------|------|-------|",
     ]
     for r in rows:
-        ticker, date, runs, decision, bz, price, conv, council, stale, fname = r
+        ticker, date, runs, decision, bz, price, conv, council, stale, fname, change = r
         held = '✅' if ticker in HOLD_SET else ''
         link = f"[{ticker}]({fname.replace(' ', '%20')})"
         lines.append(
-            f"| {link} | {held} | **{decision}** | {bz} | {price} | {conv} | {council} | {date} | {runs} | {stale} |"
+            f"| {link} | {held} | **{decision}** | {change} | {bz} | {price} | {conv} | {council} | {date} | {runs} | {stale} |"
         )
 
     lines.extend([
@@ -138,6 +173,7 @@ def main() -> None:
         "- Generated by `scripts/build_corpus_index.py` from `*_Analysis_*.md` files in this folder",
         "- `analyze-company` skill re-runs it after each deploy",
         "- `portfolio-advisor` skill reads this index first; falls back to globbing if missing",
+        "- Buy Zone / Price parsing is currency-aware (£/$/€); **Δ vs Prior** compares the latest verdict to the previous dated run for the same ticker",
         "- Verdict parsing is best-effort — click through to the source report for nuance",
         "",
         "## Corpus by decision",

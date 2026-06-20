@@ -34,12 +34,16 @@ class TestGetCik:
         assert self._get_cik("ADBE") == "0000796343"
 
     @patch("modules.tools.requests.get")
-    def test_strips_exchange_suffix(self, mock_get):
-        """International tickers like SHEL.L should strip .L before lookup."""
+    def test_suffixed_ticker_returns_none_without_querying_edgar(self, mock_get):
+        """Non-US listings (SHEL.L) must NOT be resolved by stripping the
+        suffix — that collides the bare root with an unrelated US ticker and
+        contaminates the dossier with the wrong company's 10-K. They file with
+        their local regulator, not the SEC, so EDGAR is never queried."""
         mock_get.return_value.json.return_value = {
             "0": {"cik_str": 1234, "ticker": "SHEL", "title": "SHELL PLC"},
         }
-        assert self._get_cik("SHEL.L") == "0000001234"
+        assert self._get_cik("SHEL.L") is None
+        mock_get.assert_not_called()
 
     @patch("modules.tools.requests.get")
     def test_returns_none_for_unknown_ticker(self, mock_get):

@@ -48,6 +48,84 @@ class TestNormalizeTicker:
         assert self._normalize("SHEL.L") == "SHEL.L"
 
 
+# --- get_cik (foreign-ticker EDGAR contamination guard) ---
+
+class TestGetCik:
+    """Regression guard: non-US (.L/.OL/.DE/...) tickers must NEVER hit EDGAR.
+
+    Bug: get_cik stripped the exchange suffix and looked the bare root up in
+    EDGAR, so ADM.L (Admiral Group, UK) collided with the US ticker ADM
+    (Archer-Daniels-Midland) and contaminated ~2/3 of the dossier with the
+    wrong company's 10-K. UK/EU companies don't file 10-Ks; they must fall
+    through to the non-US narrative path instead.
+    """
+
+    # Simulates the real EDGAR company_tickers.json payload where the bare
+    # root "ADM" maps to Archer-Daniels-Midland.
+    _EDGAR_ADM = {
+        "0": {"cik_str": 7084, "ticker": "ADM", "title": "Archer-Daniels-Midland Co"},
+        "1": {"cik_str": 320193, "ticker": "AAPL", "title": "Apple Inc."},
+    }
+
+    def _mock_edgar(self, payload):
+        resp = MagicMock()
+        resp.json.return_value = payload
+        return resp
+
+    def test_london_ticker_returns_none(self):
+        from modules.tools import get_cik
+        with patch("modules.tools.requests.get") as mock_get:
+            mock_get.return_value = self._mock_edgar(self._EDGAR_ADM)
+            assert get_cik("ADM.L") is None
+
+    def test_london_ticker_never_queries_edgar(self):
+        """The strongest guarantee: ADM.L yields zero ADM-US content because
+        EDGAR is never even contacted for a suffixed ticker."""
+        from modules.tools import get_cik
+        with patch("modules.tools.requests.get") as mock_get:
+            mock_get.return_value = self._mock_edgar(self._EDGAR_ADM)
+            get_cik("ADM.L")
+            mock_get.assert_not_called()
+
+    @pytest.mark.parametrize("ticker", [
+        "ADM.L", "RMV.L", "GRG.L", "AKRBP.OL", "CHG.DE", "SHEL.L", "NESN.SW",
+    ])
+    def test_all_foreign_suffixes_return_none(self, ticker):
+        from modules.tools import get_cik
+        with patch("modules.tools.requests.get") as mock_get:
+            mock_get.return_value = self._mock_edgar(self._EDGAR_ADM)
+            assert get_cik(ticker) is None
+            mock_get.assert_not_called()
+
+    def test_bare_us_ticker_still_resolves(self):
+        """US tickers (no suffix) must keep resolving — including legit
+        foreign-private-issuer filers like BEPC that have a real CIK."""
+        from modules.tools import get_cik
+        with patch("modules.tools.requests.get") as mock_get:
+            mock_get.return_value = self._mock_edgar(self._EDGAR_ADM)
+            assert get_cik("ADM") == "0000007084"
+
+    def test_us_share_class_hyphen_still_resolves(self):
+        """yfinance uses a hyphen (BRK-B), not a dot, for US share classes —
+        the dot guard must not block them."""
+        from modules.tools import get_cik
+        payload = {"0": {"cik_str": 1067983, "ticker": "BRK-B",
+                         "title": "BERKSHIRE HATHAWAY INC"}}
+        with patch("modules.tools.requests.get") as mock_get:
+            mock_get.return_value = self._mock_edgar(payload)
+            assert get_cik("BRK-B") == "0001067983"
+
+    def test_dossier_sec_entrypoint_bails_for_foreign_ticker(self):
+        """End-to-end guard: the entry point build_initial_dossier uses to pull
+        10-K sections must return nothing (and never hit EDGAR) for ADM.L, so
+        zero Archer-Daniels-Midland content can leak into the dossier."""
+        from modules.tools import get_sec_sections
+        with patch("modules.tools.requests.get") as mock_get:
+            mock_get.return_value = self._mock_edgar(self._EDGAR_ADM)
+            assert get_sec_sections("ADM.L", "10-K", cik=None) is None
+            mock_get.assert_not_called()
+
+
 # --- get_currency_symbol ---
 
 class TestGetCurrencySymbol:

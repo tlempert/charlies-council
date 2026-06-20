@@ -335,8 +335,19 @@ def get_advanced_valuations(ticker, info, stock):
 
 # --- 2. THE SEC HUNTER ---
 def get_cik(ticker):
-    """Resolve a ticker to its SEC CIK number (zero-padded to 10 digits)."""
-    lookup = ticker.split(".")[0].upper()  # Strip exchange suffix for international tickers
+    """Resolve a ticker to its SEC CIK number (zero-padded to 10 digits).
+
+    Returns None for non-US listings, identified by an exchange suffix
+    (e.g. ADM.L, AKRBP.OL, CHG.DE). Such companies file with their local
+    regulator, not the SEC — querying EDGAR for the bare root would silently
+    match an unrelated US ticker (ADM.L → Admiral Group, but bare "ADM" →
+    Archer-Daniels-Midland) and contaminate the dossier with the wrong
+    company's 10-K. yfinance uses a hyphen for US share classes (BRK-B), so
+    a "." reliably denotes a foreign exchange that does not file with the SEC.
+    """
+    if "." in ticker:
+        return None
+    lookup = ticker.upper()
     try:
         url = "https://www.sec.gov/files/company_tickers.json"
         r = requests.get(url, headers=SEC_HEADERS)

@@ -25,7 +25,16 @@ HOLD_SET = {
 
 DECISION_WORDS = r'(BUY|SELL|PASS|HOLD|WAIT|TOO UNCERTAIN|SPECULATIVE BUY|STRONG BUY|LIQUIDATION)'
 
-CUR = r'[£$€]'  # currency symbols the parser recognizes
+# Currencies the parser recognizes: symbols (£ $ € ¥) or ISO codes for the
+# non-symbol markets in the corpus (PLN Dino, NOK Aker BP, etc.). Each must be
+# immediately followed by an optional space then a digit, so codes don't match prose.
+CUR = r'(?:[£$€¥]|PLN|NOK|SEK|DKK|CHF|CAD|AUD|HKD|SGD)'
+
+
+def _fmt_money(sym: str, num: str) -> str:
+    """Render a parsed amount, spacing multi-letter codes (PLN 38) but not symbols (£38)."""
+    sym = sym or '$'
+    return f"{sym}{num}" if len(sym) == 1 else f"{sym} {num}"
 
 DECISION_ORDER = {
     'BUY': 0, 'STRONG BUY': 0, 'SPECULATIVE BUY': 1,
@@ -60,9 +69,11 @@ def parse_verdict(path: str) -> dict:
     # must carry a currency symbol and start with a digit (rejects "14x-20x" multiples).
     # The gap between bounds may hold a parenthetical with its own digits, so span it
     # with `.` and stop only at a real separator: en/em dash, hyphen, or " to ".
+    # `Buy Zone[...]:` tolerates a short parenthetical/quote between the label and
+    # the colon (e.g. `Buy Zone (built off normalized earnings): £24 – £28`).
     buy_zone = None
     for pat in [
-        rf'Buy Zone:[\s\*]*({CUR})(\d[\d,.]*).{{0,120}}?(?:[–—-]|\bto\b)\s*({CUR}?)(\d[\d,.]*)',
+        rf'Buy Zone[^:\n]{{0,40}}:[\s\*"]*({CUR})\s?(\d[\d,.]*).{{0,120}}?(?:[–—-]|\bto\b)\s*(?:({CUR})\s?)?(\d[\d,.]*)',
     ]:
         m = re.search(pat, head, re.I)
         if m:
@@ -70,7 +81,7 @@ def parse_verdict(path: str) -> dict:
             sym = sym1 or sym2 or '$'
             lo, hi = lo.rstrip('.'), hi.rstrip('.')
             if lo and hi:
-                buy_zone = f"{sym}{lo}–{sym}{hi}"
+                buy_zone = f"{_fmt_money(sym, lo)}–{_fmt_money(sym, hi)}"
                 break
 
     council = None
@@ -82,13 +93,12 @@ def parse_verdict(path: str) -> dict:
     # buy-zone or prose number; pattern 3 is a labelled fallback. Handles the hero
     # "· Price £15.95 ·", "Current Price:** $195.16", "price is £15.95", "price of £4.18".
     price = None
-    for pat in [rf'(?:Current\s+)?Price[:\s\*·]*({CUR})(\d[\d,.]*)',
-                rf'price\s+(?:is|of|at)\s*\*{{0,2}}({CUR})(\d[\d,.]*)',
-                rf'CURRENT PRICE:\s*({CUR}?)(\d[\d,.]*)']:
+    for pat in [rf'(?:Current\s+)?Price[:\s\*·]*({CUR})\s?(\d[\d,.]*)',
+                rf'price\s+(?:is|of|at)\s*\*{{0,2}}({CUR})\s?(\d[\d,.]*)',
+                rf'CURRENT PRICE:\s*({CUR}?)\s?(\d[\d,.]*)']:
         m = re.search(pat, head, re.I)
         if m:
-            sym, num = m.group(1) or '$', m.group(2).rstrip('.')
-            price = f"{sym}{num}"
+            price = _fmt_money(m.group(1), m.group(2).rstrip('.'))
             break
 
     conviction = None

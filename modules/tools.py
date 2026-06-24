@@ -1287,7 +1287,7 @@ def _derive_cost_stickiness(forensic_data):
         revenue_declined = prev_rev > 0 and curr_rev < prev_rev
         oi_crashed = prev_oi > 0 and curr_oi < prev_oi * OI_CRASH_THRESHOLD
 
-        if revenue_declined or oi_crashed:
+        if (revenue_declined or oi_crashed) and prev_rev > 0:
             rev_change_pct = (curr_rev - prev_rev) / prev_rev  # negative
             ratios = {}
             for cost_key in defaults:

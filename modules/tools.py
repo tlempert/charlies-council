@@ -2417,24 +2417,31 @@ def _parse_verdict_highlights(verdict_text):
             or extract_field(r'(?:^|\n)THESIS:\s*([^\n]+)')
         )
 
-        zone_match = re.search(r'\$(\d+(?:\.\d+)?)\s*[-–—]\s*\$?(\d+(?:\.\d+)?)', result['trigger'])
+        # Prices may carry thousands separators ($1,900) — match commas and
+        # strip them before float(), else "$1,900" parses as just "1".
+        _NUM = r'\d[\d,]*(?:\.\d+)?'
+
+        def _money(s):
+            return float(s.replace(',', ''))
+
+        zone_match = re.search(rf'\$({_NUM})\s*[-–—]\s*\$?({_NUM})', result['trigger'])
         if zone_match:
             try:
-                result['buy_zone_low'] = float(zone_match.group(1))
-                result['buy_zone_high'] = float(zone_match.group(2))
+                result['buy_zone_low'] = _money(zone_match.group(1))
+                result['buy_zone_high'] = _money(zone_match.group(2))
             except ValueError:
                 pass
         else:
-            single_match = re.search(r'[≤<=]\s*\$?(\d+(?:\.\d+)?)', result['trigger'])
+            single_match = re.search(rf'[≤<=]\s*~?\$?({_NUM})', result['trigger'])
             if single_match:
                 try:
-                    result['buy_zone_high'] = float(single_match.group(1))
+                    result['buy_zone_high'] = _money(single_match.group(1))
                 except ValueError:
                     pass
-            floor_match = re.search(r'floor\s+\$?(\d+(?:\.\d+)?)', result['trigger'], re.IGNORECASE)
+            floor_match = re.search(rf'floor\s+~?\$?({_NUM})', result['trigger'], re.IGNORECASE)
             if floor_match:
                 try:
-                    result['buy_zone_low'] = float(floor_match.group(1))
+                    result['buy_zone_low'] = _money(floor_match.group(1))
                 except ValueError:
                     pass
 
@@ -2723,10 +2730,18 @@ def save_to_html(ticker, verdict, reports, simple_report=None, base_dir=None,
                 th += f'<th>{esc(pt)}</th>'
             th += '<th>Peer Median</th>'
             rows = ""
+
+            def _num(v):
+                # nan is truthy in Python, so `or 0` doesn't scrub it — coerce
+                # missing/NaN metrics (e.g. an unparsed SBC) to 0 = "not available".
+                if v is None or (isinstance(v, float) and math.isnan(v)):
+                    return 0
+                return v
+
             for label, key, suffix, mult in _peer_metrics:
-                t_val = t_data.get(key, 0) or 0
-                p_vals = [p_data[pt].get(key, 0) for pt in peer_tickers
-                          if p_data[pt].get(key, 0)]
+                t_val = _num(t_data.get(key, 0))
+                p_vals = [pv for pt in peer_tickers
+                          if (pv := _num(p_data[pt].get(key, 0)))]
                 median_val = statistics.median(p_vals) if p_vals else 0
                 # Format helper
                 def _fmt(v, s=suffix, m=mult):

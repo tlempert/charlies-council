@@ -6,6 +6,7 @@ from colorama import Fore, Style
 from .config import tavily, SEC_HEADERS, CURRENT_YEAR, LAST_YEAR
 from pypdf import PdfReader # <--- Ensure this is imported
 import io
+import math
 import os
 import re
 import statistics

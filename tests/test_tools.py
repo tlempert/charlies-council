@@ -1498,3 +1498,40 @@ class TestSuperinvestorRegistry:
         """0.05% of a concentrated fund and 43% are not the same signal."""
         mock_q.return_value = "Dalal Street KSPI 0.05% of portfolio 1,702 shares"
         assert "conviction" in self._registry().lower()
+
+
+def _lines(dcf_standard, dcf_opt, c_sym):
+    from modules.tools import _dcf_scenario_lines
+    return _dcf_scenario_lines(dcf_standard, dcf_opt, c_sym)
+
+
+# --- DCF scenario labelling -------------------------------------------------
+# The two anchors are computed from different bases (standard FCF vs owner
+# earnings). Which base yields the LOWER number varies by company, so the
+# labels must follow the values, not the bases.
+
+def test_labels_the_lower_anchor_conservative_when_owner_earnings_is_higher():
+    # GTT.PA shape: FCF 0.38B < owner earnings 0.40B
+    lines = _lines(151.52, 157.45, "€")
+    assert "CONSERVATIVE" in lines[0] and "151.52" in lines[0]
+    assert "OPTIMISTIC" in lines[1] and "157.45" in lines[1]
+
+
+def test_labels_the_lower_anchor_conservative_when_fcf_is_higher():
+    # ACN shape: FCF 12.58B > owner earnings 11.77B, so the standard-FCF
+    # anchor is the HIGHER one and must not be labelled conservative.
+    lines = _lines(340.68, 318.80, "$")
+    assert "CONSERVATIVE" in lines[0] and "318.80" in lines[0], \
+        "the lower value must carry the conservative label"
+    assert "OPTIMISTIC" in lines[1] and "340.68" in lines[1]
+
+
+def test_names_the_basis_that_produced_each_anchor():
+    lines = _lines(340.68, 318.80, "$")
+    joined = " ".join(lines)
+    assert "Owner Earnings" in joined and "Standard FCF" in joined
+
+
+def test_equal_anchors_do_not_crash_and_stay_ordered():
+    lines = _lines(100.0, 100.0, "$")
+    assert "CONSERVATIVE" in lines[0] and "OPTIMISTIC" in lines[1]

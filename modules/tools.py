@@ -36,6 +36,24 @@ def get_currency_symbol(info):
     return symbols.get(currency, currency + " ")
 
 # --- 1. THE MATHEMATICIAN (Valuation Engine) - WITH CURRENCY & TTM FIX ---
+def _dcf_scenario_lines(dcf_standard, dcf_opt, c_sym):
+    """Label the two DCF anchors by VALUE, not by which basis produced them.
+
+    The anchors come from different bases — standard FCF and owner earnings —
+    and which one lands lower varies by company. Owner earnings usually exceed
+    FCF, but not always: ACN FY2026 had FCF $12.58B against owner earnings
+    $11.77B, which printed the HIGHER number under the "CONSERVATIVE" label and
+    fed that higher value into key_metrics['dcf_conservative'].
+    """
+    labelled = [(dcf_standard, "Standard FCF"), (dcf_opt, "Owner Earnings")]
+    labelled.sort(key=lambda pair: pair[0])
+    (low, low_basis), (high, high_basis) = labelled
+    return [
+        f"\U0001F6E1\uFE0F  CONSERVATIVE ({low_basis}): {c_sym}{low:.2f}",
+        f"\U0001F680  OPTIMISTIC   ({high_basis}): {c_sym}{high:.2f}",
+    ]
+
+
 def get_advanced_valuations(ticker, info, stock):
     print(f"{Fore.CYAN}🧮 Generating Financial Matrix ({ticker})...{Style.RESET_ALL}")
     try:
@@ -306,6 +324,8 @@ def get_advanced_valuations(ticker, info, stock):
         if tax_warning and get_val(income, 'Net Income') < 0:
             verdict += f"\n        ⚠️ CAUTION: GAAP-negative due to tax distortion. Valuation based on FCF/Owner Earnings, not net income."
 
+        dcf_line_low, dcf_line_high = _dcf_scenario_lines(dcf_standard, dcf_opt, c_sym)
+
         output = f"""
         --- 📊 FINANCIAL PHYSICS ({ticker}) ---
         | YEAR |  ROIC   | MARGIN  | NET INCOME | FREE CASH FLOW | OWNER EARN* |
@@ -321,8 +341,8 @@ def get_advanced_valuations(ticker, info, stock):
         1. GRAHAM FLOOR (No Growth): {c_sym}{epv_price:.2f}
 
         2. DCF SCENARIOS (Growth @ {growth_rate*100:.1f}%):
-           🛡️  CONSERVATIVE (Standard FCF): {c_sym}{dcf_standard:.2f}
-           🚀  OPTIMISTIC   (Owner Earnings): {c_sym}{dcf_opt:.2f}
+           {dcf_line_low}
+           {dcf_line_high}
 
         3. OWNER YIELD: {owner_yield:.1f}%
 

@@ -99,3 +99,54 @@ class TestVerdictHeadingForms:
         r = parse_verdict(path)
         assert r['decision'] == 'BUY'
         assert r['buy_zone'] == '$40–$50'
+
+
+# --- verdict must be found regardless of how long the synthesis preamble is ---
+
+def _long_report_with_late_verdict(tmp_path):
+    """A report shaped like GTT.PA 2026-08-20.
+
+    Three Munger drafts and two red-team passes push the actual decision past
+    the old 15,000-char window, and the appended red-team sections quote the
+    SUPERSEDED buy zones from earlier drafts.
+    """
+    filler = ("Cumulative withdrawal narrative. " * 40 + "\n\n") * 22   # ~16k chars
+    body = f"""# 🦁 THE SILICON COUNCIL REPORT: ZZZ
+
+## ⚖️ MUNGER'S VERDICT
+# MUNGER SYNTHESIS — Test Co
+
+## 0. WHAT I WITHDRAW (CUMULATIVE)
+{filler}
+
+## VI. FINAL DECISION
+**Buy Zone: €78–€135.**
+
+## EXECUTIVE SUMMARY (distilled from synthesis above)
+
+**Decision:** WAIT
+**Conviction:** Moderate
+
+## 👨‍🏫 THE BUSINESS EXPLANATION
+Some teaching prose.
+
+## 🔍 REALITY CHECK
+Reviewing: Munger Synthesis — PASS, Buy Zone €117–155, Position 0%
+The ceiling should be **Buy Zone: €120–165**, not €155.
+"""
+    p = tmp_path / "ZZZ_Analysis_2026-08-20.md"
+    p.write_text(body, encoding="utf-8")
+    return str(p)
+
+
+def test_finds_the_decision_even_when_the_preamble_is_very_long(tmp_path):
+    parsed = parse_verdict(_long_report_with_late_verdict(tmp_path))
+    assert parsed.get("decision") == "WAIT"
+
+
+def test_does_not_pick_up_a_superseded_buy_zone_quoted_by_the_red_team(tmp_path):
+    parsed = parse_verdict(_long_report_with_late_verdict(tmp_path))
+    zone = parsed.get("buy_zone") or ""
+    assert "78" in zone, f"should read the current zone, got {zone!r}"
+    assert "117" not in zone and "120" not in zone, \
+        f"picked up a superseded zone from the red-team section: {zone!r}"

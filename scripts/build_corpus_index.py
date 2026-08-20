@@ -44,9 +44,30 @@ DECISION_ORDER = {
 }
 
 
+# The verdict lives between these two report headings. Bounding the search to
+# that span beats a fixed character window in both directions: a long synthesis
+# (GTT.PA 2026-08-20 ran three drafts and pushed the decision past 22k chars)
+# no longer falls off the end, and superseded buy zones quoted inside the
+# appended red-team sections can never be mistaken for the current one.
+_VERDICT_START = re.compile(r"##\s*\S*\s*MUNGER'S VERDICT", re.I)
+_VERDICT_END = re.compile(r"##\s*\S*\s*(THE BUSINESS EXPLANATION|REALITY CHECK|"
+                          r"THE COUNCIL|EXPERT REPORTS|FAMILY NEWSLETTER)", re.I)
+_FALLBACK_WINDOW = 15000
+
+
+def _verdict_section(text: str) -> str:
+    """The Munger verdict only — never the expert or red-team sections."""
+    start = _VERDICT_START.search(text)
+    begin = start.start() if start else 0
+    end = _VERDICT_END.search(text, begin + 1 if start else 0)
+    if end:
+        return text[begin:end.start()]
+    return text[begin:begin + _FALLBACK_WINDOW]
+
+
 def parse_verdict(path: str) -> dict:
     with open(path, encoding='utf-8') as f:
-        head = f.read()[:15000]
+        head = _verdict_section(f.read())
 
     decision = None
     for pat in [

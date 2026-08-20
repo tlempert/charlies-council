@@ -53,6 +53,7 @@ def parse_verdict(path: str) -> dict:
         rf'\*\*Decision:\s*{DECISION_WORDS}\.?\*\*',
         rf'\*\*Decision:\*\*\s*{DECISION_WORDS}',
         rf'###?\s*🚀?\s*DECISION:\s*{DECISION_WORDS}',
+        rf'###?\s*THE VERDICT:\s*{DECISION_WORDS}',
         rf'(?:^|\n)\s*VERDICT:\s*{DECISION_WORDS}',
         rf'\*\*Verdict:\*?\*?\s*{DECISION_WORDS}',
         rf'The Munger verdict:\s*\*?\*?\s*{DECISION_WORDS}',
@@ -83,6 +84,26 @@ def parse_verdict(path: str) -> dict:
             if lo and hi:
                 buy_zone = f"{_fmt_money(sym, lo)}–{_fmt_money(sym, hi)}"
                 break
+
+    # Fallback: a verdict may decline to publish a Buy Zone (TOO UNCERTAIN) but must
+    # still publish a Trigger Price — the level at which the verdict changes. Without
+    # this, an unpriced verdict yields a blank index row and is unactionable downstream.
+    # Buy Zone wins when both are present.
+    if buy_zone is None:
+        m = re.search(r'Trigger Price[^:\n]{0,40}:[\s\*"]*NONE', head, re.I)
+        if m:
+            buy_zone = 'NONE'
+        else:
+            m = re.search(
+                rf'Trigger Price[^:\n]{{0,40}}:[\s\*"]*({CUR})\s?(\d[\d,.]*)'
+                rf'.{{0,120}}?(?:[–—-]|\bto\b)\s*(?:({CUR})\s?)?(\d[\d,.]*)',
+                head, re.I)
+            if m:
+                sym1, lo, sym2, hi = m.groups()
+                sym = sym1 or sym2 or '$'
+                lo, hi = lo.rstrip('.'), hi.rstrip('.')
+                if lo and hi:
+                    buy_zone = f"{_fmt_money(sym, lo)}–{_fmt_money(sym, hi)}"
 
     council = None
     m = re.search(r'Council [Vv]ote:\*?\*?\s*(.+?)(?:\n|$)', head)

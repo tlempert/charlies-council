@@ -1167,3 +1167,334 @@ MOAT FLAG: MODERATE
         content = open(result["html"], encoding="utf-8").read()
         # Should use the explicitly provided report, not extract from verdict
         assert 'Separate flywheel report' in content
+
+
+class TestRevenueTrendCurrency:
+    """The dossier header's REVENUE TREND is the first number all 12 experts read.
+
+    For a foreign private issuer (Kaspi.kz: price USD, financials KZT) the raw
+    yfinance revenue is in KZT while the currency symbol comes from the PRICE
+    currency. Printed together they read as '$4027.8B' of revenue for a company
+    with a $19B market cap — off by the ~462 KZT/USD rate.
+    """
+
+    def _kzt_stock(self):
+        import pandas as pd
+        mock_stock = MagicMock()
+        mock_stock.info = {
+            "currentPrice": 101.48, "longName": "Joint Stock Company Kaspi.kz",
+            "currency": "USD", "financialCurrency": "KZT", "marketCap": 19283968000,
+        }
+        # Real filed KZT revenue: 2023, 2024, 2025
+        mock_stock.financials = pd.DataFrame(
+            {
+                pd.Timestamp("2025-12-31"): [4046074000000],
+                pd.Timestamp("2024-12-31"): [2532156000000],
+                pd.Timestamp("2023-12-31"): [1890300000000],
+            },
+            index=["Total Revenue"],
+        )
+        return mock_stock
+
+    @patch("modules.tools._fetch_fx_rate")
+    @_dossier_patches
+    def test_converts_revenue_trend_to_price_currency(
+            self, mock_fetch_yf, mock_val, mock_cik, mock_xbrl, mock_sec_sections,
+            mock_sec_text, mock_intel, mock_strat, mock_nrr, mock_competitive,
+            mock_product_econ, mock_ecosystem, mock_cultural, mock_disruptor, mock_fx):
+        from modules.tools import build_initial_dossier
+        TestBuildInitialDossier()._setup_defaults(
+            mock_fetch_yf, mock_val, mock_cik, mock_xbrl, mock_sec_sections,
+            mock_sec_text, mock_intel, mock_strat, mock_nrr, mock_competitive,
+            mock_product_econ, mock_ecosystem, mock_cultural, mock_disruptor)
+        stock = self._kzt_stock()
+        mock_fetch_yf.return_value = (stock, stock.info)
+        mock_fx.return_value = 0.00216
+
+        result = build_initial_dossier("KSPI")
+
+        # KZT 4,046,074M -> ~$8.7B, not "$4046.1B"
+        assert "$8.7B" in result
+        assert "4046" not in result
+
+    @patch("modules.tools._fetch_fx_rate")
+    @_dossier_patches
+    def test_labels_the_currency_financials_were_filed_in(
+            self, mock_fetch_yf, mock_val, mock_cik, mock_xbrl, mock_sec_sections,
+            mock_sec_text, mock_intel, mock_strat, mock_nrr, mock_competitive,
+            mock_product_econ, mock_ecosystem, mock_cultural, mock_disruptor, mock_fx):
+        """'CURRENCY: USD' alone hides that the source filings are in KZT."""
+        from modules.tools import build_initial_dossier
+        TestBuildInitialDossier()._setup_defaults(
+            mock_fetch_yf, mock_val, mock_cik, mock_xbrl, mock_sec_sections,
+            mock_sec_text, mock_intel, mock_strat, mock_nrr, mock_competitive,
+            mock_product_econ, mock_ecosystem, mock_cultural, mock_disruptor)
+        stock = self._kzt_stock()
+        mock_fetch_yf.return_value = (stock, stock.info)
+        mock_fx.return_value = 0.00216
+
+        result = build_initial_dossier("KSPI")
+
+        assert "KZT" in result
+
+    @patch("modules.tools._fetch_fx_rate")
+    @_dossier_patches
+    def test_usd_filer_trend_needs_no_fx_lookup(
+            self, mock_fetch_yf, mock_val, mock_cik, mock_xbrl, mock_sec_sections,
+            mock_sec_text, mock_intel, mock_strat, mock_nrr, mock_competitive,
+            mock_product_econ, mock_ecosystem, mock_cultural, mock_disruptor, mock_fx):
+        """Regression guard: a domestic filer must not gain an FX round-trip."""
+        import pandas as pd
+        from modules.tools import build_initial_dossier
+        TestBuildInitialDossier()._setup_defaults(
+            mock_fetch_yf, mock_val, mock_cik, mock_xbrl, mock_sec_sections,
+            mock_sec_text, mock_intel, mock_strat, mock_nrr, mock_competitive,
+            mock_product_econ, mock_ecosystem, mock_cultural, mock_disruptor)
+        stock = MagicMock()
+        stock.info = {"currentPrice": 500, "longName": "Adobe Inc", "currency": "USD"}
+        stock.financials = pd.DataFrame(
+            {pd.Timestamp("2025-11-28"): [23769000000]}, index=["Total Revenue"])
+        mock_fetch_yf.return_value = (stock, stock.info)
+
+        result = build_initial_dossier("ADBE")
+
+        assert "$23.8B" in result
+        mock_fx.assert_not_called()
+
+    @patch("modules.tools._fetch_fx_rate")
+    @_dossier_patches
+    def test_converts_quarterly_revenue_velocity_to_price_currency(
+            self, mock_fetch_yf, mock_val, mock_cik, mock_xbrl, mock_sec_sections,
+            mock_sec_text, mock_intel, mock_strat, mock_nrr, mock_competitive,
+            mock_product_econ, mock_ecosystem, mock_cultural, mock_disruptor, mock_fx):
+        """EARNINGS VELOCITY reads stock.quarterly_financials, which is also raw KZT."""
+        import pandas as pd
+        from modules.tools import build_initial_dossier
+        TestBuildInitialDossier()._setup_defaults(
+            mock_fetch_yf, mock_val, mock_cik, mock_xbrl, mock_sec_sections,
+            mock_sec_text, mock_intel, mock_strat, mock_nrr, mock_competitive,
+            mock_product_econ, mock_ecosystem, mock_cultural, mock_disruptor)
+        stock = self._kzt_stock()
+        # KZT 1,143,500M for a quarter -> ~$2.5B, not "$1143.5B"
+        stock.quarterly_financials = pd.DataFrame(
+            {
+                pd.Timestamp("2026-06-30"): [1143500000000],
+                pd.Timestamp("2026-03-31"): [1079400000000],
+            },
+            index=["Total Revenue"],
+        )
+        mock_fetch_yf.return_value = (stock, stock.info)
+        mock_fx.return_value = 0.00216
+
+        result = build_initial_dossier("KSPI")
+
+        assert "$2.5B" in result
+        assert "1143.5B" not in result
+
+    @patch("modules.tools._fetch_fx_rate")
+    @_dossier_patches
+    def test_converts_yfinance_forensic_fallback_to_price_currency(
+            self, mock_fetch_yf, mock_val, mock_cik, mock_xbrl, mock_sec_sections,
+            mock_sec_text, mock_intel, mock_strat, mock_nrr, mock_competitive,
+            mock_product_econ, mock_ecosystem, mock_cultural, mock_disruptor, mock_fx):
+        """When SEC XBRL is unavailable the forensic block falls back to yfinance,
+        which is raw KZT. Share COUNTS must survive unscaled."""
+        import pandas as pd
+        from modules.tools import build_initial_dossier
+        TestBuildInitialDossier()._setup_defaults(
+            mock_fetch_yf, mock_val, mock_cik, mock_xbrl, mock_sec_sections,
+            mock_sec_text, mock_intel, mock_strat, mock_nrr, mock_competitive,
+            mock_product_econ, mock_ecosystem, mock_cultural, mock_disruptor)
+        mock_xbrl.return_value = None  # force the yfinance fallback
+        stock = self._kzt_stock()
+        mock_fetch_yf.return_value = (stock, stock.info)
+        mock_fx.return_value = 0.00216
+
+        with patch("modules.tools.extract_yf_forensic") as mock_yf_forensic:
+            mock_yf_forensic.return_value = {
+                'yearly': {'2025-12-31': {
+                    'revenue': 4046074000000,        # KZT -> ~$8.7B
+                    'goodwill': 271000000000,        # KZT -> ~$0.6B
+                    'shares_outstanding': 190027266,  # a COUNT, not money
+                }},
+                'sorted_dates': ['2025-12-31'],
+                'latest': {},
+            }
+            result = build_initial_dossier("KSPI")
+
+        assert "$8.74B" in result or "$8.7B" in result
+        assert "190M" in result   # share count untouched by FX
+        assert "4046" not in result
+
+
+class TestCarryBlock:
+    """Return-of-capital is the downside mechanism the KSPI council was blind to.
+
+    Twelve experts, the synthesis and the adversarial brief all missed an 8.55%
+    dividend yield sitting in the dossier. For an income-paying franchise the
+    coupon IS the 'tails I don't lose much' leg, and g = ROE x retention is the
+    growth rate a valuation must use rather than assume.
+    """
+
+    def _block(self, info, price=101.48, fx_rate=0.002169):
+        from modules.tools import build_carry_block
+        return build_carry_block(info, price, fx_rate)
+
+    def test_reports_dividend_yield_at_current_price(self):
+        info = {'dividendRate': 8.68, 'payoutRatio': 0.74, 'returnOnEquity': 0.40}
+        assert "8.6" in self._block(info)
+
+    def test_computes_sustainable_growth_from_roe_and_retention(self):
+        """Munger held g fixed at 6% while varying the discount rate; the whole
+        'warranted value is today's price' conclusion rode on that choice."""
+        info = {'dividendRate': 8.68, 'payoutRatio': 0.74, 'returnOnEquity': 0.40}
+        block = self._block(info)
+        assert "10.4%" in block  # 0.40 * (1 - 0.74)
+
+    def test_converts_book_value_from_filing_currency(self):
+        """yfinance bookValue is in FILING currency, so priceToBook is garbage for
+        a foreign filer — KSPI reads 0.0085x against a true ~3.9x."""
+        info = {'bookValue': 11908.487, 'priceToBook': 0.008521654,
+                'returnOnEquity': 0.40, 'payoutRatio': 0.74, 'dividendRate': 8.68}
+        block = self._block(info)
+        assert "3.9" in block
+        assert "0.0085" not in block
+
+    def test_domestic_filer_book_value_untouched(self):
+        info = {'bookValue': 25.0, 'returnOnEquity': 0.20,
+                'payoutRatio': 0.30, 'dividendRate': 2.0}
+        assert "4.00x" in self._block(info, price=100.0, fx_rate=1.0)
+
+    def test_flags_absent_dividend_rather_than_printing_zero(self):
+        block = self._block({'returnOnEquity': 0.15, 'payoutRatio': 0.0})
+        assert "NO DIVIDEND" in block.upper()
+
+    def test_growth_warning_names_its_dependence_on_the_stale_payout(self):
+        """g = ROE x (1 - payout), so a stale payout silently poisons g.
+
+        KSPI: yfinance reports a trailing payout of 31% (pre-dividend-increase),
+        yielding g = 30.9% — implausible for a lender. The true forward payout of
+        74% gives 11.5%. The block warns the DIVIDEND is trailing; it must warn
+        that g inherits that staleness, or a reader trusts a poisoned number.
+        """
+        info = {'dividendRate': 3.59, 'payoutRatio': 0.31, 'returnOnEquity': 0.448}
+        block = self._block(info)
+        assert "30.9%" in block
+        g_line = [l for l in block.split("\n") if "Sustainable growth" in l][0]
+        idx = block.index(g_line)
+        assert "payout" in block[idx:].lower()
+        assert "stale" in block[idx:].lower() or "trailing" in block[idx:].lower()
+
+    def test_warns_that_pb_over_roe_is_an_identity(self):
+        """The tautology that carried the KSPI verdict must be labelled at source."""
+        info = {'bookValue': 25.0, 'returnOnEquity': 0.20, 'payoutRatio': 0.30,
+                'dividendRate': 2.0}
+        assert "identity" in self._block(info, price=100.0, fx_rate=1.0).lower()
+
+
+class TestLenderAwareMechanics:
+    """Generic templates applied to a lender produced three failures on KSPI."""
+
+    def test_detects_a_lender_from_sector_metadata(self):
+        from modules.tools import _is_lender
+        assert _is_lender({'sector': 'Financial Services',
+                           'industry': 'Banks - Regional'}, None) is True
+
+    def test_detects_a_lender_misclassified_as_software(self):
+        """yfinance labels Kaspi.kz 'Technology / Software - Infrastructure'
+        despite a multi-billion loan book. Filings outrank the label."""
+        from modules.tools import _is_lender
+        info = {'sector': 'Technology', 'industry': 'Software - Infrastructure'}
+        assert _is_lender(info, {'latest': {'net_interest_income': 5e9}}) is True
+
+    def test_software_company_is_not_a_lender(self):
+        from modules.tools import _is_lender
+        assert _is_lender({'sector': 'Technology',
+                           'industry': 'Software - Infrastructure'},
+                          {'latest': {'revenue': 1e9}}) is False
+
+    def test_lender_stress_test_uses_credit_losses_not_cost_stickiness(self):
+        """The opex-stickiness table implied a 69.1% FCF margin at -30% revenue.
+        For a lender that inversion is proof the model is wrong."""
+        from modules.tools import build_stress_test_table
+        forensic = {'latest': {'revenue': 8.76e9, 'net_income': 2.32e9},
+                    'yearly': {'2025-12-31': {'revenue': 8.76e9}},
+                    'sorted_dates': ['2025-12-31']}
+        table = build_stress_test_table(forensic, '$', is_lender=True)
+        assert "CREDIT" in table.upper()
+        assert "cost stickiness" not in table.lower()
+
+    def test_non_lender_stress_test_is_unchanged(self):
+        """Regression guard: the existing opex path must be untouched."""
+        from modules.tools import build_stress_test_table
+        forensic = {'latest': {'revenue': 1e10, 'rd_expense': 1e9,
+                               'sga_expense': 1e9, 'cost_of_goods_sold': 2e9},
+                    'yearly': {'2025-01-01': {'revenue': 1e10}},
+                    'sorted_dates': ['2025-01-01']}
+        table = build_stress_test_table(forensic, '$')
+        assert "CREDIT CYCLE" not in table.upper()
+
+
+class TestPeerSanityGate:
+    def test_abstains_when_peer_median_pe_is_absurd(self):
+        """SNOW/MDB/DDOG for a Kazakh bank produced a peer median P/E of 476.6x.
+        Emitting that is worse than emitting nothing."""
+        from modules.tools import compute_peer_benchmarks
+        target = {'pe_ratio': 8.7, 'roic': 0.378, 'fcf_margin': 0.12}
+        peers = {'SNOW': {'pe_ratio': 0.0, 'roic': -0.317, 'fcf_margin': 0.239},
+                 'MDB': {'pe_ratio': 0.0, 'roic': 0.0, 'fcf_margin': 0.203},
+                 'DDOG': {'pe_ratio': 476.6, 'roic': 0.023, 'fcf_margin': 0.267}}
+        assert "PEER COMPARISON SUPPRESSED" in compute_peer_benchmarks(
+            'KSPI', target, peers).upper()
+
+    def test_emits_table_for_a_sane_peer_set(self):
+        from modules.tools import compute_peer_benchmarks
+        target = {'pe_ratio': 25.0, 'roic': 0.30, 'fcf_margin': 0.25}
+        peers = {'MSFT': {'pe_ratio': 30.0, 'roic': 0.28, 'fcf_margin': 0.30},
+                 'ORCL': {'pe_ratio': 22.0, 'roic': 0.20, 'fcf_margin': 0.22}}
+        assert "SUPPRESSED" not in compute_peer_benchmarks(
+            'ADBE', target, peers).upper()
+
+
+class TestSuperinvestorRegistry:
+    """Cost basis is the highest-value fact about a sophisticated holder.
+
+    The KSPI run surfaced Pabrai's $74.07 average cost and 4.80%/0.05% sizing
+    only by accident via unstructured search, and never surfaced Tencent's
+    implied $86.33 at all — the red team had to derive it by hand.
+    """
+
+    def _registry(self, ticker="KSPI", name="Kaspi.kz"):
+        from modules.tools import get_superinvestor_registry
+        return get_superinvestor_registry(ticker, name)
+
+    @patch("modules.tools._tavily_query")
+    def test_returns_block_with_holder_and_cost_basis(self, mock_q):
+        mock_q.return_value = ("Mohnish Pabrai Wagons ETF holds Kaspi.kz KSPI 4.80% "
+                               "of portfolio, 96,490 shares, average price $74.07.")
+        block = self._registry()
+        assert "SUPERINVESTOR REGISTRY" in block
+        assert "74.07" in block
+
+    @patch("modules.tools._tavily_query")
+    def test_returns_empty_string_when_nothing_found(self, mock_q):
+        """No holders is a normal outcome and must not emit a bare header."""
+        mock_q.return_value = ""
+        assert self._registry() == ""
+
+    @patch("modules.tools._tavily_query")
+    def test_survives_search_failure(self, mock_q):
+        mock_q.side_effect = Exception("tavily down")
+        assert self._registry() == ""
+
+    @patch("modules.tools._tavily_query")
+    def test_instructs_reader_to_compare_cost_basis_to_spot(self, mock_q):
+        """Raw holdings text is useless unless the reader is told what to do."""
+        mock_q.return_value = "Pabrai average price $74.07 4.80% of portfolio"
+        assert "cost basis" in self._registry().lower()
+
+    @patch("modules.tools._tavily_query")
+    def test_instructs_reader_to_weigh_position_size_as_conviction(self, mock_q):
+        """0.05% of a concentrated fund and 43% are not the same signal."""
+        mock_q.return_value = "Dalal Street KSPI 0.05% of portfolio 1,702 shares"
+        assert "conviction" in self._registry().lower()

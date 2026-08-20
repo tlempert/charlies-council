@@ -1286,3 +1286,269 @@ class TestBuildStressTestTable:
         # The table should show declining FCF — just verify structure
         lines = [l for l in result.split('\n') if '|' in l and '%' not in l.split('|')[0]]
         assert len(lines) >= 3  # header + at least 3 scenario rows
+
+
+# ============================================================
+# get_xbrl_facts — IFRS / foreign private issuer (20-F) filers
+# ============================================================
+
+# Kaspi.kz (KSPI, CIK 0001985487) is a NasdaqGS-listed Kazakh company. It files
+# 20-F under the ifrs-full taxonomy with every monetary fact denominated in KZT.
+# Values below are its real filed figures.
+SAMPLE_IFRS_XBRL_RESPONSE = {
+    "facts": {
+        "us-gaap": {
+            # A 20-F filer may carry a couple of stray us-gaap tags. They are not
+            # enough to build a dossier from, but they DO make facts['us-gaap']
+            # truthy — so an empty-taxonomy guard alone will not catch this case.
+            "OtherAssets": {
+                "units": {"KZT": [{"end": "2025-12-31", "val": 123000000, "form": "20-F"}]}
+            },
+        },
+        "ifrs-full": {
+            "Revenue": {
+                "units": {
+                    "KZT": [
+                        {"end": "2025-12-31", "val": 4046074000000, "form": "20-F"},
+                        {"end": "2024-12-31", "val": 2532156000000, "form": "20-F"},
+                        {"end": "2025-06-30", "val": 1800000000000, "form": "6-K"},  # interim
+                    ]
+                }
+            },
+            "ProfitLoss": {
+                "units": {
+                    "KZT": [
+                        {"end": "2025-12-31", "val": 1067707000000, "form": "20-F"},
+                        {"end": "2024-12-31", "val": 1056834000000, "form": "20-F"},
+                    ]
+                }
+            },
+            "Goodwill": {
+                "units": {"KZT": [{"end": "2025-12-31", "val": 271000000000, "form": "20-F"}]}
+            },
+            "ExpenseFromSharebasedPaymentTransactionsWithEmployees": {
+                "units": {"KZT": [{"end": "2025-12-31", "val": 14000000000, "form": "20-F"}]}
+            },
+            "DepreciationAndAmortisationExpense": {
+                "units": {"KZT": [{"end": "2025-12-31", "val": 51000000000, "form": "20-F"}]}
+            },
+        },
+        "dei": {},
+    }
+}
+
+# 1 KZT = 0.00216 USD (i.e. ~462 KZT to the dollar)
+KZT_USD_RATE = 0.00216
+
+
+class TestGetXbrlFactsForIfrsFilers:
+    """A 20-F/IFRS filer must yield facts, and those facts must be in USD.
+
+    Both halves matter. Returning nothing leaves the forensic block silently
+    empty — which reads as 'clean books' rather than 'no evidence gathered'.
+    Returning raw KZT is worse: every figure is overstated ~462x while looking
+    like dollars.
+    """
+
+    def _get_facts(self, cik):
+        from modules.tools import get_xbrl_facts
+        return get_xbrl_facts(cik)
+
+    def _mock_fx(self, mock_ticker, rate=KZT_USD_RATE):
+        instance = MagicMock()
+        instance.info = {"regularMarketPrice": rate}
+        mock_ticker.return_value = instance
+        return mock_ticker
+
+    @patch("modules.tools.yf.Ticker")
+    @patch("modules.tools.requests.get")
+    def test_extracts_facts_from_ifrs_taxonomy(self, mock_get, mock_ticker):
+        """Facts filed under ifrs-full must be read, not ignored as us-gaap-only."""
+        self._mock_fx(mock_ticker)
+        mock_get.return_value.status_code = 200
+        mock_get.return_value.json.return_value = SAMPLE_IFRS_XBRL_RESPONSE
+        result = self._get_facts("0001985487")
+        assert result is not None
+        assert 'revenue' in result['latest']
+
+    @patch("modules.tools.yf.Ticker")
+    @patch("modules.tools.requests.get")
+    def test_accepts_20f_as_an_annual_form(self, mock_get, mock_ticker):
+        """20-F is the annual report for a foreign private issuer, same as 10-K."""
+        self._mock_fx(mock_ticker)
+        mock_get.return_value.status_code = 200
+        mock_get.return_value.json.return_value = SAMPLE_IFRS_XBRL_RESPONSE
+        result = self._get_facts("0001985487")
+        assert result['sorted_dates'][0] == "2025-12-31"
+        assert result['sorted_dates'][1] == "2024-12-31"
+
+    @patch("modules.tools.yf.Ticker")
+    @patch("modules.tools.requests.get")
+    def test_converts_foreign_currency_facts_to_usd(self, mock_get, mock_ticker):
+        """KZT 4,046,074,000,000 of revenue is ~$8.7B, not $4.0 trillion."""
+        self._mock_fx(mock_ticker)
+        mock_get.return_value.status_code = 200
+        mock_get.return_value.json.return_value = SAMPLE_IFRS_XBRL_RESPONSE
+        result = self._get_facts("0001985487")
+        assert result['latest']['revenue'] == pytest.approx(4046074000000 * KZT_USD_RATE)
+        assert result['latest']['net_income'] == pytest.approx(1067707000000 * KZT_USD_RATE)
+
+    @patch("modules.tools.yf.Ticker")
+    @patch("modules.tools.requests.get")
+    def test_reports_source_currency_and_rate_used(self, mock_get, mock_ticker):
+        """The dossier must be able to say these were KZT facts, not born-USD ones."""
+        self._mock_fx(mock_ticker)
+        mock_get.return_value.status_code = 200
+        mock_get.return_value.json.return_value = SAMPLE_IFRS_XBRL_RESPONSE
+        result = self._get_facts("0001985487")
+        assert result['source_currency'] == 'KZT'
+        assert result['fx_rate'] == pytest.approx(KZT_USD_RATE)
+
+    @patch("modules.tools.yf.Ticker")
+    @patch("modules.tools.requests.get")
+    def test_skips_interim_6k_entries(self, mock_get, mock_ticker):
+        """6-K is the foreign issuer's interim report — the 20-F analogue of 10-Q."""
+        self._mock_fx(mock_ticker)
+        mock_get.return_value.status_code = 200
+        mock_get.return_value.json.return_value = SAMPLE_IFRS_XBRL_RESPONSE
+        result = self._get_facts("0001985487")
+        assert "2025-06-30" not in result['yearly']
+
+    @patch("modules.tools.yf.Ticker")
+    @patch("modules.tools.requests.get")
+    def test_maps_ifrs_tag_names_to_shared_friendly_names(self, mock_get, mock_ticker):
+        """IFRS spells these differently; downstream forensics reads one vocabulary."""
+        self._mock_fx(mock_ticker)
+        mock_get.return_value.status_code = 200
+        mock_get.return_value.json.return_value = SAMPLE_IFRS_XBRL_RESPONSE
+        latest = self._get_facts("0001985487")['latest']
+        assert latest['sbc'] == pytest.approx(14000000000 * KZT_USD_RATE)
+        assert latest['goodwill'] == pytest.approx(271000000000 * KZT_USD_RATE)
+        assert latest['depreciation_amortization'] == pytest.approx(51000000000 * KZT_USD_RATE)
+
+    @patch("modules.tools.yf.Ticker")
+    @patch("modules.tools.requests.get")
+    def test_does_not_convert_share_counts(self, mock_get, mock_ticker):
+        """'shares' is not money. Applying an FX rate to a share count is nonsense."""
+        self._mock_fx(mock_ticker)
+        mock_get.return_value.status_code = 200
+        mock_get.return_value.json.return_value = {
+            "facts": {
+                "ifrs-full": {
+                    "Revenue": {
+                        "units": {"KZT": [{"end": "2025-12-31", "val": 1000, "form": "20-F"}]}
+                    },
+                },
+                "us-gaap": {
+                    "CommonStockSharesOutstanding": {
+                        "units": {"shares": [{"end": "2025-12-31", "val": 190027266, "form": "20-F"}]}
+                    },
+                },
+            }
+        }
+        result = self._get_facts("0001985487")
+        assert result['latest']['shares_outstanding'] == 190027266
+
+    @patch("modules.tools.yf.Ticker")
+    @patch("modules.tools.requests.get")
+    def test_usd_filers_are_not_fx_converted(self, mock_get, mock_ticker):
+        """Regression guard: the existing 10-K/us-gaap path must be untouched."""
+        mock_get.return_value.status_code = 200
+        mock_get.return_value.json.return_value = SAMPLE_XBRL_RESPONSE
+        result = self._get_facts("0000796343")
+        assert result['latest']['revenue'] == 23769000000
+        assert result['fx_rate'] == 1.0
+        assert result['source_currency'] == 'USD'
+        mock_ticker.assert_not_called()
+
+    @patch("modules.tools.yf.Ticker")
+    @patch("modules.tools.requests.get")
+    def test_returns_none_when_fx_rate_unavailable(self, mock_get, mock_ticker):
+        """Better no forensic block than one silently overstated ~462x."""
+        mock_ticker.side_effect = Exception("no such FX pair")
+        mock_get.return_value.status_code = 200
+        mock_get.return_value.json.return_value = SAMPLE_IFRS_XBRL_RESPONSE
+        assert self._get_facts("0001985487") is None
+
+    @patch("modules.tools.yf.Ticker")
+    @patch("modules.tools.requests.get")
+    def test_converts_per_share_amounts_to_usd(self, mock_get, mock_ticker):
+        """EPS carries unit 'KZT/shares' — money per share, so it converts too."""
+        self._mock_fx(mock_ticker)
+        mock_get.return_value.status_code = 200
+        mock_get.return_value.json.return_value = {
+            "facts": {
+                "ifrs-full": {
+                    "DilutedEarningsLossPerShare": {
+                        "units": {"KZT/shares": [
+                            {"end": "2025-12-31", "val": 5620.0, "form": "20-F"}
+                        ]}
+                    },
+                }
+            }
+        }
+        result = self._get_facts("0001985487")
+        assert result['latest']['eps_diluted'] == pytest.approx(5620.0 * KZT_USD_RATE)
+
+    @patch("modules.tools.yf.Ticker")
+    @patch("modules.tools.requests.get")
+    def test_source_currency_is_the_dominant_one_not_the_alphabetical_one(self, mock_get, mock_ticker):
+        """Kaspi's 20-F carries a handful of TJS facts alongside ~900 KZT ones.
+        The filing currency is whichever denominates most of the facts."""
+        self._mock_fx(mock_ticker)
+        mock_get.return_value.status_code = 200
+        mock_get.return_value.json.return_value = {
+            "facts": {
+                "ifrs-full": {
+                    "Revenue": {
+                        "units": {"TJS": [{"end": "2025-12-31", "val": 100, "form": "20-F"}]}
+                    },
+                    "ProfitLoss": {
+                        "units": {"TJS": [{"end": "2025-12-31", "val": 200, "form": "20-F"}]}
+                    },
+                    "Goodwill": {
+                        "units": {"TJS": [{"end": "2025-12-31", "val": 300, "form": "20-F"}]}
+                    },
+                    "Inventories": {
+                        "units": {"KZT": [{"end": "2025-12-31", "val": 400, "form": "20-F"}]}
+                    },
+                }
+            }
+        }
+        result = self._get_facts("0001985487")
+        assert result['source_currency'] == 'TJS'
+
+    @patch("modules.tools.yf.Ticker")
+    @patch("modules.tools.requests.get")
+    def test_extracts_ifrs_lender_concepts(self, mock_get, mock_ticker):
+        """The lender branch keys off loan-book facts, so they must be extracted.
+
+        Without these, _is_lender falls back to yfinance's sector label — which
+        calls Kaspi.kz 'Technology / Software - Infrastructure' and routes a bank
+        into the opex-stickiness stress test that produced a 69.1% FCF margin
+        at -30% revenue.
+        """
+        self._mock_fx(mock_ticker)
+        mock_get.return_value.status_code = 200
+        mock_get.return_value.json.return_value = {
+            "facts": {
+                "ifrs-full": {
+                    "InterestRevenueCalculatedUsingEffectiveInterestMethod": {
+                        "units": {"KZT": [
+                            {"end": "2025-12-31", "val": 1500000000000, "form": "20-F"}]}
+                    },
+                    "LoansAndAdvancesAtAmortisedCostAllowanceForExpectedCreditLosses": {
+                        "units": {"KZT": [
+                            {"end": "2025-12-31", "val": 200000000000, "form": "20-F"}]}
+                    },
+                }
+            }
+        }
+        latest = self._get_facts("0001985487")['latest']
+        assert latest['interest_revenue'] == pytest.approx(1500000000000 * KZT_USD_RATE)
+        assert latest['allowance_for_credit_losses'] == pytest.approx(200000000000 * KZT_USD_RATE)
+
+        from modules.tools import _is_lender
+        assert _is_lender({'sector': 'Technology',
+                           'industry': 'Software - Infrastructure'},
+                          {'latest': latest}) is True

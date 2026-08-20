@@ -53,10 +53,20 @@ Using the dossier, generate 8 high-precision search queries to uncover hidden ri
 8. **Query 9a — Customer ROI (Positive):** Search for "{COMPANY} customer ROI case study revenue impact cost savings {CORE_PRODUCT}" — looks for published customer success data and validated returns.
 9. **Query 9b — Customer ROI (Negative):** Search for "{COMPANY} largest customers capex return disappointment writedown overspending {CORE_PRODUCT}" — looks for the negative signal. The asymmetry is deliberate: Burry needs negative evidence, not marketing case studies. Both signals together let experts weigh customer economics from both sides.
 
-For each query, execute a Tavily search via Python:
+**MANDATORY REBUTTAL PAIRING.** Every query that seeks an accusation MUST be paired with a query that seeks the response. Run both. This applies to queries 1 and 2 (Dynamic Red Flags) and to any short-seller, lawsuit, fraud, or investigation query you generate.
+
+For each accusation query, add:
+- `"{COMPANY} response statement rebuttal {ALLEGATION}"`
+- `"{COMPANY} regulator OR government response {ALLEGATION} compliance"`
+
+A short-seller report and the company's answer are ONE evidence unit, not two optional ones. Presenting the accusation without the response produces a one-sided dossier, and experts will reason from it as though silence were the company's choice. On KSPI two experts asserted management "never rebutted" the Culper report; Kaspi rebutted the same day and the Kazakh government publicly defended its sanctions compliance — direct evidence on the single load-bearing variable, unused because both experts who touched it had the fact backwards.
+
+If you searched for a response and genuinely found none, say so explicitly in the dossier: "Searched for a company response to [allegation]; none found." Never leave the absence implicit.
+
+For each query, execute a Tavily search via Python. **Write results to a file — do NOT print them to stdout.** This dump is ~7K tokens of scraped web text; printing it puts it in the main session's context, where it is re-sent on every remaining turn of the run.
 
 ```bash
-cd /Users/tallempert/src-tal/investor && ./venv/bin/python3 -c "
+mkdir -p /tmp/silicon_council/{TICKER} && cd /Users/tallempert/src-tal/investor && ./venv/bin/python3 -c "
 from modules.config import tavily
 queries = [
     'QUERY_1',
@@ -70,23 +80,47 @@ queries = [
     'QUERY_9a',
     'QUERY_9b'
 ]
-for q in queries:
-    try:
-        response = tavily.search(query=q, search_depth='basic', max_results=3)
-        for r in response.get('results', []):
-            print(f'SOURCE: {r[\"title\"]} ({r.get(\"url\", \"\")})')
-            print(f'CONTENT: {r[\"content\"][:800]}')
-            print()
-    except Exception as e:
-        print(f'Search failed: {e}')
-"
+with open('/tmp/silicon_council/{TICKER}/raw_forensic.txt', 'w') as f:
+    for q in queries:
+        try:
+            response = tavily.search(query=q, search_depth='basic', max_results=3)
+            for r in response.get('results', []):
+                f.write(f'SOURCE: {r[\"title\"]} ({r.get(\"url\", \"\")})\n')
+                f.write(f'CONTENT: {r[\"content\"][:800]}\n\n')
+        except Exception as e:
+            f.write(f'Search failed for {q}: {e}\n')
+" && wc -c /tmp/silicon_council/{TICKER}/raw_forensic.txt
 ```
 
-Append the forensic results to the dossier.
+Only the byte count returns to your context. Do NOT `cat` this file.
+
+### Step 2.5: First-Pass Condense (Codex)
+
+Condense the raw forensic dump into a structured brief. This is mechanical, high-volume, low-judgment work — offload it to Codex so it draws on the ChatGPT quota pool and the raw text never enters this session:
+
+**Codex binary and models are both pinned explicitly.** Use `$CX` (`/Applications/ChatGPT.app/Contents/Resources/codex`), NOT the `codex` on PATH — the Homebrew build is far older and rejects current models. Models are pinned rather than inherited from `~/.codex/config.toml`, otherwise retuning Codex for coding work would silently change investment output. Condense steps use `gpt-5.6-luna` (clear, repeatable extraction) at low effort; the Step 4 experts use `gpt-5.6-sol` (deep analysis) at high effort. Do not substitute `gpt-5.4` / `gpt-5.4-mini` — both retire from Codex on 2026-08-31.
+
+**Never trust `codex exec`'s exit code.** It returns 0 even when the model call fails outright, writing an empty output file. Every fallback below keys on the output file being non-empty, never on `$?`.
+
+```bash
+CX=/Applications/ChatGPT.app/Contents/Resources/codex; D=/tmp/silicon_council/{TICKER}; { echo "Condense the raw web-search results below into a structured brief for an investment analyst.
+
+Rules:
+- Group findings under: RED FLAGS, ACCOUNTING, OWNERSHIP, COMPETITIVE THREAT, ECOSYSTEM, CUSTOMER ROI.
+- Preserve every number, date, and named source exactly as written. Never round, infer, or add figures.
+- Attribute each claim to its source article title. Drop any claim with no identifiable source.
+- Where results conflict, report BOTH sides. Do not resolve the conflict.
+- No investment opinion, no recommendation, no severity ranking. Facts and attributions only.
+- Target 800-1200 words."; echo; cat $D/raw_forensic.txt; } | $CX exec - -m gpt-5.6-luna -c model_reasoning_effort=low --sandbox read-only --skip-git-repo-check --output-last-message $D/forensic_brief.md >$D/forensic_brief.log 2>&1; wc -c $D/forensic_brief.md
+```
+
+**Fallback:** if `$CX` is missing or `forensic_brief.md` is empty (check the byte count — the exit code is always 0), skip this step and let Step 3 read `raw_forensic.txt` directly. Tell the user the Codex leg was skipped — never continue silently with a missing brief.
+
+**Codex condenses; it does not decide.** It must not drop a finding for seeming unimportant — that judgment belongs to Step 3.
 
 ### Step 3: Refine Dossier
 
-Read the file at `/Users/tallempert/src-tal/investor/skills/refine-dossier.md`. Following those instructions, condense the full dossier (raw + forensic) into a dense ~2500-word executive briefing. Ensure every quantitative claim carries a source tag per the EVIDENCE SOURCE LABELING section in refine-dossier.md. This refined dossier will be passed to all experts.
+Read the file at `/Users/tallempert/src-tal/investor/skills/refine-dossier.md`. Following those instructions, condense the initial dossier (Step 1) plus the forensic brief at `/tmp/silicon_council/{TICKER}/forensic_brief.md` (or `raw_forensic.txt` if the Codex leg was skipped) into a dense ~2500-word executive briefing. Read the brief with the Read tool — this is the one point where search material must enter Claude's context. **This step stays on Claude and is never offloaded:** evidence labeling and the net-income cross-check are the quality chokepoint every downstream output inherits, and what gets dropped here determines all 14 verdicts. Ensure every quantitative claim carries a source tag per the EVIDENCE SOURCE LABELING section in refine-dossier.md. This refined dossier will be passed to all experts.
 
 ### Step 3.5: Moat Threat Search
 
@@ -142,35 +176,50 @@ Generate 5 ADDITIONAL search queries specific to this company that the templates
 
 Rules: each query must name the specific company/industry/country. Do NOT repeat what static or cross-cutting already cover.
 
-**3.5d — Execute all queries via Python:**
+**3.5d — Execute all queries via Python (write to file, NOT stdout):**
 
 ```bash
-cd /Users/tallempert/src-tal/investor && ./venv/bin/python3 -c "
+./venv/bin/python3 -c "
 from modules.config import tavily
 queries = [
     # paste all ~21-24 queries here as strings
 ]
-results = []
-for q in queries:
-    try:
-        response = tavily.search(query=q, search_depth='basic', max_results=2)
-        for r in response.get('results', []):
-            results.append(f'THREAT: {r[\"title\"]}\nCONTENT: {r[\"content\"][:500]}\n')
-    except Exception as e:
-        results.append(f'Search failed for: {q}: {e}\n')
-print('\n'.join(results))
-"
+with open('/tmp/silicon_council/{TICKER}/raw_moat_threats.txt', 'w') as f:
+    for q in queries:
+        try:
+            response = tavily.search(query=q, search_depth='basic', max_results=2)
+            for r in response.get('results', []):
+                f.write(f'THREAT: {r[\"title\"]}\nCONTENT: {r[\"content\"][:500]}\n\n')
+        except Exception as e:
+            f.write(f'Search failed for {q}: {e}\n')
+" && wc -c /tmp/silicon_council/{TICKER}/raw_moat_threats.txt
 ```
 
-**3.5e — Append results to refined dossier:**
+Only the byte count returns to your context. Do NOT `cat` this file.
 
-Add the search results to the refined dossier file at `/tmp/silicon_council/{TICKER}/refined_dossier.md` as a new section:
+**3.5e — Condense the threat dump into a register (Codex):**
 
+Mechanical, high-volume, zero judgment — offload it:
+
+```bash
+CX=/Applications/ChatGPT.app/Contents/Resources/codex; D=/tmp/silicon_council/{TICKER}; { echo "Condense the raw moat-threat search results below into a structured threat register for an investment analyst.
+
+Rules:
+- One entry per distinct threat. Merge duplicates that appear across queries.
+- For each entry give: THREAT (one line) / EVIDENCE (facts, numbers, dates, verbatim) / SOURCE (article title) / STATUS (enacted, proposed, speculative, or rumoured).
+- Preserve every number and date exactly. Never infer, round, or extrapolate.
+- Do NOT rank threats by severity and do NOT assess the moat. You are registering, not judging.
+- Drop entries with no identifiable source. Target 600-1000 words."; echo; cat $D/raw_moat_threats.txt; } | $CX exec - -m gpt-5.6-luna -c model_reasoning_effort=low --sandbox read-only --skip-git-repo-check --output-last-message $D/threat_register.md >$D/threat_register.log 2>&1; wc -c $D/threat_register.md
 ```
---- MOAT THREAT SEARCH ---
-MOAT TYPES: [type1], [type2], [type3]
 
-[results from 3.5d]
+**Fallback:** if `$CX` is missing or `threat_register.md` is empty (check the byte count, not the exit code), use `raw_moat_threats.txt` in place of the register below and tell the user the Codex leg was skipped.
+
+**3.5f — Append the register to the refined dossier:**
+
+Substitute the actual moat types, then append without routing the text through your context:
+
+```bash
+D=/tmp/silicon_council/{TICKER}; { echo; echo "--- MOAT THREAT SEARCH ---"; echo "MOAT TYPES: [type1], [type2], [type3]"; echo; cat $D/threat_register.md; } >> $D/refined_dossier.md && wc -c $D/refined_dossier.md
 ```
 
 This ensures all 12 experts see the moat-threat data when they read the dossier.
@@ -179,22 +228,39 @@ This ensures all 12 experts see the moat-threat data when they read the dossier.
 
 **IMPORTANT: Before launching Step 4, run `mkdir -p /tmp/silicon_council/{TICKER}` via Bash.**
 
-**CRITICAL PERFORMANCE RULE: Launch ALL 12 subagents in a SINGLE message using the Agent tool.** This runs them concurrently (~5 min wall clock vs ~35 min sequential). Each uses `model: "sonnet"` and `run_in_background: true`.
+**CRITICAL PERFORMANCE RULE: launch all 12 experts concurrently, split across two token pools.** Six run as Codex workers on the ChatGPT quota; six run as Claude subagents. Fire the Codex batch first as a single backgrounded Bash call, then immediately launch the six Claude subagents in ONE message — both pools drain in parallel (~5 min wall clock vs ~35 min sequential).
 
-Read the expert prompt files from `/Users/tallempert/src-tal/investor/skills/experts/`. Launch all 12 simultaneously:
+The expert prompts live in `/Users/tallempert/src-tal/investor/skills/experts/`.
 
-1. **Jeff Bezos** — prompt from `skills/experts/bezos.md`
-2. **Warren Buffett** — prompt from `skills/experts/buffett.md`
-3. **Michael Burry** — prompt from `skills/experts/burry.md`
-4. **Tim Cook** — prompt from `skills/experts/cook.md`
-5. **Steve Jobs** — prompt from `skills/experts/jobs.md`
-6. **Psychologist** — prompt from `skills/experts/psychologist.md`
-7. **Sherlock** — prompt from `skills/experts/sherlock.md`
-8. **Futurist** — prompt from `skills/experts/futurist.md`
-9. **Biologist** — prompt from `skills/experts/biologist.md`
-10. **Historian** — prompt from `skills/experts/historian.md`
-11. **Anthropologist** — prompt from `skills/experts/anthropologist.md`
-12. **Peter Lynch** — prompt from `skills/experts/lynch.md`
+**Group A — Codex workers (6).** These are pure reasoning over the refined dossier: no tools, no network, no secrets, so they run under `--sandbox read-only`.
+
+| # | Expert | Prompt file | `{EXPERT_KEY}` |
+|---|--------|-------------|----------------|
+| 1 | Jeff Bezos | `bezos.md` | `jeff_bezos` |
+| 2 | Warren Buffett | `buffett.md` | `warren_buffett` |
+| 3 | Michael Burry | `burry.md` | `michael_burry` |
+| 4 | Tim Cook | `cook.md` | `tim_cook` |
+| 5 | Steve Jobs | `jobs.md` | `steve_jobs` |
+| 6 | Psychologist | `psychologist.md` | `psychologist` |
+
+Write `expert_tail.txt` first (see below), then launch all six in one call:
+
+```bash
+CX=/Applications/ChatGPT.app/Contents/Resources/codex; D=/tmp/silicon_council/{TICKER}; E=/Users/tallempert/src-tal/investor/skills/experts; for x in bezos:jeff_bezos buffett:warren_buffett burry:michael_burry cook:tim_cook jobs:steve_jobs psychologist:psychologist; do f=${x%%:*}; k=${x##*:}; { echo "You are analyzing {TICKER} for the Silicon Council."; echo; cat $E/$f.md; echo; echo "## DOSSIER DATA:"; cat $D/refined_dossier.md; echo; cat $D/expert_tail.txt; } | $CX exec - -m gpt-5.6-sol -c model_reasoning_effort=high --sandbox read-only --skip-git-repo-check --output-last-message $D/$k.md >$D/$k.log 2>&1 & done; wait; wc -c $D/jeff_bezos.md $D/warren_buffett.md $D/michael_burry.md $D/tim_cook.md $D/steve_jobs.md $D/psychologist.md
+```
+
+**Group B — Claude subagents (6).** Launch all six in a SINGLE message using the Agent tool, each with `model: "sonnet"` and `run_in_background: true`:
+
+| # | Expert | Prompt file | `{EXPERT_KEY}` |
+|---|--------|-------------|----------------|
+| 7 | Sherlock | `sherlock.md` | `sherlock` |
+| 8 | Futurist | `futurist.md` | `futurist` |
+| 9 | Biologist | `biologist.md` | `biologist` |
+| 10 | Historian | `historian.md` | `historian` |
+| 11 | Anthropologist | `anthropologist.md` | `anthropologist` |
+| 12 | Peter Lynch | `lynch.md` | `lynch` |
+
+**Fallback:** if `$CX` is missing, or any Group A file is empty or lacks a ---SUMMARY--- block after the run (check the files — the exit code is always 0), relaunch just those experts as Claude subagents with `model: "sonnet"`. Tell the user which experts fell back — never let the council run short.
 
 Each subagent prompt should be:
 ```
@@ -214,6 +280,8 @@ FORMAT COMPLIANCE (CRITICAL): Your output MUST begin with EXACTLY this block for
 VERDICT: [one word: BUY/SELL/PASS/HOLD/WAIT]
 CONFIDENCE: [0-100 as integer, e.g. 72]
 KEY METRIC: [one line]
+TRIGGER PRICE: [price or range at which your verdict changes, @ the hurdle rate you used — never "N/A"]
+POSITION SIZE: [% of portfolio at the current price, or ZERO]
 KEY RISK: [one line]
 BULL CASE: [one line]
 MOAT FLAG: [NONE/MINOR/MODERATE/SEVERE]
@@ -231,7 +299,15 @@ This is critical — your analysis will be lost if you do not write the file.
 
 Where `{EXPERT_KEY}` is: `jeff_bezos`, `warren_buffett`, `michael_burry`, `tim_cook`, `steve_jobs`, `psychologist`, `sherlock`, `futurist`, `biologist`, `historian`, `anthropologist`, `lynch`.
 
-Wait for all 12 to complete. Collect the ---SUMMARY--- blocks from each agent's return value for Step 5.
+**Shared tail vs. Claude-only tail.** Everything in the template above from `IMPORTANT: Produce your analysis...` through the `GUARD:` paragraph is identical for both pools. Write exactly that text — with `{TICKER}` substituted — to `/tmp/silicon_council/{TICKER}/expert_tail.txt` before launching Group A, so both pools read from one source. The final `AFTER completing your analysis, you MUST save your FULL output...` instruction is **Claude-only**: Codex workers have no Write tool, and `--output-last-message` writes `{EXPERT_KEY}.md` for them.
+
+Wait for all 12 to complete — both the backgrounded Codex batch and the six Claude subagents. Then collect the ---SUMMARY--- blocks for Step 5. For Group A, extract just the block rather than reading the full expert file:
+
+```bash
+D=/tmp/silicon_council/{TICKER}; for k in jeff_bezos warren_buffett michael_burry tim_cook steve_jobs psychologist; do echo "=== $k ==="; sed -n '/---SUMMARY---/,/---END SUMMARY---/p' $D/$k.md; done
+```
+
+If a file is missing its ---SUMMARY--- block, that expert failed format compliance — relaunch it as a Claude subagent. Do not proceed to Step 5 with 11 experts: a silently dropped verdict corrupts the Moat Tribunal.
 
 ### Step 5: Munger Synthesis (Opus 4.7)
 
@@ -247,6 +323,21 @@ The prompt should include all expert ---SUMMARY--- blocks labeled by expert name
 
 Collect the verdict (you need its key conclusions for Step 6).
 
+### Step 6: Reality Check GATE (runs ALONE and FIRST — must complete before Step 6b)
+
+Launch the Reality Check subagent (Opus, `model: "opus"`) **by itself** and wait for it before launching anything else. Read `/Users/tallempert/src-tal/investor/skills/reality-check.md`. Pass it the Munger verdict, all 12 expert `---SUMMARY---` blocks, every known data-quality defect, and the strongest available counter-argument to the verdict (e.g. a superinvestor who acted the other way, with their cost basis).
+
+**If the Reality Check returns any FATAL finding** — a tautology, a smuggled assumption, or a refuted decisive argument — you MUST do one of:
+  (a) send the finding back to the Munger agent via SendMessage and have it revise, or
+  (b) prepend an `EDITOR'S CORRECTIONS` block to `/tmp/silicon_council/{TICKER}/verdict.md` naming the defect, showing the corrected arithmetic, and pointing to the Reality Check section.
+
+Do NOT publish a report whose headline verdict rests on an argument the gate has refuted, with the refutation buried several sections below it. That is what happened on KSPI.
+
+### Step 6b: Family Newsletter + Business Explainer (PARALLEL)
+
+Launch these two in a single message with `run_in_background: true`, passing the verdict **as corrected by Step 6**.
+
+<!-- superseded header retained for reference -->
 ### Step 6: Family Newsletter + Reality Check + Business Explainer (PARALLEL)
 
 Launch these three subagents **in parallel** in a single message, all with `run_in_background: true`:

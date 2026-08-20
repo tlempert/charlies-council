@@ -11,6 +11,7 @@ import os
 import re
 import statistics
 from datetime import datetime
+from collections import Counter
 from concurrent.futures import ThreadPoolExecutor
 
 def normalize_ticker(ticker):
@@ -361,6 +362,26 @@ def get_cik(ticker):
     return None
 
 
+def _unit_currency(unit_key):
+    """Return the ISO currency code of an XBRL unit, or None if not monetary.
+
+    Monetary units are 'USD' or 'KZT'; per-share amounts are 'USD/shares'.
+    Everything else ('shares', 'pure') is a count or ratio and must not be
+    multiplied by an exchange rate.
+    """
+    code = unit_key.split('/')[0]
+    return code if len(code) == 3 and code.isalpha() and code.isupper() else None
+
+
+def _fetch_fx_rate(currency):
+    """Spot rate converting one unit of `currency` into USD. None if unavailable."""
+    try:
+        rate = yf.Ticker(f"{currency}USD=X").info.get('regularMarketPrice')
+        return rate if rate else None
+    except Exception:
+        return None
+
+
 def get_xbrl_facts(cik):
     """Fetch structured financial facts from SEC XBRL CompanyFacts API.
 
@@ -376,7 +397,8 @@ def get_xbrl_facts(cik):
 
     facts = r.json()
     gaap = facts.get('facts', {}).get('us-gaap', {})
-    if not gaap:
+    ifrs = facts.get('facts', {}).get('ifrs-full', {})
+    if not gaap and not ifrs:
         return None
 
     # Concepts we care about, mapped to friendly names
@@ -408,27 +430,74 @@ def get_xbrl_facts(cik):
         'CostOfRevenue': 'cost_of_goods_sold',  # alternate tag
     }
 
-    # Extract annual 10-K values for each concept
-    yearly = {}  # {end_date: {friendly_name: value}}
-    for xbrl_concept, friendly in concept_map.items():
-        if xbrl_concept not in gaap:
-            continue
-        for unit_key, entries in gaap[xbrl_concept].get('units', {}).items():
-            for entry in entries:
-                if entry.get('form') != '10-K':
-                    continue
-                end = entry.get('end', '')
-                val = entry.get('val')
-                if not end or val is None:
-                    continue
-                if end not in yearly:
-                    yearly[end] = {}
-                # Only overwrite if not already set (first match wins for alternates)
-                if friendly not in yearly[end]:
-                    yearly[end][friendly] = val
+    # IFRS spells the same economics differently. Map them onto the identical
+    # friendly names so downstream forensics reads one vocabulary.
+    ifrs_concept_map = {
+        'Revenue': 'revenue',
+        'ProfitLoss': 'net_income',
+        'Goodwill': 'goodwill',
+        'ExpenseFromSharebasedPaymentTransactionsWithEmployees': 'sbc',
+        'DepreciationAndAmortisationExpense': 'depreciation_amortization',
+        'CostOfSales': 'cost_of_goods_sold',
+        'Inventories': 'inventory',
+        'TradeAndOtherPayables': 'accounts_payable',
+        'DilutedEarningsLossPerShare': 'eps_diluted',
+        # Loan-book facts — these are what _is_lender keys off when yfinance
+        # mislabels a bank's sector (Kaspi.kz: 'Software - Infrastructure').
+        'InterestRevenueCalculatedUsingEffectiveInterestMethod': 'interest_revenue',
+        'LoansAndAdvancesAtAmortisedCostAllowanceForExpectedCreditLosses': 'allowance_for_credit_losses',
+    }
 
-    if not yearly:
+    # Foreign private issuers file 20-F (40-F for Canada) instead of 10-K.
+    ANNUAL_FORMS = {'10-K', '20-F', '40-F'}
+
+    # Collect annual entries first, tagged with the currency they were filed in.
+    # A 20-F filer reports in its home currency (Kaspi.kz: KZT), so values are
+    # NOT dollars and must never reach the dossier as if they were.
+    raw = {}  # {end_date: {friendly_name: (value, currency_or_None)}}
+    for taxonomy, cmap in ((gaap, concept_map), (ifrs, ifrs_concept_map)):
+        for xbrl_concept, friendly in cmap.items():
+            if xbrl_concept not in taxonomy:
+                continue
+            for unit_key, entries in taxonomy[xbrl_concept].get('units', {}).items():
+                currency = _unit_currency(unit_key)
+                for entry in entries:
+                    if entry.get('form') not in ANNUAL_FORMS:
+                        continue
+                    end = entry.get('end', '')
+                    val = entry.get('val')
+                    if not end or val is None:
+                        continue
+                    # Only overwrite if not already set (first match wins for alternates)
+                    raw.setdefault(end, {}).setdefault(friendly, (val, currency))
+
+    if not raw:
         return None
+
+    # Convert every foreign-currency fact to USD. Bail out rather than emit
+    # unconverted figures — a silently 462x-overstated balance sheet is worse
+    # than a missing one.
+    foreign = {c for row in raw.values() for _, c in row.values() if c and c != 'USD'}
+    rates = {}
+    for code in foreign:
+        rate = _fetch_fx_rate(code)
+        if not rate:
+            print(f"   ⚠️ No {code}USD FX rate; skipping XBRL facts rather than report {code} as USD.")
+            return None
+        rates[code] = rate
+
+    yearly = {}
+    for end, row in raw.items():
+        yearly[end] = {
+            friendly: (val * rates[currency] if currency in rates else val)
+            for friendly, (val, currency) in row.items()
+        }
+
+    # A filing can carry an incidental second currency (Kaspi.kz reports a few
+    # TJS facts). The filing currency is the one denominating most of them.
+    counts = Counter(c for row in raw.values() for _, c in row.values() if c in rates)
+    source_currency = counts.most_common(1)[0][0] if counts else 'USD'
+    fx_rate = rates.get(source_currency, 1.0)
 
     # Extract iXBRL tagged text blocks (tables)
     textblock_map = {
@@ -446,6 +515,8 @@ def get_xbrl_facts(cik):
         'sorted_dates': sorted_dates,
         'latest': yearly[sorted_dates[0]] if sorted_dates else {},
         'textblock_tags': list(textblock_map.keys()),  # for get_sec_sections to extract
+        'source_currency': source_currency,
+        'fx_rate': fx_rate,
     }
 
     return result
@@ -829,6 +900,22 @@ def get_tavily_strategy(ticker, company_name=None):
             queries
         )
     return "\n".join(r for r in results if r)
+
+NON_MONETARY_FACTS = {'shares_outstanding', 'buyback_shares'}
+
+
+def _to_price_currency(forensic_data, fx_rate):
+    """Scale monetary facts by fx_rate, leaving share counts alone."""
+    if not forensic_data or fx_rate == 1.0:
+        return forensic_data
+    forensic_data['yearly'] = {
+        end: {k: (v if k in NON_MONETARY_FACTS else v * fx_rate) for k, v in row.items()}
+        for end, row in forensic_data.get('yearly', {}).items()
+    }
+    dates = forensic_data.get('sorted_dates') or []
+    forensic_data['latest'] = forensic_data['yearly'].get(dates[0], {}) if dates else {}
+    return forensic_data
+
 
 def extract_yf_forensic(stock, info):
     """Extract forensic data from yfinance when XBRL is unavailable.
@@ -1256,6 +1343,30 @@ def _get_narrative_fallbacks(company_name, pool):
     return {k: f.result() for k, f in futures.items()}
 
 
+LENDER_INDUSTRY_MARKERS = ('bank', 'credit', 'lending', 'consumer financ',
+                           'mortgage', 'insurance', 'capital markets')
+LENDER_FACT_MARKERS = ('net_interest_income', 'loans_and_advances',
+                       'interest_revenue', 'allowance_for_credit_losses')
+
+
+def _is_lender(info, forensic_data):
+    """True when the balance sheet, not the income statement, drives economics.
+
+    Sector metadata alone is not enough: yfinance classifies Kaspi.kz as
+    'Technology / Software - Infrastructure' despite a multi-billion loan book,
+    which is how a Kazakh bank drew Snowflake and MongoDB as peers. A loan-book
+    fact in the filings outranks the label.
+    """
+    sector = (info.get('sector') or '').lower()
+    industry = (info.get('industry') or '').lower()
+    if 'financial' in sector:
+        return True
+    if any(m in industry for m in LENDER_INDUSTRY_MARKERS):
+        return True
+    latest = (forensic_data or {}).get('latest', {}) or {}
+    return any(latest.get(m) for m in LENDER_FACT_MARKERS)
+
+
 def _derive_cost_stickiness(forensic_data):
     """Derive fixed/variable cost ratios from historical revenue decline years.
 
@@ -1305,8 +1416,66 @@ def _derive_cost_stickiness(forensic_data):
     return defaults, None
 
 
-def build_stress_test_table(forensic_data, c_sym='$'):
-    """Build revenue decline stress test with simple and adjusted FCF columns."""
+def build_carry_block(info, price, fx_rate=1.0, c_sym='$'):
+    """Return-of-capital and sustainable growth — the downside-protection math.
+
+    A dividend is what pays you to wait, and for an income-paying franchise it is
+    the whole "tails I don't lose much" mechanism. It is also where the honest
+    growth rate comes from: g = ROE x retention, which a valuation must use
+    rather than assume.
+
+    yfinance's bookValue is denominated in FILING currency while price is in
+    PRICE currency, so info['priceToBook'] is meaningless for a foreign filer
+    (Kaspi.kz reads 0.0085x against a true ~3.9x) and is never used here.
+    """
+    roe = info.get('returnOnEquity') or 0
+    payout = info.get('payoutRatio') or 0
+    div_rate = info.get('dividendRate') or 0
+
+    lines = ["    --- 💰 CARRY & RETURN OF CAPITAL ---"]
+
+    if div_rate and price:
+        lines.append(f"    Dividend / share: {c_sym}{div_rate:.2f}   "
+                     f"Yield at {c_sym}{price:.2f}: {div_rate / price:.2%}")
+        lines.append(f"    Payout ratio: {payout:.0%}")
+        lines.append("    NOTE: yfinance dividend data is TRAILING. If the company has "
+                     "announced an increase or a resumption, the forward yield is higher — "
+                     "check the latest earnings release before citing this number.")
+    else:
+        lines.append("    NO DIVIDEND reported. There is no carry: the entire return must "
+                     "come from price appreciation, and nothing pays you to wait.")
+
+    if roe:
+        retention = max(0.0, 1.0 - payout)
+        lines.append(f"    ROE: {roe:.1%}   Retention: {retention:.0%}   "
+                     f"-> Sustainable growth g = ROE x retention = {roe * retention:.1%}")
+        lines.append("    ⚠️ g is derived from the payout ratio above, so it inherits any "
+                     "staleness in that trailing figure. A company that has just raised or "
+                     "resumed its dividend will show an understated payout and therefore an "
+                     "OVERSTATED g. Recompute from the latest declared dividend before use.")
+        lines.append("    MANDATORY: any valuation that assumes a growth rate must justify "
+                     "departing from this figure. Holding g fixed while varying the discount "
+                     "rate hides the assumption that drives the answer.")
+
+    bv = info.get('bookValue')
+    if bv and price:
+        bv_conv = bv * fx_rate
+        if bv_conv > 0:
+            lines.append(f"    Book value / share: {c_sym}{bv_conv:.2f}   "
+                         f"P/B: {price / bv_conv:.2f}x")
+            lines.append("    ⚠️ P/B / ROE is identically P/E — an algebraic identity, not an "
+                         "independent check. Never present it as a second witness.")
+
+    return "\n".join(lines) + "\n"
+
+
+def build_stress_test_table(forensic_data, c_sym='$', is_lender=False):
+    """Build revenue decline stress test with simple and adjusted FCF columns.
+
+    Lenders take a different branch: an opex-stickiness model applied to a bank
+    produces margins EXPANDING into a bust (KSPI: 69.1% FCF margin at -30%
+    revenue), because it never models credit losses rising as conditions worsen.
+    """
     if not forensic_data:
         return ""
     latest = forensic_data.get('latest', {})
@@ -1338,6 +1507,22 @@ def build_stress_test_table(forensic_data, c_sym='$'):
     simple_base_fcf = revenue * base_margin
 
     # Adjusted model: data-derived cost stickiness
+    if is_lender:
+        _ni = latest.get('net_income', 0)
+        return (
+            "\n        --- 📉 STRESS TEST (CREDIT CYCLE) ---\n"
+            "    A revenue-decline / opex-stickiness table is the wrong model for a\n"
+            "    lender: credit losses RISE as conditions worsen, so that model returns\n"
+            "    the impossible result of margins expanding into a bust.\n"
+            f"    Base revenue {c_sym}{revenue/1e9:.2f}B, net income {c_sym}{_ni/1e9:.2f}B.\n\n"
+            "    MANDATORY for every expert: build the downside from CREDIT COST, not\n"
+            "    revenue decline. State (a) the company's OWN disclosed NPL ratio and its\n"
+            "    trend, (b) provisioning coverage and its trend, (c) loan book size, and\n"
+            "    (d) the basis-point rise in credit cost that eliminates pre-tax income.\n"
+            "    Do NOT substitute system-wide or peer NPL where the company discloses its\n"
+            "    own — on KSPI the company figure was 7.0% against a system 3.7%.\n"
+        )
+
     stickiness, source_year = _derive_cost_stickiness(forensic_data)
     total_costs = cogs + rd + sga + sbc
 
@@ -1579,6 +1764,50 @@ def _validate_ticker(candidate, target_mcap):
         return None
 
 
+def get_superinvestor_registry(ticker, company_name):
+    """Find sophisticated holders, their position size, and their COST BASIS.
+
+    Cost basis is the point of this block: it reveals the price at which informed
+    capital actually acted, which is a different question from what the business
+    is worth. Position size reveals conviction — a 0.05% stake in a concentrated
+    fund and a 43% stake are not the same signal.
+    """
+    print(f"{Fore.CYAN}🏦 Searching for superinvestor holdings ({ticker})...{Style.RESET_ALL}")
+    queries = [
+        f"{company_name} {ticker} 13F superinvestor holdings percent of portfolio average price",
+        f"{ticker} hedge fund guru portfolio position cost basis shares held {CURRENT_YEAR}",
+        f"{company_name} strategic investor stake purchase price block trade {CURRENT_YEAR}",
+    ]
+    hits = []
+    for q in queries:
+        try:
+            r = _tavily_query(q, max_results=2, content_limit=700, label="HOLDER", topic="finance")
+            if r:
+                hits.append(r)
+        except Exception:
+            continue
+
+    body = "\n".join(h for h in hits if h).strip()
+    if not body:
+        return ""
+
+    return (
+        "\n    --- 🏦 SUPERINVESTOR REGISTRY ---\n"
+        "    For each holder below extract: name, % of portfolio, share count, "
+        "AVERAGE COST BASIS, and quarter opened.\n"
+        "    Compare every cost basis to the current price. A sophisticated buyer's "
+        "entry answers a different question than intrinsic value: it tells you where "
+        "informed capital was willing to act. If every named holder bought materially "
+        "below spot, the council is not disagreeing with them — it is agreeing with "
+        "them at a different price, and must say so explicitly.\n"
+        "    Weigh POSITION SIZE as conviction: a token stake in a concentrated fund is "
+        "curiosity, not a fat pitch. Note the DATE of any public thesis — a claim "
+        "restated at today's price is a different claim from one formed at a much "
+        "lower entry.\n\n"
+        f"{body}\n"
+    )
+
+
 def get_peer_companies(ticker, company_name, info):
     """Identify 4-5 publicly traded peer companies for benchmarking.
 
@@ -1731,6 +1960,22 @@ def compute_peer_benchmarks(ticker, target_data, peer_data):
 
     peer_tickers = list(peer_data.keys())
 
+    # Sanity gate: a peer set auto-selected from wrong sector metadata is worse
+    # than no peer set. KSPI (a Kazakh bank) drew SNOW/MDB/DDOG and printed a
+    # peer median P/E of 476.6x that every expert then had to be told to ignore.
+    _pes = [(p.get('pe_ratio', 0) or 0) for p in peer_data.values()]
+    if len([p for p in _pes if 0 < p < 100]) < 2:
+        return (
+            "\n    --- PEER COMPARISON SUPPRESSED ---\n"
+            f"    Auto-selected peers ({', '.join(peer_tickers)}) failed the sanity gate: "
+            "fewer than two returned a usable P/E between 0x and 100x.\n"
+            "    This usually means the sector metadata is wrong for this company. No peer "
+            "table is emitted — experts must not reason from a fabricated median.\n"
+            "    If peer context matters here, name comparables manually by business model "
+            "and geography.\n"
+        )
+
+
     lines = ["--- PEER COMPARISON ---"]
     lines.append(f"Peers: {', '.join(peer_tickers)}\n")
 
@@ -1821,6 +2066,7 @@ def build_initial_dossier(ticker):
         fut_cultural = pool.submit(get_cultural_intel, ticker, company_name)
         fut_disruptor = pool.submit(get_disruptor_intel, company_name)
         fut_peers = pool.submit(get_peer_companies, ticker, company_name, info)
+        fut_holders = pool.submit(get_superinvestor_registry, ticker, company_name)
         fut_segmentation = pool.submit(get_customer_segmentation, ticker, company_name)
 
         # Phase 2a: As soon as CIK is ready, fan out SEC-dependent tasks
@@ -1912,11 +2158,28 @@ def build_initial_dossier(ticker):
     else:
         c_sym = get_currency_symbol(info)
 
+    try:
+        holder_block = fut_holders.result()
+    except Exception:
+        holder_block = ""
+
+    # A foreign private issuer files in its home currency but lists in another
+    # (Kaspi.kz: KZT filings, USD listing). Everything below stamps c_sym — the
+    # PRICE currency — onto figures pulled straight from the filings, so those
+    # figures must be converted first or KZT 4.0tn of revenue prints as "$4046B".
+    # GBp vs GBP is a denomination difference, not a currency one.
+    _norm = lambda c: 'GBP' if c == 'GBp' else c
+    _fx_rate = 1.0
+    if _norm(fin_curr) != _norm(price_curr):
+        _fx_rate = _fetch_fx_rate(_norm(fin_curr)) or 1.0
+
     # Assemble (pure CPU, no I/O)
     # Use XBRL data if available, otherwise fall back to yfinance extraction
     forensic_data = xbrl_data
     if not forensic_data:
-        forensic_data = extract_yf_forensic(stock, info)
+        # get_xbrl_facts already returns USD; the yfinance fallback does not, so
+        # convert here rather than widen extract_yf_forensic's signature.
+        forensic_data = _to_price_currency(extract_yf_forensic(stock, info), _fx_rate)
 
     forensic_block = format_forensic_block(forensic_data, c_sym)
 
@@ -1995,8 +2258,7 @@ def build_initial_dossier(ticker):
 
     try:
         revs = stock.financials.loc['Total Revenue'].iloc[:3][::-1]
-        # Financials are in financialCurrency (e.g. GBP not GBp), so /1e9 is always correct
-        trend_line = " -> ".join([f"{c_sym}{x/1e9:.1f}B" for x in revs])
+        trend_line = " -> ".join([f"{c_sym}{x * _fx_rate/1e9:.1f}B" for x in revs])
     except Exception:
         trend_line = "N/A"
 
@@ -2008,17 +2270,6 @@ def build_initial_dossier(ticker):
         'fcf': 0,
         'owner_yield': 0,
     }
-    # Currency conversion: financials may be in local currency while marketCap is USD
-    _fin_currency = info.get('financialCurrency', 'USD')
-    _price_currency = info.get('currency', 'USD')
-    _fx_rate = 1.0
-    if _fin_currency != _price_currency:
-        try:
-            _fx_ticker = yf.Ticker(f'{_fin_currency}{_price_currency}=X')
-            _fx_rate = _fx_ticker.info.get('regularMarketPrice', 1.0) or 1.0
-        except Exception:
-            _fx_rate = 1.0
-
     try:
         fcf = stock.cashflow.loc['Free Cash Flow'].iloc[0]
         key_metrics['fcf'] = fcf * _fx_rate
@@ -2062,7 +2313,7 @@ def build_initial_dossier(ticker):
     return f"""
     TARGET: {ticker}
     COMPANY: {company_name}
-    CURRENCY: {info.get('currency', 'USD')}
+    CURRENCY: {price_curr}{f" (converted from {fin_curr} filings @ {_fx_rate:.6f})" if _fx_rate != 1.0 else ""}
     REVENUE TREND: {trend_line}
     {val_report}
 
@@ -2075,6 +2326,7 @@ def build_initial_dossier(ticker):
     {textblocks}
 
     {"--- 🏦 ACQUISITION CONTEXT (Tavily) ---" + chr(10) + acquisition_context if acquisition_context else ""}
+    {holder_block}
 
     --- SECTION A: STRATEGY & VISION ---
     {strategy_section}
@@ -2119,8 +2371,9 @@ def build_initial_dossier(ticker):
     --- SECTION N: CUSTOMER SEGMENTATION ---
     {segmentation_data if segmentation_data else '(No segmentation data found)'}
 
-    {build_stress_test_table(forensic_data, c_sym)}
-    {build_earnings_velocity(quarterly_revenues, c_sym)}
+    {build_stress_test_table(forensic_data, c_sym, _is_lender(info, forensic_data))}
+    {build_carry_block(info, info.get('currentPrice', 0) or info.get('regularMarketPrice', 0), _fx_rate, c_sym)}
+    {build_earnings_velocity([q * _fx_rate for q in quarterly_revenues], c_sym)}
     """
 
     # --- Data quality warning: count empty Tavily-dependent sections ---

@@ -38,6 +38,44 @@ If the company's revenue depends primarily on a commodity price (gold, oil, copp
    - **Trough:** Recent cyclical low → estimated trough earnings
    Experts MUST state which scenario they use when citing P/E, margins, or FCF. Smuggling peak-cycle margins as durable is prohibited.
 
+## CARRY & RETURN OF CAPITAL (MANDATORY — DO NOT OMIT)
+
+Copy the `--- 💰 CARRY & RETURN OF CAPITAL ---` block verbatim into the refined dossier. If it is absent from the raw dossier, write "⚠️ NO CARRY DATA."
+
+Then state, one line each:
+1. Dividend yield at the current price, and at the cost basis of every holder named in the Superinvestor Registry.
+2. The sustainable growth rate `g = ROE × retention`.
+3. Whether the carry alone clears the LOCAL COST OF EQUITY you stated above.
+
+For an income-paying business the coupon is the downside-protection mechanism and must be argued explicitly by bull and bear alike. **A council that does not mention the dividend has not analysed the downside.** On KSPI, twelve experts, the synthesis and the adversarial brief all missed an 8.55% forward yield that was the entire basis of the outside bull case.
+
+⚠️ `P/B ÷ ROE` is identically `P/E` — an algebraic identity, never an independent check. Any claim that uses one to corroborate the other is one witness in two hats.
+
+## MAINTENANCE vs EXPANSION ECONOMICS (MANDATORY WHEN MARGINS ARE FALLING)
+
+If margins, ROIC or net income have declined over the analysis window, separate the mature business from the expansion investment BEFORE any expert reasons about "deterioration." Scan for a recently acquired segment, a named geography in investment phase, or a disclosed "ex-{segment}" reporting basis.
+
+Produce:
+
+```
+--- NORMALIZED ECONOMICS ---
+Consolidated:        revenue $X, margin Y%, EPS $Z
+Expansion segment:   revenue $A, margin B% (loss of $C)
+CORE (ex-expansion): revenue $(X-A), margin ~D%
+Core P/E on core earnings: ~E x   vs headline P/E: ~F x
+Capital committed to expansion: $G — REVERSIBLE or NOT
+```
+
+State explicitly which of these the numbers support:
+- **Mid-investment** — the core is intact and the headline understates it; expansion is funded out of a healthy core.
+- **Deteriorating** — the core itself is weakening, independent of expansion.
+
+These look identical in consolidated figures and are opposite investment cases. On KSPI the headline showed margin falling 46.6% → 26.6%; excluding Türkiye the core fell 41.2% → ~39%, about two points, not half.
+
+⚠️ Do NOT call the expansion a "free option" if the capital is committed and the segment is material. An option expires worthless; a commitment consumes capital and cannot be abandoned cleanly. State committed capital as a % of market cap and whether exit is realistically available.
+
+⚠️ Where management reports on a favourable "ex-{segment}" basis, report BOTH that basis and the consolidated figure and note the gap. Management choosing the flattering basis is a mild negative signal; management disclosing the drag rather than hiding it is a positive one. Say which this is.
+
 ## BUYBACK DATA HYGIENE
 If the BUYBACK ANALYSIS section derives average price paid from share-count deltas (marked with `~` or `*Estimated`), flag it:
 "⚠️ BUYBACK AVG PRICE IS ESTIMATED from share count changes — not actual repurchase data. Do not use as precise evidence of capital allocation quality."
@@ -80,6 +118,18 @@ Classify the company into ONE dominant type. State it clearly so every expert kn
 State: `PROBLEM TYPE: [type] — [one sentence explaining why]`
 
 Experts MUST adjust their analysis to the problem type. For cyclicals: cite which earnings scenario (peak/mid/trough) you use. For binary: name the event. For regime: name the political variable.
+
+### LOCAL COST OF EQUITY (MANDATORY — STATE IT BEFORE ANY VALUATION)
+
+Read `COUNTRY:` from the raw dossier and state a defensible local cost of equity:
+
+`LOCAL COST OF EQUITY: X–Y% — [country] risk-free ~A%, plus equity risk premium, plus any sector premium. [one sentence of justification]`
+
+For a US-domiciled company this is roughly 8–10% and the pipeline's anchors are usable as printed. For an emerging market it is frequently 15–20%, and the pipeline's DCF and Graham Floor — which are computed with developed-market discount rates — are then **not usable as printed**. In that case add:
+
+`⚠️ THE VALUATION ANCHORS ASSUME A DEVELOPED-MARKET DISCOUNT RATE. At a local cost of equity of X% they overstate fair value. Back-solve what discount rate each anchor implies before citing it.`
+
+Never compare an emerging-market earnings yield, FCF yield or owner yield to the US 10-year Treasury. That is the single most available error in a cross-border analysis: it makes every EM franchise look mispriced. On KSPI the mechanical DCF ($185.06) back-solved to ~7.5% and the Graham Floor ($143.73) to ~13%, both American, on a Kazakh lender — and both landed 41–82% above the market price.
 
 ### DATA QUALITY SCORECARD
 Scan the raw dossier for data completeness. This tells every expert what data is available and what is missing.
@@ -128,6 +178,18 @@ Categories to check:
 - **Smart Money Check:** Super Investors on shareholder register, insider buying/selling.
 - Revenue Quality (Recurring vs One-Time).
 - Past promises vs current delivery.
+
+### 4b. SUPERINVESTOR REGISTRY (MANDATORY — For ALL experts)
+
+If the raw dossier contains a `--- 🏦 SUPERINVESTOR REGISTRY ---` block, extract a table of every named holder: name, % of portfolio, share count, **average cost basis**, quarter opened. Compute `(cost basis / current price) - 1` for each.
+
+Then state one of these two conclusions explicitly:
+- "Every named sophisticated holder bought N–M% below the current price. The council is agreeing with them at a different entry, not disagreeing with them."
+- "Named holders bought at or above the current price, so the council's verdict is a genuine disagreement with informed capital."
+
+Weight position SIZE as conviction — 0.05% of a concentrated fund and 43% are not the same vote. Note the DATE of any public thesis: a claim restated at today's price is a different claim from one formed at a much lower entry.
+
+If no registry block exists, write: "⚠️ NO SUPERINVESTOR DATA — the council cannot see whether informed capital has acted, or at what price."
 
 ### 5. For the FUTURIST (Growth)
 - TAM vs SAM details.

@@ -191,3 +191,44 @@ After your complete prose synthesis, add a `---` horizontal rule and then this e
 ### Conviction as Qualitative, Not Percentage
 
 Use qualitative bands (High / Moderate / Low / Too Uncertain), not numbers. Expert confidences remain numeric (they represent intensity of view) but your Munger conviction is a judgment about whether the decision is right, which is not probability-calculable. "74% conviction" is false precision.
+
+## MANDATORY: EVERY VERDICT CARRIES A PRICE
+
+Publish one of these two lines verbatim, in every synthesis:
+
+**Buy Zone: $X–$Y**       (a range in which you would buy)
+**Trigger Price: $X–$Y**  (you would not buy at any current price, but a level exists at which this becomes interesting)
+
+TOO UNCERTAIN does NOT exempt you. If you believe no price compensates, write
+`**Trigger Price: NONE — no price compensates**` and then justify it specifically:
+name the mechanism by which the loss is total, and explain why a smaller position
+at a lower price does not solve it.
+
+"I cannot calculate this" is not available to an author who has published a
+probability band, a conditional value map, or a list of resolving signals. If you
+have half-calculated it twice, finish the calculation. A refusal to print the
+number is not discipline when the number is the thing that reconciles the
+disagreement — on KSPI the trigger of $70–85 contained the entry price of every
+sophisticated buyer on the register, and the synthesis that declined to print it
+left readers unable to see that the council and those buyers agreed.
+
+Also publish:
+
+**Position Size: N%** — what fraction of a portfolio this deserves at the current
+price. ZERO is a legitimate answer. A verdict is not a decision until it is sized,
+and "too uncertain to value" and "small position at the right price" are different
+answers that must be distinguishable in your output.
+
+## FORBIDDEN: TAUTOLOGICAL CORROBORATION
+
+Before presenting any metric as independent confirmation of another, derive the
+second from the first symbolically. If it reduces, it is one witness in two hats.
+`P/B ÷ ROE ≡ P/E` — presenting a price-to-book-per-unit-of-ROE comparison as a
+check on a P/E claim is circular, and it is how the KSPI synthesis reached its
+headline conclusion.
+
+Equally: when you run a sensitivity on one input, do not silently hold another at
+a value that determines the answer. Varying cost of equity while fixing g at 6%
+produced "warranted value IS today's price" — at the company's own implied
+`g = ROE × retention` the conclusion inverted.
+

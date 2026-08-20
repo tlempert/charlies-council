@@ -316,6 +316,14 @@ Read `/Users/tallempert/src-tal/investor/skills/munger-synthesis.md`. Launch a *
 - All 12 expert ---SUMMARY--- blocks (from Step 4 agent outputs)
 - The Munger synthesis instructions
 - Today's date and the ticker
+- **If `/tmp/vic_scan/{TICKER}/pitch.md` exists**, that file too (see below)
+
+**VIC pitch guard (only when the file exists).** If `/scan-vic` sourced this ticker it will have left a ValueInvestorsClub write-up at `/tmp/vic_scan/{TICKER}/pitch.md`. Pass it to Munger under this heading, verbatim:
+
+> `## OUTSIDE PITCH — ANONYMOUS THIRD-PARTY ADVOCACY (NOT FILED FACT)`
+> This is a ValueInvestorsClub member's argument for the position. It is advocacy, and its evidence tier sits **below media estimates and far below SEC filings**. Weigh the *reasoning*; do not import its *numbers*. Any figure appearing only here and nowhere in the dossier is an unverified claim — say so if you rely on it. If it contradicts the dossier, the dossier wins and you name the conflict.
+
+Munger is the first and only council member to see it. Do **not** merge it into the refined dossier, and do **not** pass it to the 12 experts — their value is 12 independent reads, and a persuasive pitch shared across all of them produces 12 echoes of one argument instead.
 
 The prompt should include all expert ---SUMMARY--- blocks labeled by expert name. Add this instruction:
 
@@ -326,6 +334,13 @@ Collect the verdict (you need its key conclusions for Step 6).
 ### Step 6: Reality Check GATE (runs ALONE and FIRST — must complete before Step 6b)
 
 Launch the Reality Check subagent (Opus, `model: "opus"`) **by itself** and wait for it before launching anything else. Read `/Users/tallempert/src-tal/investor/skills/reality-check.md`. Pass it the Munger verdict, all 12 expert `---SUMMARY---` blocks, every known data-quality defect, and the strongest available counter-argument to the verdict (e.g. a superinvestor who acted the other way, with their cost basis).
+
+**VIC pitch guard (only when `/tmp/vic_scan/{TICKER}/pitch.md` exists).** Pass the pitch to the Reality Check too, with its job set by which way Munger went:
+
+- **Munger disagrees with the pitch** → it *is* the strongest counter-argument this step asks for. Test the verdict against its best points specifically, by name.
+- **Munger agrees with the pitch** → invert the question: did he reason there independently, or echo a persuasive write-up? Name any load-bearing claim that traces only to the pitch and to no filed source. Agreement with an anonymous advocate is not corroboration.
+
+Same evidence tier applies: advocacy, not fact.
 
 **If the Reality Check returns any FATAL finding** — a tautology, a smuggled assumption, or a refuted decisive argument — you MUST do one of:
   (a) send the finding back to the Munger agent via SendMessage and have it revise, or

@@ -122,6 +122,22 @@ Rules:
 
 Read the file at `/Users/tallempert/src-tal/investor/skills/refine-dossier.md`. Following those instructions, condense the initial dossier (Step 1) plus the forensic brief at `/tmp/silicon_council/{TICKER}/forensic_brief.md` (or `raw_forensic.txt` if the Codex leg was skipped) into a dense ~2500-word executive briefing. Read the brief with the Read tool — this is the one point where search material must enter Claude's context. **This step stays on Claude and is never offloaded:** evidence labeling and the net-income cross-check are the quality chokepoint every downstream output inherits, and what gets dropped here determines all 14 verdicts. Ensure every quantitative claim carries a source tag per the EVIDENCE SOURCE LABELING section in refine-dossier.md. This refined dossier will be passed to all experts.
 
+### Step 3.4: DOSSIER NEUTRALITY CHECK (do this before Step 3.5)
+
+Re-read the refined dossier you just wrote and strip every sentence that tells an expert what to conclude. This step exists because it was violated twice:
+
+- On ACN the dossier said *"the current data favours the bull"* and named a mandatory referee metric. **Eleven of twelve experts then returned that metric, verbatim, as their KEY METRIC** — and the one expert who ignored it was the only dissenting vote. The Reality Check's verdict: *"one prior echoed eleven times, not eleven witnesses."* The 8-vote majority carried almost no independent information.
+- The metric itself was also wrong in a way nobody caught for two rounds: revenue per employee **rises** when you fire your lowest-revenue-per-head staff, so it moved the wrong way precisely when the feared damage occurred.
+
+Delete or rewrite:
+- Any clause asserting which side the evidence favours ("the data favours X", "this argues for Y").
+- Any instruction to use a specific metric as decisive. **Name the QUESTION, never the referee.** If a metric belongs in the dossier, put it in the facts with its source tag and let each expert decide whether it discriminates.
+- Any adjective doing argumentative work ("cheap", "expensive", "extraordinary", "obviously").
+
+Keep, and strengthen: unresolved conflicts stated as conflicts with both sides sourced; data-quality defects; the list of what would change the verdict. Those inform without steering.
+
+**Test before proceeding:** could a reader tell from the dossier alone which way you expect the council to vote? If yes, keep cutting. Twelve experts reading one steered dossier are one opinion with twelve signatures.
+
 ### Step 3.5: Moat Threat Search
 
 Read the `MOAT TYPES:` line from the refined dossier. Then execute three layers of threat queries to surface non-obvious risks the experts would otherwise miss.
@@ -342,8 +358,12 @@ Launch the Reality Check subagent (Opus, `model: "opus"`) **by itself** and wait
 
 Same evidence tier applies: advocacy, not fact.
 
+**THE GATE RUNS TWICE. This is not optional.** On GTT.PA, pass 1 found 3 FATAL findings; Munger's rewrite fixed them and pass 2 found **6 more, all in the replacement argument**. On ACN, pass 1 found 2 FATAL plus a Check 0 violation, and the corrected memo **changed verdict from WAIT/0% to BUY/2%**. A revision that has never been red-teamed is not safer than the draft it replaced — it is a fresh argument with zero review. Run pass 2 against the REVISED verdict, telling it what changed and instructing it to attack the REPLACEMENT reasoning rather than re-litigating what was already withdrawn. Stop when a pass returns zero FATAL findings.
+
+**Point the gate in BOTH directions, every pass.** Ask explicitly whether the memo has OVERCORRECTED, not only whether it is too generous. This is where the two best findings of both runs came from: on GTT that the Korean antitrust remedy had been in force since Dec-2022 *while margins expanded 650bp* (bounding a risk eight experts called unquantifiable), and on ACN that Munger had understated his own case by 3–8x. A red team that only ratchets one way is not a red team, and both times the one-directional reading was the wrong one.
+
 **If the Reality Check returns any FATAL finding** — a tautology, a smuggled assumption, or a refuted decisive argument — you MUST do one of:
-  (a) send the finding back to the Munger agent via SendMessage and have it revise, or
+  (a) send the finding back to the Munger agent via SendMessage and have it revise — **and when you do, never tell it to keep the existing verdict.** Send the findings and let the verdict fall where the corrected arithmetic puts it. On ACN the instruction "keep WAIT" was issued and the synthesist correctly refused, on the ground that holding WAIT would mean picking a ceiling between the price and its own arithmetic solely to protect a published answer — which is the exact defect the gate had just flagged as FATAL. Instructing the synthesist to preserve a conclusion makes you the source of the bias the gate exists to catch; or
   (b) prepend an `EDITOR'S CORRECTIONS` block to `/tmp/silicon_council/{TICKER}/verdict.md` naming the defect, showing the corrected arithmetic, and pointing to the Reality Check section.
 
 Do NOT publish a report whose headline verdict rests on an argument the gate has refuted, with the refutation buried several sections below it. That is what happened on KSPI.

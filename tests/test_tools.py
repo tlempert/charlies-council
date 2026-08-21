@@ -1535,3 +1535,69 @@ def test_names_the_basis_that_produced_each_anchor():
 def test_equal_anchors_do_not_crash_and_stay_ordered():
     lines = _lines(100.0, 100.0, "$")
     assert "CONSERVATIVE" in lines[0] and "OPTIMISTIC" in lines[1]
+
+
+# --- owner yield: one number, one source of truth ---------------------------
+# The dossier prose computes owner yield from OWNER EARNINGS over market cap.
+# key_metrics separately computed it from FREE CASH FLOW, so the report and the
+# dashboard disagreed (ACN: 10.6% prose vs 9.80% dashboard). Worse, fcf was
+# FX-adjusted while marketCap was not, mixing currencies for foreign issuers.
+
+def _owner_yield(report_text):
+    from modules.tools import _parse_owner_yield
+    return _parse_owner_yield(report_text)
+
+
+REPORT_SNIPPET = """
+        --- VALUATION ANCHORS (TTM) ---
+        CURRENT PRICE: $181.35
+
+        1. GRAHAM FLOOR (No Growth): $143.82
+
+        3. OWNER YIELD: 10.6%
+"""
+
+
+def test_reads_owner_yield_from_the_same_report_the_dossier_prints():
+    assert _owner_yield(REPORT_SNIPPET) == pytest.approx(0.106)
+
+
+def test_reads_a_euro_denominated_owner_yield():
+    assert _owner_yield("3. OWNER YIELD: 5.3%") == pytest.approx(0.053)
+
+
+def test_returns_none_when_the_report_has_no_owner_yield_line():
+    assert _owner_yield("no anchors here") is None
+
+
+def test_returns_none_rather_than_zero_on_unparseable_input():
+    assert _owner_yield("3. OWNER YIELD: n/a%") is None
+
+
+# --- share count must never silently become zero ----------------------------
+
+def _shares(balance_sheet_value, info_value):
+    from modules.tools import _resolve_shares_outstanding
+    return _resolve_shares_outstanding(balance_sheet_value, info_value)
+
+
+def test_prefers_the_balance_sheet_share_count():
+    assert _shares(632_435_108, 999_999) == 632_435_108
+
+
+def test_falls_back_to_info_when_the_balance_sheet_field_is_missing():
+    # ACN: both yfinance balance-sheet fields returned nothing and the forensic
+    # block printed SHARES 0M, so an expert had to guess the count.
+    assert _shares(None, 632_435_108) == 632_435_108
+
+
+def test_falls_back_to_info_when_the_balance_sheet_field_is_zero():
+    assert _shares(0, 632_435_108) == 632_435_108
+
+
+def test_returns_none_when_no_source_has_a_count():
+    assert _shares(None, None) is None, "must be None so callers can flag it, not 0"
+
+
+def test_treats_a_zero_from_both_sources_as_unknown():
+    assert _shares(0, 0) is None

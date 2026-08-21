@@ -36,6 +36,42 @@ def get_currency_symbol(info):
     return symbols.get(currency, currency + " ")
 
 # --- 1. THE MATHEMATICIAN (Valuation Engine) - WITH CURRENCY & TTM FIX ---
+def _parse_owner_yield(val_report):
+    """Read owner yield back off the report the dossier actually prints.
+
+    The dossier computes it as owner earnings / market cap. key_metrics used to
+    recompute it from free cash flow instead, so the report said 10.6% and the
+    dashboard said 9.80% for the same company (ACN, FY2026) — and because the
+    FCF figure was FX-adjusted while marketCap was not, foreign issuers had a
+    currency mismatch on top. Parsing the printed line keeps one source of truth.
+    """
+    match = re.search(r'OWNER YIELD:\s*(-?[\d.]+)\s*%', val_report or '')
+    if not match:
+        return None
+    try:
+        return float(match.group(1)) / 100.0
+    except ValueError:
+        return None
+
+
+def _resolve_shares_outstanding(balance_sheet_value, info_value):
+    """Share count from the balance sheet, falling back to the info payload.
+
+    yfinance exposes the count under names that vary by issuer; ACN returned
+    nothing for either balance-sheet field and the forensic block printed
+    SHARES 0M, which an expert then had to guess around. Returns None rather
+    than 0 so callers can flag a missing count instead of publishing a zero.
+    """
+    for candidate in (balance_sheet_value, info_value):
+        try:
+            value = float(candidate)
+        except (TypeError, ValueError):
+            continue
+        if value > 0:
+            return type(candidate)(candidate) if isinstance(candidate, int) else value
+    return None
+
+
 def _dcf_scenario_lines(dcf_standard, dcf_opt, c_sym):
     """Label the two DCF anchors by VALUE, not by which basis produced them.
 
@@ -943,6 +979,9 @@ def extract_yf_forensic(stock, info):
     Returns data in the same format as get_xbrl_facts() so format_forensic_block
     can consume it identically.
     """
+    # yfinance names the share count inconsistently across issuers; keep the
+    # info payload as a fallback so the forensic block never prints SHARES 0M.
+    _shares_from_info = (info or {}).get('sharesOutstanding')
     fin = stock.financials
     bs = stock.balance_sheet
     cf = stock.cashflow
@@ -972,7 +1011,9 @@ def extract_yf_forensic(stock, info):
         # Balance sheet
         d['accounts_receivable'] = safe_get(bs, 'Accounts Receivable', date)
         d['total_debt_par'] = safe_get(bs, 'Total Debt', date)
-        d['shares_outstanding'] = safe_get(bs, 'Ordinary Shares Number', date) or safe_get(bs, 'Share Issued', date)
+        d['shares_outstanding'] = _resolve_shares_outstanding(
+            safe_get(bs, 'Ordinary Shares Number', date) or safe_get(bs, 'Share Issued', date),
+            _shares_from_info)
         d['goodwill'] = safe_get(bs, 'Goodwill', date)
         d['inventory'] = safe_get(bs, 'Inventory', date)
         d['accounts_payable'] = safe_get(bs, 'Accounts Payable', date)
@@ -2311,6 +2352,9 @@ def build_initial_dossier(ticker):
         gf_match = re.search(r'GRAHAM FLOOR.*?:\s*\$?([\d,.]+)', val_report)
         if gf_match:
             key_metrics['graham_floor'] = float(gf_match.group(1).replace(',', ''))
+        parsed_yield = _parse_owner_yield(val_report)
+        if parsed_yield is not None:
+            key_metrics['owner_yield'] = parsed_yield
         dcf_match = re.search(r'CONSERVATIVE.*?:\s*\$?([\d,.]+)', val_report)
         if dcf_match:
             key_metrics['dcf_conservative'] = float(dcf_match.group(1).replace(',', ''))

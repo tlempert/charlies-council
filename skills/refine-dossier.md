@@ -151,6 +151,28 @@ Categories to check:
 9. Earnings velocity (QUARTERLY REVENUE TRAJECTORY present)
 10. Stress test (ADJUSTED column present with source year)
 
+## DATE EVERY ONE-OFF BEFORE YOU TELL THE COUNCIL TO STRIP IT
+
+When you flag a non-recurring item, **find the period it was recorded in and check it actually falls inside the window you are correcting.** Quote the filing's own dating language.
+
+This was violated on OTIS (2026-08-21). The dossier instructed all twelve experts to strip a ~$191M German tax benefit from TTM net income. Otis's own annual report says the ruling arrived in August 2024 and the benefits *"were recorded in 2024"* — a TTM window ending 30-Jun-2026 cannot contain it. Twelve experts applied a correction to an item that was not there, and two of them built their headline metrics on the corrupted figure. The real driver of the step-up was the absence of UpLift transformation costs, stated plainly in the company's own quarterly release.
+
+**Check both statements, not one.** On the same company the synthesist then made the mirror error on the cash-flow side — asserting that "valuing on cash sidesteps" the tax item when a −$216M refund sat inside FY2025 free cash flow, with refunds continuing into 2026. An item that misses the income statement may still be in the cash flow, and the reverse.
+
+If you cannot date an item from the record, say "could not date this item" rather than instructing a correction. An unverified correction is worse than none: it is applied by everyone, uniformly, and it looks like rigour.
+
+## DO NOT DROP FACTS THAT CUT AGAINST YOUR FRAMING
+
+The OTIS refined dossier carried the aftermarket-erosion threat but dropped, from the same raw file:
+- the maintenance portfolio growing **4% for the fourth consecutive year** to 2.5M units,
+- Service margin at a **record 25.1%**,
+- ex-China New Equipment orders **+7%**,
+- and Section G, management's own explanation for ~45% of the Service margin contraction.
+
+Every dropped fact pointed the same way — against the threat the dossier had chosen to feature. Three experts then read a stock statistic ("independents hold ~50% of serviced units") as evidence of decline because the flow data that answers it was not in front of them.
+
+Before finalising, re-read the raw dossier asking only: **what did I leave out that argues the other way?** Put those facts back. A dossier that drops the counter-evidence is steering the council even when every sentence in it is neutral.
+
 ## MANDATORY PASS-THROUGH BLOCKS (DO NOT SUMMARIZE, DO NOT OMIT)
 
 Copy these blocks from the raw dossier into the refined dossier **verbatim**. They are tables of primary facts, not prose to be condensed, and several experts cannot do their job without them:

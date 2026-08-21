@@ -1601,3 +1601,36 @@ def test_returns_none_when_no_source_has_a_count():
 
 def test_treats_a_zero_from_both_sources_as_unknown():
     assert _shares(0, 0) is None
+
+
+# --- a missing share count must read as missing, not as zero ----------------
+
+def _forensic_row(shares_value):
+    from modules.tools import format_forensic_block
+    data = {
+        "sorted_dates": ["2025-12-31"],
+        "source": "SEC XBRL",
+        "yearly": {"2025-12-31": {
+            "sbc": 4.6e8, "revenue": 1.0e10, "accounts_receivable": 1.05e9,
+            "shares_outstanding": shares_value, "total_debt_par": 1.229e10,
+            "rd_expense": 2.36e9, "goodwill": 1.03e10}},
+    }
+    return format_forensic_block(data)
+
+
+def test_prints_a_real_share_count():
+    assert "253M" in _forensic_row(253_000_000)
+
+
+def test_prints_n_a_when_the_share_count_is_missing():
+    # NXPI and ACN do not file CommonStockSharesOutstanding, so this arrived as
+    # 0 and rendered "0M" — which reads as a real zero and misled an expert
+    # into triangulating a wrong count from ownership percentages.
+    row = _forensic_row(0)
+    assert "0M" not in row, "a missing count must not render as a real zero"
+    assert "n/a" in row.lower()
+
+
+def test_prints_n_a_when_the_share_count_is_none():
+    row = _forensic_row(None)
+    assert "n/a" in row.lower()

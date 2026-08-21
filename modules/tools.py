@@ -463,6 +463,11 @@ def get_xbrl_facts(cik):
         'AllocatedShareBasedCompensationExpense': 'sbc',  # alternate tag
         'AccountsReceivableNetCurrent': 'accounts_receivable',
         'CommonStockSharesOutstanding': 'shares_outstanding',
+        # Many issuers (NXPI, ACN) file the count only on the cover page
+        # or as issued/basic rather than under CommonStockSharesOutstanding.
+        'EntityCommonStockSharesOutstanding': 'shares_outstanding',
+        'CommonStockSharesIssued': 'shares_outstanding',
+        'WeightedAverageNumberOfSharesOutstandingBasic': 'shares_outstanding',
         'LongTermDebt': 'long_term_debt',
         'DebtInstrumentCarryingAmount': 'total_debt_par',
         'Revenues': 'revenue',
@@ -1078,6 +1083,10 @@ def format_forensic_block(xbrl_data, c_sym='$'):
         rev = d.get('revenue', 0)
         ar = d.get('accounts_receivable', 0)
         shares = d.get('shares_outstanding', 0)
+        # A count we could not source must read as missing. Rendering it as
+        # "0M" reads as a real zero: on ACN an expert took it at face value
+        # and triangulated ~668M from ownership percentages against a true 632.4M.
+        shares_cell = f"{shares/1e6:.0f}M" if shares else "n/a"
         debt = d.get('total_debt_par', d.get('long_term_debt', 0))
         rd = d.get('rd_expense', 0)
         gw = d.get('goodwill', 0)
@@ -1085,7 +1094,7 @@ def format_forensic_block(xbrl_data, c_sym='$'):
         sbc_pct = (sbc / rev * 100) if rev > 0 else 0
         lines.append(
             f"| {year} | {c_sym}{sbc/1e9:.2f}B | {sbc_pct:.1f}% "
-            f"| {c_sym}{ar/1e9:.2f}B | {shares/1e6:.0f}M "
+            f"| {c_sym}{ar/1e9:.2f}B | {shares_cell} "
             f"| {c_sym}{debt/1e9:.2f}B | {c_sym}{rd/1e9:.2f}B | {c_sym}{gw/1e9:.1f}B |"
         )
 

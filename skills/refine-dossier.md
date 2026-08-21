@@ -151,6 +151,23 @@ Categories to check:
 9. Earnings velocity (QUARTERLY REVENUE TRAJECTORY present)
 10. Stress test (ADJUSTED column present with source year)
 
+## MANDATORY PASS-THROUGH BLOCKS (DO NOT SUMMARIZE, DO NOT OMIT)
+
+Copy these blocks from the raw dossier into the refined dossier **verbatim**. They are tables of primary facts, not prose to be condensed, and several experts cannot do their job without them:
+
+1. **FORENSIC BLOCK** (SBC, SBC/Rev%, accounts receivable, share count, debt, R&D, goodwill by year)
+2. **BUYBACK ANALYSIS** (shares repurchased, dollars spent, net share-count change)
+3. **WORKING CAPITAL** (inventory, payables, COGS, DIO, DPO)
+
+This rule exists because they were dropped on NXPI (2026-08-21) and it cost real analysis:
+
+- Sherlock's Cannibal Check requires share-count history and buyback data. Without them he correctly reported the task as **unanswerable** rather than inventing a trend — a wasted expert seat caused by the dossier, not by him.
+- The synthesist later found, in the raw dossier the experts never saw, a completed repurchase of **11,580,916 shares for $2.55B** against a **flat** share count and ~$0.46B/yr of SBC. The buyback bought no shareholder ownership; it funded the compensation. **That is a capital-allocation finding of the first order and all twelve experts were structurally unable to reach it.**
+
+If a block is genuinely absent from the raw dossier, say so explicitly ("BUYBACK ANALYSIS: not present in the raw dossier") rather than leaving its absence silent. An expert must be able to tell "no data" from "not passed through".
+
+Prefer a longer dossier over a lost fact. The ~2500-word target governs YOUR prose; it does not license dropping primary tables.
+
 ## EXTRACT AND SUMMARIZE:
 
 ### 1. For JEFF BEZOS (The Flywheel & Hidden Value)

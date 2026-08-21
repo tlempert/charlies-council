@@ -1634,3 +1634,28 @@ def test_prints_n_a_when_the_share_count_is_missing():
 def test_prints_n_a_when_the_share_count_is_none():
     row = _forensic_row(None)
     assert "n/a" in row.lower()
+
+
+def _forensic_row_rev(revenue_value):
+    from modules.tools import format_forensic_block
+    data = {
+        "sorted_dates": ["2025-12-31"],
+        "source": "SEC XBRL",
+        "yearly": {"2025-12-31": {
+            "sbc": 4.6e8, "revenue": revenue_value, "accounts_receivable": 1.05e9,
+            "shares_outstanding": 275_000_000, "total_debt_par": 1.229e10,
+            "rd_expense": 2.36e9, "goodwill": 1.03e10}},
+    }
+    return format_forensic_block(data)
+
+
+def test_prints_a_real_sbc_ratio_when_revenue_is_known():
+    assert "3.6%" in _forensic_row_rev(1.27e10)
+
+
+def test_prints_n_a_for_the_sbc_ratio_when_revenue_is_missing():
+    # NXPI's XBRL dict carried no revenue, so SBC/Rev rendered "0.0%" — which
+    # reads as "stock comp is immaterial" when it is ~3.6% of revenue.
+    row = _forensic_row_rev(0)
+    assert "0.0%" not in row, "a missing ratio must not render as a real zero"
+    assert "n/a" in row.lower()

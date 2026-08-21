@@ -1091,9 +1091,12 @@ def format_forensic_block(xbrl_data, c_sym='$'):
         rd = d.get('rd_expense', 0)
         gw = d.get('goodwill', 0)
 
-        sbc_pct = (sbc / rev * 100) if rev > 0 else 0
+        # Same rule as the share count: a ratio we cannot compute must read as
+        # missing. NXPI's XBRL dict carried no revenue and this rendered 0.0%,
+        # which says 'stock comp is immaterial' about a ~3.6%-of-revenue charge.
+        sbc_cell = f"{sbc / rev * 100:.1f}%" if rev and rev > 0 else "n/a"
         lines.append(
-            f"| {year} | {c_sym}{sbc/1e9:.2f}B | {sbc_pct:.1f}% "
+            f"| {year} | {c_sym}{sbc/1e9:.2f}B | {sbc_cell} "
             f"| {c_sym}{ar/1e9:.2f}B | {shares_cell} "
             f"| {c_sym}{debt/1e9:.2f}B | {c_sym}{rd/1e9:.2f}B | {c_sym}{gw/1e9:.1f}B |"
         )

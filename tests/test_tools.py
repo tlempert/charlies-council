@@ -1,3 +1,4 @@
+import re
 import os
 import pytest
 from unittest.mock import patch, MagicMock
@@ -1659,3 +1660,56 @@ def test_prints_n_a_for_the_sbc_ratio_when_revenue_is_missing():
     row = _forensic_row_rev(0)
     assert "0.0%" not in row, "a missing ratio must not render as a real zero"
     assert "n/a" in row.lower()
+
+
+# --- issued shares are not outstanding shares -------------------------------
+
+def test_does_not_treat_shares_issued_as_shares_outstanding():
+    """Issued includes treasury stock; outstanding does not.
+
+    OTIS repurchased ~$3.45B over four years while CommonStockSharesIssued rose
+    435M -> 439M, because the buybacks went into treasury. Mapping issued to
+    shares_outstanding made the forensic table report a RISING count for a
+    company shrinking its float (true outstanding ~380.7M), and inverted the
+    buyback analysis derived from the share-count delta.
+    """
+    import inspect
+    from modules import tools
+    src = inspect.getsource(tools)
+    mapping = re.findall(r"'(\w+)':\s*'shares_outstanding'", src)
+    assert 'CommonStockSharesIssued' not in mapping, \
+        "issued shares include treasury and must not stand in for outstanding"
+
+
+def test_still_maps_the_genuine_outstanding_tags():
+    import inspect
+    from modules import tools
+    src = inspect.getsource(tools)
+    mapping = re.findall(r"'(\w+)':\s*'shares_outstanding'", src)
+    assert 'CommonStockSharesOutstanding' in mapping
+    assert 'EntityCommonStockSharesOutstanding' in mapping
+
+
+def _rows_with_shares(series):
+    from modules.tools import format_forensic_block
+    dates = [f"{2025-i}-12-31" for i in range(len(series))]
+    return format_forensic_block({
+        "sorted_dates": dates, "source": "SEC XBRL",
+        "yearly": {d: {"sbc": 8e7, "revenue": 1.4e10, "accounts_receivable": 3.69e9,
+                       "shares_outstanding": n, "total_debt_par": 7.78e9,
+                       "rd_expense": 1.5e8, "goodwill": 1.7e9}
+                   for d, n in zip(dates, series)},
+    })
+
+
+def test_flags_a_share_series_that_switches_reporting_basis():
+    # OTIS: 2021-24 resolve to shares ISSUED (435-439M), 2025 to a genuine
+    # outstanding figure (393M). Reading the jump as a buyback would invent a
+    # 10% share reduction that never happened.
+    row = _rows_with_shares([393e6, 439e6, 437e6, 436e6, 435e6])
+    assert "SHARE COUNT BASIS" in row.upper()
+
+
+def test_does_not_flag_a_consistent_share_series():
+    row = _rows_with_shares([380e6, 388e6, 396e6, 403e6, 409e6])
+    assert "SHARE COUNT BASIS" not in row.upper()

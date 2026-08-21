@@ -463,10 +463,13 @@ def get_xbrl_facts(cik):
         'AllocatedShareBasedCompensationExpense': 'sbc',  # alternate tag
         'AccountsReceivableNetCurrent': 'accounts_receivable',
         'CommonStockSharesOutstanding': 'shares_outstanding',
-        # Many issuers (NXPI, ACN) file the count only on the cover page
-        # or as issued/basic rather than under CommonStockSharesOutstanding.
+        # Many issuers (NXPI, ACN) file the count only on the cover page or as a
+        # weighted average rather than under CommonStockSharesOutstanding.
+        # CommonStockSharesIssued is deliberately NOT mapped here: issued
+        # includes treasury stock, so for any company repurchasing into treasury
+        # it reports a rising count while the float shrinks (OTIS: issued 435M ->
+        # 439M across ~$3.45B of buybacks, against ~380.7M actually outstanding).
         'EntityCommonStockSharesOutstanding': 'shares_outstanding',
-        'CommonStockSharesIssued': 'shares_outstanding',
         'WeightedAverageNumberOfSharesOutstandingBasic': 'shares_outstanding',
         'LongTermDebt': 'long_term_debt',
         'DebtInstrumentCarryingAmount': 'total_debt_par',
@@ -1073,6 +1076,21 @@ def format_forensic_block(xbrl_data, c_sym='$'):
                 )
 
     lines.append(f"--- 🔬 FORENSIC BLOCK ({source.upper()}) ---")
+
+    # XBRL issuers file the share count under several concepts that mean
+    # different things (issued includes treasury, outstanding does not). When a
+    # series switches basis mid-stream the jump looks like a huge buyback that
+    # never happened — OTIS resolved 435-439M for 2021-24 and 393M for 2025.
+    _share_series = [yearly[d].get('shares_outstanding') or 0 for d in dates]
+    _jumps = [abs(a - b) / b for a, b in zip(_share_series, _share_series[1:])
+              if a and b]
+    if _jumps and max(_jumps) > 0.08:
+        lines.append(
+            "⚠️ SHARE COUNT BASIS INCONSISTENT — the series below jumps "
+            f"{max(_jumps)*100:.0f}% year-over-year, which usually means it "
+            "switches between shares ISSUED and shares OUTSTANDING rather than "
+            "reflecting a real change in float. Do NOT derive buybacks or "
+            "dilution from these deltas; source the count from the filings.\n")
 
     lines.append("| YEAR | SBC | SBC/Rev% | ACCTS REC | SHARES (M) | DEBT | R&D | GOODWILL |")
     lines.append("|------|-----|----------|-----------|------------|------|-----|----------|")

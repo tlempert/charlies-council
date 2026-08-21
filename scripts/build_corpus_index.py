@@ -50,8 +50,16 @@ DECISION_ORDER = {
 # no longer falls off the end, and superseded buy zones quoted inside the
 # appended red-team sections can never be mistaken for the current one.
 _VERDICT_START = re.compile(r"##\s*\S*\s*MUNGER'S VERDICT", re.I)
-_VERDICT_END = re.compile(r"##\s*\S*\s*(THE BUSINESS EXPLANATION|REALITY CHECK|"
-                          r"THE COUNCIL|EXPERT REPORTS|FAMILY NEWSLETTER)", re.I)
+# Anchor on the ASSEMBLER's own headings, which are emoji-marked and fixed
+# (see save_to_markdown). Loose keyword markers collide with the synthesist's
+# prose: NXPI 2026-08-21 wrote "## §I. THE COUNCIL, AND WHY I DO NOT USE IT",
+# which matched a bare "THE COUNCIL" marker and truncated the verdict section
+# at line 54 of 209, losing both the Decision and the Buy Zone.
+_VERDICT_END = re.compile(
+    r"^#{1,2}\s*(?:\U0001F468|\U0001F3DB|\U0001F4C2|\u2696)"
+    r"|^#{1,2}\s*\S*\s*(?:THE BUSINESS EXPLANATION|THE FINAL REALITY CHECK|"
+    r"EVIDENCE & ANALYSIS)\b",
+    re.I | re.M)
 _FALLBACK_WINDOW = 15000
 
 

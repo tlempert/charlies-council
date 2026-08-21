@@ -150,3 +150,55 @@ def test_does_not_pick_up_a_superseded_buy_zone_quoted_by_the_red_team(tmp_path)
     assert "78" in zone, f"should read the current zone, got {zone!r}"
     assert "117" not in zone and "120" not in zone, \
         f"picked up a superseded zone from the red-team section: {zone!r}"
+
+
+def test_a_synthesist_heading_does_not_truncate_the_verdict_section(tmp_path):
+    """NXPI 2026-08-21: the memo contained its own heading
+
+        ## §I. THE COUNCIL, AND WHY I DO NOT USE IT
+
+    which matched a loose 'THE COUNCIL' end-marker and cut the verdict section
+    at line 54 of 209, losing both the Decision and the Buy Zone.
+
+    The assembler's own section headings are emoji-marked and fixed; anchor on
+    those, not on words the synthesist is free to use in prose.
+    """
+    body = """# 🦁 THE SILICON COUNCIL REPORT: ZZZ
+
+---
+## ⚖️ MUNGER'S VERDICT
+# MUNGER SYNTHESIS
+
+## §I. THE COUNCIL, AND WHY I DO NOT USE IT
+The unanimity is an artifact.
+
+## §VI. FINAL DECISION
+**Buy Zone: $110 – $160**
+
+## EXECUTIVE SUMMARY (distilled from synthesis above)
+
+**Decision:** WAIT
+**Conviction:** Moderate
+
+---
+## 👨‍🏫 THE BUSINESS EXPLANATION
+Teaching prose.
+
+---
+# 🏛️ THE FINAL REALITY CHECK
+Reviewing: PASS, Buy Zone $99-$105
+"""
+    p = tmp_path / "ZZZ_Analysis_2026-08-21.md"
+    p.write_text(body, encoding="utf-8")
+    parsed = parse_verdict(str(p))
+    assert parsed.get("decision") == "WAIT"
+    assert "110" in (parsed.get("buy_zone") or "")
+    assert "99" not in (parsed.get("buy_zone") or ""), "must not reach the red-team section"
+
+
+def test_reads_a_buy_zone_written_with_spaces_around_the_dash(tmp_path):
+    p = tmp_path / "YYY_Analysis_2026-08-21.md"
+    p.write_text("## ⚖️ MUNGER'S VERDICT\n**Buy Zone: $110 – $160**\n**Decision:** WAIT\n",
+                 encoding="utf-8")
+    zone = parse_verdict(str(p)).get("buy_zone") or ""
+    assert "110" in zone and "160" in zone

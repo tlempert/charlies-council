@@ -1713,3 +1713,40 @@ def test_flags_a_share_series_that_switches_reporting_basis():
 def test_does_not_flag_a_consistent_share_series():
     row = _rows_with_shares([380e6, 388e6, 396e6, 403e6, 409e6])
     assert "SHARE COUNT BASIS" not in row.upper()
+
+
+# --- owner earnings must deduct maintenance capex, not purchase accounting ---
+
+def _proxy(depreciation, d_and_a, capex):
+    from modules.tools import _maintenance_capex_proxy
+    return _maintenance_capex_proxy(depreciation, d_and_a, capex)
+
+
+def test_prefers_ppe_depreciation_over_total_d_and_a():
+    """NXPI: D&A $832M includes $272M of acquired-intangible amortisation.
+
+    PP&E depreciation is $560M and actual capex $542M — within $18M. Using the
+    full $832M deducts a purchase-accounting charge as if it were maintenance
+    spending, understating owner earnings by ~$272M (~$1.07/share, ~$16 of
+    ceiling at 15x). Owner yield is the metric the whole council leans on.
+    """
+    value, basis = _proxy(560e6, 832e6, 542e6)
+    assert value == 560e6
+    assert "depreciation" in basis.lower() and "amort" not in basis.lower()
+
+
+def test_falls_back_to_d_and_a_when_depreciation_is_not_broken_out():
+    value, basis = _proxy(None, 832e6, 542e6)
+    assert value == 832e6
+    assert "amort" in basis.lower(), "the fallback must say it includes amortisation"
+
+
+def test_falls_back_to_a_capex_proportion_when_neither_is_available():
+    value, basis = _proxy(None, 0, 542e6)
+    assert value == pytest.approx(542e6 * 0.7)
+    assert "estimate" in basis.lower()
+
+
+def test_ignores_a_zero_depreciation_line():
+    value, _ = _proxy(0, 832e6, 542e6)
+    assert value == 832e6

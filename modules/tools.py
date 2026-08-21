@@ -72,6 +72,29 @@ def _resolve_shares_outstanding(balance_sheet_value, info_value):
     return None
 
 
+def _maintenance_capex_proxy(depreciation, d_and_a, capex):
+    """Maintenance-capex proxy for owner earnings, with the basis it used.
+
+    Owner earnings deduct maintenance capex. PP&E depreciation approximates it;
+    total D&A does not, because for an acquisitive company D&A carries
+    amortisation of acquired intangibles — a purchase-accounting charge, not
+    spending needed to keep the business running.
+
+    NXPI FY2026: D&A $832M against PP&E depreciation $560M and actual capex
+    $542M. Deducting the full $832M understated owner earnings by $272M
+    (~$1.07/share, ~$16 of ceiling at 15x), and every downstream anchor —
+    Graham Floor, conservative DCF, and the owner yield the council uses as its
+    default referee — inherited it.
+
+    Returns (value, basis) so the dossier can print which one was used.
+    """
+    if depreciation:
+        return depreciation, "PP&E depreciation"
+    if d_and_a:
+        return d_and_a, "D&A (includes amortisation — may understate owner earnings)"
+    return capex * 0.7, "estimated at 70% of capex (no depreciation line available)"
+
+
 def _dcf_scenario_lines(dcf_standard, dcf_opt, c_sym):
     """Label the two DCF anchors by VALUE, not by which basis produced them.
 
@@ -207,7 +230,10 @@ def get_advanced_valuations(ticker, info, stock):
                 ttm_ocf = q_cashflow.loc['Operating Cash Flow'].iloc[:4].sum() if 'Operating Cash Flow' in q_cashflow.index else 0
                 ttm_capex = abs(q_cashflow.loc['Capital Expenditure'].iloc[:4].sum()) if 'Capital Expenditure' in q_cashflow.index else 0
                 
-                ttm_dep = q_cashflow.loc['Depreciation And Amortization'].iloc[:4].sum() if 'Depreciation And Amortization' in q_cashflow.index else (ttm_capex * 0.7)
+                ttm_dep, _ = _maintenance_capex_proxy(
+                    q_cashflow.loc['Depreciation'].iloc[:4].sum() if 'Depreciation' in q_cashflow.index else None,
+                    q_cashflow.loc['Depreciation And Amortization'].iloc[:4].sum() if 'Depreciation And Amortization' in q_cashflow.index else None,
+                    ttm_capex)
                 ttm_owner_earn = ttm_ocf - ttm_dep 
                 ttm_fcf = ttm_ocf - ttm_capex
                 
@@ -252,8 +278,10 @@ def get_advanced_valuations(ticker, info, stock):
                 capex = abs(get_val(cashflow, 'Capital Expenditure', date))
                 fcf = ocf - capex
                 
-                dep = get_val(cashflow, 'Depreciation And Amortization', date)
-                if dep == 0: dep = get_val(cashflow, 'Depreciation', date)
+                dep, _ = _maintenance_capex_proxy(
+                    get_val(cashflow, 'Depreciation', date),
+                    get_val(cashflow, 'Depreciation And Amortization', date),
+                    0)
                 if dep == 0: dep = capex * 0.7 
                 owner_earn = ocf - dep
                 
@@ -317,8 +345,10 @@ def get_advanced_valuations(ticker, info, stock):
             curr_capex = abs(get_val(cashflow, 'Capital Expenditure'))
             curr_fcf = curr_ocf - curr_capex
             
-            curr_dep = get_val(cashflow, 'Depreciation And Amortization')
-            if curr_dep == 0: curr_dep = curr_capex * 0.7
+            curr_dep, _dep_basis = _maintenance_capex_proxy(
+                get_val(cashflow, 'Depreciation'),
+                get_val(cashflow, 'Depreciation And Amortization'),
+                curr_capex)
             curr_owner = curr_ocf - curr_dep
 
             net_debt_curr = (get_val(balance, 'Total Debt') - get_val(balance, 'Cash And Cash Equivalents'))
@@ -367,7 +397,8 @@ def get_advanced_valuations(ticker, info, stock):
         | YEAR |  ROIC   | MARGIN  | NET INCOME | FREE CASH FLOW | OWNER EARN* |
         |------|---------|---------|------------|----------------|-------------|
         {history_str}
-        *Owner Earn Assumption: Operating Cash Flow - Depreciation (Maintenance CapEx Proxy)
+        *Owner Earn Assumption: Operating Cash Flow - PP&E Depreciation (maintenance capex proxy).
+        Acquired-intangible amortisation is NOT deducted: it is purchase accounting, not maintenance spend.
         {ebitda_note}
         {tax_warning}
 

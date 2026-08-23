@@ -31,6 +31,18 @@ Owner yield separates them cleanly:
 
 One check, perfect separation on the sample to date. Four of the six council runs were avoidable.
 
+### ⚠️ HOW MUCH THAT TABLE IS WORTH — READ THIS BEFORE TRUSTING IT
+
+**It is suggestive, not evidence.** The sample is six names with a single BUY. Perfect separation on one continuous variable requires only that the lone BUY ranks first, which happens **one time in six (p ≈ 0.17) on a metric with no predictive power at all.** A backtest this clean would appear by luck roughly 17% of the time.
+
+Three further caveats, all real:
+
+- **The threshold was fitted, not derived.** Any hurdle from 6.5% to 10.6% separates this sample identically. 8% was chosen as the floor of a developed-market cost of equity, which is defensible on its own terms — but the backtest does not independently confirm it.
+- **Owner yield is a pipeline output that was wrong until recently.** It deducted total D&A rather than PP&E depreciation, understating every acquisitive company; and the pipeline carried three different values for ACN at once (10.6% prose / 9.80% key_metrics / 6.30% implied by P/FCF). The check is only as good as that number.
+- **The verdicts it is scored against are themselves ~60% correlated by construction** — the same dossier, the same orchestrator, one synthesist. Predicting them is not the same as predicting returns.
+
+Treat the 8% floor as a **prior to be updated as the sample grows**, not a validated rule. Re-run the backtest after every few councils and move the threshold if the evidence moves.
+
 ## PIPELINE
 
 ### Step 1 — Run the mechanical checks
@@ -86,3 +98,4 @@ ACN would have passed cleanly and was the sample's only BUY. A name whose owner 
 - **Flags advise; they do not reject.** Every flag is answerable, and the answer is the input the council needs.
 - **Say what you could not check.** A missing leverage target or an unsearched deal is a gap, not a pass.
 - **Never skip triage to save time and then run the council anyway.** The point is to spend the council's two hours on names that survive ten minutes.
+- **Percentage growth is refused on a non-positive base.** A company going from a $1B loss to a $1B profit computes to −200% and would otherwise be flagged as stagnating — the best outcome a business can have, scored as the worst. This funnel is fed by VIC, where loss-making and turnaround names are the norm, so the guard fires often and by design. When you see "not computable", read the raw series yourself.

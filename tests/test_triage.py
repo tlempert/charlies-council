@@ -164,3 +164,49 @@ def test_reads_owner_yield_and_revenue_series():
 def test_returns_empties_rather_than_raising_on_an_unparseable_dossier():
     parsed = triage.parse_physics("nothing useful here")
     assert parsed["ttm"] is None and parsed["series"] == []
+
+
+# --- growth math is invalid on a negative or zero base ---------------------
+# VIC skews deep-value and turnarounds, so loss-making bases are the norm for
+# this funnel, not an edge case.
+
+def test_does_not_flag_a_turnaround_from_loss_to_profit():
+    """-$1B -> +$1B is the best possible outcome and was reported as -200%."""
+    flag = triage.stagnation_check([10e9, 12e9], [-1e9, 1e9])
+    assert flag.failed is False
+    assert "not computable" in flag.detail.lower()
+
+
+def test_does_not_flag_a_company_halving_its_losses():
+    flag = triage.stagnation_check([10e9, 12e9], [-1e9, -0.5e9])
+    assert flag.failed is False
+
+
+def test_does_not_crash_when_revenue_starts_at_zero():
+    flag = triage.stagnation_check([0.0, 12e9], [1e9, 1.1e9])
+    assert flag.failed is False
+    assert "not computable" in flag.detail.lower()
+
+
+def test_still_flags_the_genuine_case_it_was_built_for():
+    # IQV must keep flagging after the guards are added
+    assert triage.stagnation_check([15.0e9, 15.4e9, 16.3e9],
+                                   [1.36e9, 1.373e9, 1.360e9]).failed is True
+
+
+def test_ttm_spike_is_not_computable_when_ttm_is_negative():
+    flag = triage.ttm_spike_check(-1e9, 1e9)
+    assert flag.failed is False
+    assert "not computable" in flag.detail.lower()
+
+
+def test_distinguishes_a_missing_ttm_row_from_a_negative_base():
+    """Foreign dossiers print 'Last Fiscal Year' and carry no TTM row.
+
+    Reporting that as 'a non-positive earnings base' sends the reader looking
+    for a loss that does not exist.
+    """
+    flag = triage.ttm_spike_check(None, 0.41e9)
+    assert flag.failed is False
+    assert "no ttm" in flag.detail.lower()
+    assert "non-positive" not in flag.detail.lower()

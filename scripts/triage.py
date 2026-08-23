@@ -74,8 +74,15 @@ def amortisation_check(intangible_amortisation, net_income,
 
 def ttm_spike_check(ttm_net_income, prior_fy_net_income, limit=TTM_SPIKE_LIMIT):
     """A trailing window well above the prior year usually hides a one-off."""
-    if not ttm_net_income or not prior_fy_net_income or prior_fy_net_income <= 0:
-        return Flag("TTM composition", False, "Not computable")
+    if ttm_net_income is None:
+        # Foreign dossiers report "(Last Fiscal Year)" and carry no TTM row.
+        return Flag("TTM composition", False,
+                    "No TTM row in this dossier — nothing to check")
+    if (not prior_fy_net_income or prior_fy_net_income <= 0
+            or ttm_net_income <= 0):
+        return Flag("TTM composition", False,
+                    "Not computable — a non-positive earnings base makes the "
+                    "ratio meaningless")
     ratio = ttm_net_income / prior_fy_net_income
     direction = "above" if ratio >= 1 else "below"
     return Flag("TTM composition", ratio > limit,
@@ -92,6 +99,14 @@ def stagnation_check(revenue_series, net_income_series):
     """
     if len(revenue_series) < 2 or len(net_income_series) < 2:
         return Flag("earnings vs revenue", False, "Not computable")
+    # Percentage growth is meaningless off a zero or negative base: -$1B to
+    # +$1B is the best outcome a business can have and computes to -200%, which
+    # flagged genuine turnarounds as stagnation. This funnel is fed by VIC,
+    # where loss-making and turnaround names are the norm rather than the edge.
+    if revenue_series[0] <= 0 or net_income_series[0] <= 0:
+        return Flag("earnings vs revenue", False,
+                    "Not computable — the series starts at or below zero, so "
+                    "percentage growth would be meaningless")
     rev_growth = (revenue_series[-1] / revenue_series[0]) - 1
     ni_growth = (net_income_series[-1] / net_income_series[0]) - 1
     failed = rev_growth > 0.03 and ni_growth < 0.01

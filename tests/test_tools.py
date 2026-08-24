@@ -1750,3 +1750,34 @@ def test_falls_back_to_a_capex_proportion_when_neither_is_available():
 def test_ignores_a_zero_depreciation_line():
     value, _ = _proxy(0, 832e6, 542e6)
     assert value == 832e6
+
+
+# --- owner earnings must not credit stock compensation -----------------------
+# Operating cash flow adds SBC back because it is non-cash. Owner earnings
+# struck as OCF - depreciation therefore treat share issuance as if it were
+# free. PTON FY2026: SBC $198.6M against EBITDA $227.4M, so the printed owner
+# yield was 14.0% and the real one ~5.6% — the pipeline said STRONG BUY on a
+# stock trading at 37x GAAP earnings.
+
+def _owner(ocf, dep, sbc):
+    from modules.tools import _owner_earnings
+    return _owner_earnings(ocf, dep, sbc)
+
+
+def test_deducts_stock_compensation_from_owner_earnings():
+    # PTON: OCF 0.38B, PP&E depreciation ~0.05B, SBC 0.1986B
+    assert _owner(380e6, 50e6, 198.6e6) == pytest.approx(131.4e6)
+
+
+def test_matches_the_old_result_when_there_is_no_stock_compensation():
+    assert _owner(380e6, 50e6, 0) == pytest.approx(330e6)
+
+
+def test_treats_a_missing_sbc_figure_as_zero_rather_than_crashing():
+    assert _owner(380e6, 50e6, None) == pytest.approx(330e6)
+
+
+def test_can_go_negative_when_stock_compensation_exceeds_cash_generation():
+    # A company paying more in stock than it generates in cash has negative
+    # owner earnings, and the number should say so rather than flooring at zero.
+    assert _owner(100e6, 20e6, 200e6) == pytest.approx(-120e6)

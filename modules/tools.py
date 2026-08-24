@@ -72,6 +72,27 @@ def _resolve_shares_outstanding(balance_sheet_value, info_value):
     return None
 
 
+def _owner_earnings(operating_cash_flow, maintenance_capex, sbc):
+    """Owner earnings: operating cash flow less maintenance capex AND stock comp.
+
+    Operating cash flow adds stock-based compensation back because it is
+    non-cash. It is not, however, free: it is paid in shares, and the bill
+    arrives as dilution. Striking owner earnings as OCF minus depreciation
+    therefore credits the company for issuing stock.
+
+    PTON FY2026 shows the size of it. SBC of $198.6M against EBITDA of $227.4M
+    made the printed owner yield 14.0% when the figure a shareholder actually
+    keeps is nearer 5.6% — and the pipeline stamped STRONG BUY on a business
+    trading at 37x GAAP earnings with a subscriber base shrinking 7.6% a year.
+    Five of twelve experts caught it independently; the tool should not have
+    required them to.
+
+    Deducting SBC lowers owner yield for every share-paying company by roughly
+    SBC / market cap — about 8.4 percentage points for PTON, 1.9 for ACN.
+    """
+    return operating_cash_flow - maintenance_capex - (sbc or 0)
+
+
 def _maintenance_capex_proxy(depreciation, d_and_a, capex):
     """Maintenance-capex proxy for owner earnings, with the basis it used.
 
@@ -234,7 +255,9 @@ def get_advanced_valuations(ticker, info, stock):
                     q_cashflow.loc['Depreciation'].iloc[:4].sum() if 'Depreciation' in q_cashflow.index else None,
                     q_cashflow.loc['Depreciation And Amortization'].iloc[:4].sum() if 'Depreciation And Amortization' in q_cashflow.index else None,
                     ttm_capex)
-                ttm_owner_earn = ttm_ocf - ttm_dep 
+                ttm_sbc = (q_cashflow.loc['Stock Based Compensation'].iloc[:4].sum()
+                           if 'Stock Based Compensation' in q_cashflow.index else 0)
+                ttm_owner_earn = _owner_earnings(ttm_ocf, ttm_dep, ttm_sbc)
                 ttm_fcf = ttm_ocf - ttm_capex
                 
                 # SANITY CHECK: If TTM FCF is negative but Net Income is huge positive, 
@@ -283,7 +306,8 @@ def get_advanced_valuations(ticker, info, stock):
                     get_val(cashflow, 'Depreciation And Amortization', date),
                     0)
                 if dep == 0: dep = capex * 0.7 
-                owner_earn = ocf - dep
+                sbc_y = get_val(cashflow, 'Stock Based Compensation', date)
+                owner_earn = _owner_earnings(ocf, dep, sbc_y)
                 
                 ebit = get_val(income, 'EBIT', date) or get_val(income, 'Pretax Income', date)
                 nopat = ebit * (1 - 0.21)
@@ -349,7 +373,8 @@ def get_advanced_valuations(ticker, info, stock):
                 get_val(cashflow, 'Depreciation'),
                 get_val(cashflow, 'Depreciation And Amortization'),
                 curr_capex)
-            curr_owner = curr_ocf - curr_dep
+            curr_sbc = get_val(cashflow, 'Stock Based Compensation')
+            curr_owner = _owner_earnings(curr_ocf, curr_dep, curr_sbc)
 
             net_debt_curr = (get_val(balance, 'Total Debt') - get_val(balance, 'Cash And Cash Equivalents'))
             source_label = "(Last Fiscal Year)"
@@ -397,7 +422,8 @@ def get_advanced_valuations(ticker, info, stock):
         | YEAR |  ROIC   | MARGIN  | NET INCOME | FREE CASH FLOW | OWNER EARN* |
         |------|---------|---------|------------|----------------|-------------|
         {history_str}
-        *Owner Earn Assumption: Operating Cash Flow - PP&E Depreciation (maintenance capex proxy).
+        *Owner Earn: Operating Cash Flow - PP&E Depreciation (maintenance capex proxy) - Stock-Based Compensation.
+        SBC is deducted because OCF adds it back as non-cash, but it is paid in shares and the bill arrives as dilution.
         Acquired-intangible amortisation is NOT deducted: it is purchase accounting, not maintenance spend.
         {ebitda_note}
         {tax_warning}

@@ -282,3 +282,41 @@ def test_missing_valuation_data_is_reported_not_guessed():
 
 def test_a_negative_forward_pe_counts_as_unprofitable():
     assert vic_scan.price_flag(-72.7, -0.001) == "unprofitable"
+
+
+# --- ranking: owner yield, not forward P/E ---------------------------------
+# Forward P/E ranks analyst optimism. It misled on 4 of the first 6 candidates,
+# and on the saved 51-row scan it put COUR 3rd (5.0% owner yield, -15% margins)
+# while burying SLGN and PCG.
+
+def test_ranks_the_highest_owner_yield_first():
+    rows = [
+        {"symbol": "COUR", "owner_yield": 5.0, "forward_pe": 7.3, "status": "live"},
+        {"symbol": "BBWI", "owner_yield": 21.6, "forward_pe": 6.8, "status": "live"},
+        {"symbol": "SLGN", "owner_yield": 10.6, "forward_pe": 10.4, "status": "live"},
+    ]
+    assert [r["symbol"] for r in vic_scan.rank(rows)] == ["BBWI", "SLGN", "COUR"]
+
+
+def test_a_name_with_no_owner_yield_ranks_below_one_that_has_it():
+    rows = [
+        {"symbol": "PSUS", "owner_yield": None, "forward_pe": 5.6, "status": "live"},
+        {"symbol": "BCO", "owner_yield": 7.6, "forward_pe": 10.8, "status": "live"},
+    ]
+    assert [r["symbol"] for r in vic_scan.rank(rows)] == ["BCO", "PSUS"]
+
+
+def test_suspect_rows_sink_below_everything():
+    rows = [
+        {"symbol": "SBM", "owner_yield": 40.0, "forward_pe": 3.0, "status": "suspect"},
+        {"symbol": "BCO", "owner_yield": 7.6, "forward_pe": 10.8, "status": "live"},
+    ]
+    assert [r["symbol"] for r in vic_scan.rank(rows)] == ["BCO", "SBM"]
+
+
+def test_a_negative_owner_yield_ranks_below_a_positive_one():
+    rows = [
+        {"symbol": "LOSS", "owner_yield": -4.0, "forward_pe": 5.0, "status": "live"},
+        {"symbol": "OK", "owner_yield": 6.0, "forward_pe": 20.0, "status": "live"},
+    ]
+    assert [r["symbol"] for r in vic_scan.rank(rows)] == ["OK", "LOSS"]

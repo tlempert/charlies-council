@@ -255,6 +255,63 @@ def fetch_valuations(symbols):
     return out
 
 
+def rank(rows):
+    """Order candidates by OWNER YIELD, highest first.
+
+    Not by forward P/E. Forward P/E ranks what analysts expect, not what the
+    business returns, and it misled on four of the first six candidates —
+    NXPI, OTIS, IQV and BCO all looked cheap on adjusted numbers and were
+    expensive on owner earnings. On the 51-row scan of 2026-08-21 it ranked
+    COUR third (5.0% owner yield, -15% net margin) while burying SLGN and PCG.
+
+    Rows whose numbers are untrustworthy (`suspect`) sink below everything;
+    rows with no computable yield rank below rows that have one.
+    """
+    def key(row):
+        yield_ = row.get("owner_yield")
+        return (
+            row.get("status") == "suspect",      # suspect data last
+            yield_ is None,                       # then unknown yield
+            -(yield_ if yield_ is not None else 0),  # then highest yield first
+        )
+    return sorted(rows, key=key)
+
+
+def fetch_owner_yields(symbols):
+    """Owner earnings / market cap, straight from yfinance.
+
+    Owner earnings are operating cash flow less PP&E depreciation — the
+    maintenance-capex proxy. Amortisation of acquired intangibles is NOT
+    deducted: it is purchase accounting, not spending that keeps the business
+    running. Costs about a second per symbol, so the whole scan stays cheap.
+    """
+    out = {}
+    try:
+        import yfinance
+    except ImportError:
+        return {s: None for s in symbols}
+    for symbol in symbols:
+        try:
+            ticker = yfinance.Ticker(symbol)
+            flows = ticker.cashflow
+            ocf = (flows.loc["Operating Cash Flow"].iloc[0]
+                   if "Operating Cash Flow" in flows.index else None)
+            dep = None
+            for label in ("Depreciation", "Depreciation And Amortization"):
+                if label in flows.index:
+                    dep = flows.loc[label].iloc[0]
+                    break
+            cap = ticker.info.get("marketCap")
+            if ocf is None or dep is None or not cap:
+                out[symbol] = None
+                continue
+            value = float((ocf - dep) / cap * 100)
+            out[symbol] = None if value != value else round(value, 1)  # drop NaN
+        except Exception:
+            out[symbol] = None
+    return out
+
+
 def main(argv=None):
     parser = argparse.ArgumentParser(description=__doc__)
     parser.add_argument("--pages", type=int, default=4,
@@ -285,6 +342,7 @@ def main(argv=None):
 
     prices = fetch_current_prices([i.symbol for i, _ in kept])
     valuations = fetch_valuations([i.symbol for i, _ in kept])
+    owner_yields = fetch_owner_yields([i.symbol for i, _ in kept])
 
     rows = []
     for idea, result in kept:
@@ -294,6 +352,7 @@ def main(argv=None):
             move = (current - idea.price) / idea.price
         forward_pe, margin, roe = valuations.get(idea.symbol, (None, None, None))
         rows.append({
+            "owner_yield": owner_yields.get(idea.symbol),
             "forward_pe": forward_pe, "profit_margin": margin, "roe": roe,
             "price_flag": price_flag(forward_pe, margin),
             "symbol": idea.symbol, "company": idea.company,
@@ -308,25 +367,22 @@ def main(argv=None):
             "preview": idea.description[:400],
         })
 
-    # Rank on today's valuation, cheapest first — not on the move since posting.
-    # `suspect` sinks because its numbers are untrustworthy, not because it moved.
-    rows.sort(key=lambda r: (r["status"] == "suspect",
-                             r["forward_pe"] if r["forward_pe"] and r["forward_pe"] > 0
-                             else float("inf")))
+    rows = rank(rows)
 
     print(f"# VIC scan — {len(ideas)} ideas seen, {len(kept)} survived screening\n")
-    print("Ranked by today's valuation (cheapest first), NOT by move since posting.\n")
-    print("| Ticker | Company | Posted | Now $ | Move | Fwd P/E | Margin | ROE | Price | Status | Flags |")
+    print("Ranked by OWNER YIELD (highest first) — not by forward P/E, which "
+          "ranks analyst optimism.\n")
+    print("| Ticker | Company | Posted | Now $ | Move | Own Yld | Fwd P/E | Margin | ROE | Price | Status |")
     print("|---|---|---|---|---|---|---|---|---|---|---|")
     for r in rows:
         move = "—" if r["move_pct"] is None else f"{r['move_pct']:+.1f}%"
         now = "—" if r["current_price"] is None else f"{r['current_price']:,.2f}"
         fpe = "—" if not r["forward_pe"] else f"{r['forward_pe']:.1f}"
         pct = lambda v: "—" if v is None else f"{v * 100:.0f}%"
-        print(f"| {r['symbol'].upper()} | {r['company'][:26]} | {r['posted']} | "
-              f"{now} | {move} | {fpe} | {pct(r['profit_margin'])} | "
-              f"{pct(r['roe'])} | {r['price_flag'] or '—'} | {r['status']} | "
-              f"{'; '.join(r['flags']) or '—'} |")
+        oy = "—" if r.get("owner_yield") is None else f"{r['owner_yield']:.1f}%"
+        print(f"| {r['symbol'].upper()} | {r['company'][:24]} | {r['posted']} | "
+              f"{now} | {move} | {oy} | {fpe} | {pct(r['profit_margin'])} | "
+              f"{pct(r['roe'])} | {r['price_flag'] or '—'} | {r['status']} |")
 
     print(f"\n## Dropped ({len(dropped)})\n")
     for idea, result in dropped:

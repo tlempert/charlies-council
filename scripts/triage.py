@@ -36,6 +36,9 @@ LEVERAGE_LIMIT = 2.5
 # A pending deal this large relative to market cap means the company being
 # analysed is not the company that will exist.
 DEAL_LIMIT = 0.25
+# Stock compensation above this share of EBITDA means dilution is the story,
+# not a footnote — PTON ran 87% while reporting its first full-year profit.
+SBC_INTENSITY_LIMIT = 0.40
 
 
 @dataclass
@@ -133,6 +136,31 @@ def pending_deal_check(deal_value, market_cap, limit=DEAL_LIMIT):
                 f"Pending transaction is {ratio*100:.0f}% of market cap")
 
 
+def sbc_intensity_check(sbc, pre_sbc_owner_earnings, limit=SBC_INTENSITY_LIMIT):
+    """What share of the cash the business generates is paid out in stock?
+
+    Denominator is owner earnings BEFORE the SBC deduction, because that is
+    computable from the dossier: post-SBC owner earnings plus SBC. An earlier
+    version keyed on EBITDA, which the pipeline never prints, so the check
+    could only ever return "not computable" — worse than no check at all.
+
+    Owner yield is SBC-adjusted upstream now, so this no longer rescues the
+    yield check — it names the condition. PTON paid $198.6M of stock against
+    $227.4M of EBITDA (87%) in the year it reported its first full-year profit,
+    and the share count went 322M to 436M over four years while reported SBC
+    fell every year, because a lower share price issues more shares per dollar.
+    A company in that state is diluting faster than its accounts suggest.
+    """
+    if not sbc:
+        return Flag("SBC intensity", False, "No SBC figure — nothing to check")
+    if not pre_sbc_owner_earnings or pre_sbc_owner_earnings <= 0:
+        return Flag("SBC intensity", False,
+                    "Not computable — no positive cash generation to compare against")
+    ratio = sbc / pre_sbc_owner_earnings
+    return Flag("SBC intensity", ratio > limit,
+                f"Stock compensation is {ratio*100:.0f}% of pre-SBC owner earnings")
+
+
 def decide(flags):
     """Advise; never reject. A failed check means 'state a reason to proceed'."""
     failed = [f for f in flags if f.failed]
@@ -172,6 +200,8 @@ def parse_physics(text):
                     r"\s*->\s*[^\d]*([\d.]+)B", text)
     oy = re.search(r"OWNER YIELD:\s*(-?[\d.]+)%", text)
     am = re.search(r"Amortization of Intangibles \(Latest\):\s*\$([\d,.]+)M", text)
+    sbc_m = re.search(r"\|\s*(?:TTM|\d{4})\s*\|\s*[^\d]*([\d.]+)B\s*\|[^|]*\|[^|]*\|[^|]*\|",
+                      block_forensic(text))
 
     return {
         "ttm": ni.get("TTM"),
@@ -180,7 +210,17 @@ def parse_physics(text):
         "revenue": [float(g) * 1e9 for g in rev.groups()] if rev else [],
         "owner_yield": float(oy.group(1)) if oy else None,
         "intangibles": float(am.group(1).replace(",", "")) * 1e6 if am else None,
+        "sbc": float(sbc_m.group(1)) * 1e9 if sbc_m else None,
+        # pre-SBC owner earnings = the post-SBC figure plus SBC back
+        "pre_sbc_owner": None,
     }
+
+
+def block_forensic(text):
+    """The FORENSIC BLOCK, whose first numeric column is SBC by year."""
+    import re
+    m = re.search(r"FORENSIC BLOCK.*?(?=--- |\Z)", text, re.S)
+    return m.group(0) if m else ""
 
 
 # --- CLI (network legs, not unit-tested) -----------------------------------
@@ -215,6 +255,8 @@ def main(argv=None):
         amortisation_check(p["intangibles"], ttm or prior),
         ttm_spike_check(ttm, prior),
         stagnation_check(p["revenue"], p["series"]),
+        sbc_intensity_check(p["sbc"], (p["owner"] + p["sbc"])
+                            if (p.get("owner") and p.get("sbc")) else None),
     ]
     decision = decide(flags)
 
@@ -228,7 +270,8 @@ def main(argv=None):
         print(f"- {r}")
     print("\n_Checks requiring a human: leverage against the company's OWN stated "
           "target; any pending transaction larger than 25% of market cap; whether "
-          "a flagged TTM spike is in fact a one-off._")
+          "a flagged TTM spike is in fact a one-off; and EBITDA for the SBC "
+          "intensity check, which the pipeline does not print._")
     print("\n_Triage emits no price, no buy zone and no verdict by design._")
 
     if args.json_out:

@@ -210,3 +210,32 @@ def test_distinguishes_a_missing_ttm_row_from_a_negative_base():
     assert flag.failed is False
     assert "no ttm" in flag.detail.lower()
     assert "non-positive" not in flag.detail.lower()
+
+
+# --- stock compensation as a share of cash generation -----------------------
+# Owner yield is now SBC-adjusted upstream (tools.c643c25), so the yield check
+# no longer points the wrong way. But a company paying most of its cash
+# generation in stock is worth naming even when the corrected yield clears,
+# because the dilution is the story rather than a footnote.
+
+def test_flags_stock_compensation_that_dominates_cash_generation():
+    # PTON FY2026: SBC $198.6M against pre-SBC owner earnings of ~$330M
+    flag = triage.sbc_intensity_check(198.6e6, 330e6)
+    assert flag.failed is True
+    assert "60" in flag.detail
+
+
+def test_does_not_flag_ordinary_stock_compensation():
+    # ACN: $2.09B SBC against ~$11.8B of pre-SBC owner earnings
+    assert triage.sbc_intensity_check(2.09e9, 11.8e9).failed is False
+
+
+def test_reports_rather_than_flags_when_there_is_no_positive_cash_generation():
+    flag = triage.sbc_intensity_check(200e6, -100e6)
+    assert flag.failed is False
+    assert "not computable" in flag.detail.lower()
+
+
+def test_treats_absent_stock_compensation_as_nothing_to_check():
+    flag = triage.sbc_intensity_check(None, 330e6)
+    assert flag.failed is False

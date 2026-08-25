@@ -1781,3 +1781,30 @@ def test_can_go_negative_when_stock_compensation_exceeds_cash_generation():
     # A company paying more in stock than it generates in cash has negative
     # owner earnings, and the number should say so rather than flooring at zero.
     assert _owner(100e6, 20e6, 200e6) == pytest.approx(-120e6)
+
+
+# --- the verdict must agree with the labels the table prints -----------------
+
+def _verdict(price, dcf_standard, dcf_opt):
+    from modules.tools import _valuation_verdict
+    return _valuation_verdict(price, dcf_standard, dcf_opt)
+
+
+def test_calls_it_strong_buy_only_below_the_LOWER_anchor():
+    # PTON post-SBC: owner-earnings DCF $2.75, FCF DCF $10.03, price $5.38.
+    # The table labels $2.75 CONSERVATIVE, so "below Conservative" must mean
+    # below $2.75 — not below the $10.03 the old code compared against.
+    assert "SPECULATIVE" in _verdict(5.38, 10.03, 2.75)
+
+
+def test_strong_buy_when_genuinely_below_both():
+    assert "STRONG BUY" in _verdict(2.00, 10.03, 2.75)
+
+
+def test_overvalued_when_above_both():
+    assert "OVERVALUED" in _verdict(12.00, 10.03, 2.75)
+
+
+def test_does_not_depend_on_which_basis_produced_which_anchor():
+    """Same three values, arguments swapped, must give the same verdict."""
+    assert _verdict(5.38, 10.03, 2.75) == _verdict(5.38, 2.75, 10.03)

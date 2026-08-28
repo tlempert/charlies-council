@@ -63,6 +63,68 @@ _VERDICT_END = re.compile(
 _FALLBACK_WINDOW = 15000
 
 
+# The experts cast the votes; the synthesist only reports them, and sometimes
+# reports them wrong. Five corpus reports publish a tally that does not sum to
+# their own expert count — 7974.T claims "11 BUY ... note 13 blocks" over twelve
+# experts who voted 10 BUY / 1 HOLD / 1 PASS, and MGRC writes "4 HOLD" before
+# naming five. Counting the blocks is cheap and exact, so we do that instead.
+# Three of those five are countable and get corrected; the two RMV.L runs are
+# not (see council_counts) and keep their claim rather than gain a wrong one.
+# Comparing per-verdict rather than by total catches a fourth: NXPI sums to
+# twelve but files seven PASSes as WAITs, which reads as a timing quibble when
+# the council actually said don't buy.
+_EXPERT_BLOCK = re.compile(r'^###\s+.*\bREPORT\s*$', re.M)
+# One vote per block, taken from the first line that names an actual decision.
+# A block can carry several verdict-shaped lines: Sherlock's 7974.T report opens
+# with "VERDICT: BUY" and then closes two sub-sections with "Verdict:
+# NEUTRAL-TO-POSITIVE" and "Verdict: Smart money is passive". Requiring a
+# decision word keeps those sub-verdicts from voting.
+_BLOCK_VERDICT = re.compile(
+    rf'^[\s>*_]*VERDICT\**\s*:\s*\**\s*{DECISION_WORDS}\b', re.I | re.M)
+_TALLY_ORDER = ['BUY', 'HOLD', 'WAIT', 'PASS', 'SELL', 'TOO UNCERTAIN']
+_TALLY_ALIASES = {'STRONG BUY': 'BUY', 'SPECULATIVE BUY': 'BUY',
+                  'LIQUIDATION': 'SELL'}
+
+
+def council_counts(text: str) -> Counter | None:
+    """Votes actually cast, one per expert block — or None if we cannot count them all.
+
+    Returns None for a report with no expert blocks (older eight-expert runs,
+    hand-written files) and, just as importantly, for one where any expert
+    answered in prose instead of a decision: MSFT's Cook votes "CAUTIOUS WATCH"
+    and its Biologist "KEYSTONE SPECIES". Tallying only the recognisable votes
+    there would publish "2 BUY, 2 HOLD" across twelve experts — a confident
+    undercount, and a worse failure than the miscount this function exists to
+    catch. Those reports keep whatever the synthesist claimed.
+    """
+    starts = [m.start() for m in _EXPERT_BLOCK.finditer(text)]
+    if not starts:
+        return None
+    counts = Counter()
+    for i, start in enumerate(starts):
+        end = starts[i + 1] if i + 1 < len(starts) else len(text)
+        m = _BLOCK_VERDICT.search(text, start, end)
+        if not m:
+            return None
+        verdict = m.group(1).upper().strip()
+        counts[_TALLY_ALIASES.get(verdict, verdict)] += 1
+    return counts or None
+
+
+def _format_tally(counts: Counter) -> str:
+    ordered = sorted(counts.items(),
+                     key=lambda kv: (_TALLY_ORDER.index(kv[0])
+                                     if kv[0] in _TALLY_ORDER else len(_TALLY_ORDER)))
+    return ', '.join(f'{n} {verdict}' for verdict, n in ordered)
+
+
+def _claimed_counts(line: str) -> Counter:
+    """The numbers the synthesist wrote, ignoring the names it wrote beside them."""
+    return Counter({v.upper(): int(n)
+                    for n, v in re.findall(r'(\d+)\s+([A-Za-z]+)', line)
+                    if v.upper() in _TALLY_ORDER and int(n)})
+
+
 def _verdict_section(text: str) -> str:
     """The Munger verdict only — never the expert or red-team sections."""
     start = _VERDICT_START.search(text)
@@ -75,7 +137,8 @@ def _verdict_section(text: str) -> str:
 
 def parse_verdict(path: str) -> dict:
     with open(path, encoding='utf-8') as f:
-        head = _verdict_section(f.read())
+        text = f.read()
+    head = _verdict_section(text)
 
     decision = None
     for pat in [
@@ -134,10 +197,19 @@ def parse_verdict(path: str) -> dict:
                 if lo and hi:
                     buy_zone = f"{_fmt_money(sym, lo)}–{_fmt_money(sym, hi)}"
 
-    council = None
     m = re.search(r'Council [Vv]ote:\*?\*?\s*(.+?)(?:\n|$)', head)
-    if m:
-        council = m.group(1).strip().replace('**', '')[:50]
+    claimed = m.group(1).strip().replace('**', '') if m else None
+    # A tally that survives the count is left alone: the synthesist's own line
+    # names the dissenters ("1 HOLD (Burry)"), which the bare count would lose.
+    # Only a tally the blocks contradict is overwritten, and the wrong number is
+    # marked but never quoted — republishing it is how it spread this far.
+    counts = council_counts(text)
+    if counts and claimed and _claimed_counts(claimed) != counts:
+        council = _format_tally(counts) + ' ⚠ disputed'
+    elif claimed:
+        council = claimed[:50]
+    else:
+        council = _format_tally(counts) if counts else None
 
     # Currency-aware. Patterns 1-2 require a currency symbol so we never grab a
     # buy-zone or prose number; pattern 3 is a labelled fallback. Handles the hero

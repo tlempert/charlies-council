@@ -202,3 +202,110 @@ def test_reads_a_buy_zone_written_with_spaces_around_the_dash(tmp_path):
                  encoding="utf-8")
     zone = parse_verdict(str(p)).get("buy_zone") or ""
     assert "110" in zone and "160" in zone
+
+
+def _report_with_expert_blocks(tmp_path, vote_line, verdicts):
+    """A report whose Munger vote line may disagree with its own expert blocks.
+
+    Mirrors the real file layout: the verdict section carries the prose tally,
+    and the expert reports that actually cast the votes sit below it under
+    EVIDENCE & ANALYSIS.
+    """
+    blocks = "".join(
+        f"\n### 🕵️ EXPERT{i} REPORT\n\nSome analysis prose.\n\nVERDICT: {v}\n"
+        for i, v in enumerate(verdicts))
+    body = (
+        "## ⚖️ MUNGER'S VERDICT\n"
+        "**Decision:** BUY\n"
+        "**Buy Zone: $10–$20**\n"
+        f"**Council Vote:** {vote_line}\n"
+        "\n## 📂 EVIDENCE & ANALYSIS\n" + blocks)
+    p = tmp_path / "NIN_Analysis_2026-06-21.md"
+    p.write_text(body, encoding="utf-8")
+    return str(p)
+
+
+class TestCouncilVoteIsCounted:
+    """The tally must come from the expert blocks, not the synthesist's arithmetic.
+
+    7974.T published "11 BUY, 1 HOLD, 1 PASS — note 13 blocks" over 12 experts
+    that actually voted 10 BUY / 1 HOLD / 1 PASS, and build_corpus_index copied
+    the prose into CORPUS_INDEX verbatim. Four other reports (MC.PA, MGRC, and
+    two RMV.L runs) publish tallies that likewise do not sum to their own expert
+    count — MGRC writes "4 HOLD" and then names five. A number the code can
+    derive must not be taken on the model's word.
+    """
+
+    def test_derives_the_tally_from_the_expert_blocks(self, tmp_path):
+        path = _report_with_expert_blocks(
+            tmp_path,
+            '11 BUY, 1 HOLD (Historian), 1 PASS (Burry) — note 13 blocks',
+            ["BUY"] * 10 + ["HOLD", "PASS"])
+        council = parse_verdict(path)["council"]
+        assert "10 BUY" in council, f"counted the blocks, got: {council!r}"
+        assert "11 BUY" not in council, "must not repeat the synthesist's miscount"
+
+    def test_flags_a_tally_that_disagrees_with_the_blocks(self, tmp_path):
+        path = _report_with_expert_blocks(
+            tmp_path, '11 BUY, 1 HOLD, 1 PASS', ["BUY"] * 10 + ["HOLD", "PASS"])
+        assert "⚠" in parse_verdict(path)["council"], "a disputed tally must show it"
+
+    def test_leaves_an_agreeing_tally_unflagged(self, tmp_path):
+        path = _report_with_expert_blocks(
+            tmp_path, '10 BUY, 1 HOLD, 1 PASS', ["BUY"] * 10 + ["HOLD", "PASS"])
+        council = parse_verdict(path)["council"]
+        assert "10 BUY" in council and "⚠" not in council
+
+    def test_counts_one_verdict_per_expert_not_per_matching_line(self, tmp_path):
+        """Sherlock's block carries three verdict-shaped lines; it still gets one vote."""
+        body = (
+            "## ⚖️ MUNGER'S VERDICT\n**Decision:** BUY\n**Council Vote:** 2 BUY\n"
+            "\n## 📂 EVIDENCE & ANALYSIS\n"
+            "\n### 🕵️ SHERLOCK REPORT\nVERDICT: BUY\n"
+            "**Verdict: NEUTRAL-TO-POSITIVE.** Not a share cannibal.\n"
+            "**Verdict:** Smart money is passive and diffuse.\n"
+            "\n### 🕵️ LYNCH REPORT\nVERDICT: HOLD\n**VERDICT: HOLD** with a caveat.\n")
+        p = tmp_path / "SHR_Analysis_2026-06-21.md"
+        p.write_text(body, encoding="utf-8")
+        council = parse_verdict(str(p))["council"]
+        assert "1 BUY" in council and "1 HOLD" in council, council
+
+    def test_a_report_without_expert_blocks_keeps_the_prose_line(self, tmp_path):
+        """Older 8-expert runs and hand-written files have nothing to count."""
+        p = tmp_path / "OLD_Analysis_2026-01-11.md"
+        p.write_text("## ⚖️ MUNGER'S VERDICT\n**Decision:** BUY\n"
+                     "**Council Vote:** 6 BUY, 2 HOLD\n", encoding="utf-8")
+        assert parse_verdict(str(p))["council"] == "6 BUY, 2 HOLD"
+
+
+class TestAnUncountableReportIsNotCounted:
+    """Older runs let experts answer in prose, so their blocks cannot be tallied.
+
+    MSFT 2026-04-14 has Cook writing "VERDICT: CAUTIOUS WATCH", the Biologist
+    "VERDICT: KEYSTONE SPECIES —" and the Historian a full sentence; BEPC has
+    four experts whose only "Verdict:" lines belong to sub-sections. Counting
+    the decisions we recognise and publishing the total would report BEPC as
+    "2 BUY, 2 HOLD" for twelve experts — a confident undercount, which is worse
+    than the miscount it replaces. A tally we cannot complete must not print.
+    """
+
+    def test_falls_back_to_prose_when_an_expert_casts_no_countable_vote(self, tmp_path):
+        body = (
+            "## ⚖️ MUNGER'S VERDICT\n**Decision:** HOLD\n"
+            "**Council Vote:** 3 BUY, 7 HOLD, 1 PASS, 1 SELL\n"
+            "\n## 📂 EVIDENCE & ANALYSIS\n"
+            "\n### 🕵️ BEZOS REPORT\nVERDICT: BUY\n"
+            "\n### 🕵️ COOK REPORT\nVERDICT: CAUTIOUS WATCH\n"
+            "\n### 🕵️ BIOLOGIST REPORT\n**Verdict: No invasive species threatens it.**\n")
+        p = tmp_path / "UNC_Analysis_2026-04-14.md"
+        p.write_text(body, encoding="utf-8")
+        council = parse_verdict(str(p))["council"]
+        assert council == "3 BUY, 7 HOLD, 1 PASS, 1 SELL", council
+        assert "⚠" not in council, "an uncountable report is not a disputed one"
+
+    def test_counts_only_when_every_block_declares_a_decision(self, tmp_path):
+        two_of_three = build_corpus_index.council_counts(
+            "### 🕵️ A REPORT\nVERDICT: BUY\n"
+            "### 🕵️ B REPORT\nVERDICT: HOLD\n"
+            "### 🕵️ C REPORT\n**Verdict: KEYSTONE SPECIES**\n")
+        assert two_of_three is None, "a partial count is not a count"

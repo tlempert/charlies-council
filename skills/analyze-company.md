@@ -20,24 +20,32 @@ Execute these steps in order. Do not skip steps.
 
 Extract the ticker from the arguments. If no ticker was provided, ask the user for one and stop.
 
-**Clean slate:** Before anything else, run `rm -rf /tmp/silicon_council/{TICKER}` to ensure no stale data from a previous analysis contaminates this run. (Only removes this ticker's directory — other analyses are unaffected.)
+**Resume or clean slate.** Every step below records itself in `/tmp/silicon_council/{TICKER}/manifest.json`, so a run that died at Step 6 restarts at Step 6, not Step 1:
+
+```bash
+./venv/bin/python3 scripts/council_manifest.py status {TICKER} 2>/dev/null | head -20 || true
+```
+
+- If a manifest exists **from today** and the user did not ask for a fresh run, say which steps are already `done`, skip them, and continue from the first step that is not.
+- Otherwise run `rm -rf /tmp/silicon_council/{TICKER}` (only this ticker's directory — other analyses are unaffected) and initialise: `./venv/bin/python3 scripts/council_manifest.py init {TICKER}`.
+
+After each step completes, record it: `./venv/bin/python3 scripts/council_manifest.py step {TICKER} <step-name> done`. Step names: `dossier`, `forensic`, `condense`, `refine`, `threats`, `experts`, `synthesis`, `gate`, `reports`, `assemble`.
 
 ### Step 1: Build Dossier (Python)
 
 Run the Python data collection to build the initial dossier:
 
 ```bash
-cd /Users/tallempert/src-tal/investor && ./venv/bin/python3 -c "
+cd /Users/tallempert/src-tal/investor && D=/tmp/silicon_council/{TICKER} && mkdir -p $D && ./venv/bin/python3 -c "
+import sys
 from modules.tools import build_initial_dossier, normalize_ticker
-ticker = normalize_ticker('TICKER_PLACEHOLDER')
-dossier = build_initial_dossier(ticker)
-print(dossier)
-"
+open(sys.argv[2], 'w').write(build_initial_dossier(normalize_ticker(sys.argv[1])))
+" {TICKER} $D/initial_dossier.txt > $D/dossier_build.log 2>&1; wc -c $D/initial_dossier.txt; grep -c "DATA WARNING" $D/initial_dossier.txt; grep -m1 "⚖️" $D/dossier_build.log; sed -n '/FINANCIAL PHYSICS/,/OWNER YIELD/p' $D/initial_dossier.txt | head -20
 ```
 
-Replace `TICKER_PLACEHOLDER` with the actual ticker. Capture the full output — this is the raw dossier.
+Replace `{TICKER}` with the actual ticker. **The raw dossier goes to a file, never to stdout.** It is ~50–120KB; on ADBE it took three paginated reads into the main session and then rode along on every one of ~30 later turns. Only the byte count, the DATA WARNING count, the share-count note and the headline financial block return to your context.
 
-If the dossier contains "DATA WARNING" or returns an error, inform the user and stop.
+If the DATA WARNING count is non-zero or the build errored, inform the user and stop.
 
 ### Step 2: Forensic Interrogation
 
@@ -94,6 +102,16 @@ with open('/tmp/silicon_council/{TICKER}/raw_forensic.txt', 'w') as f:
 
 Only the byte count returns to your context. Do NOT `cat` this file.
 
+### Step 2.4: Codex Preflight (once per run)
+
+Decide once, up front, whether the Codex leg is viable. Nothing in `codex exec`'s exit code or in `~/.codex/log` distinguishes a quota-exhausted call from a successful one — only the output does — so this asks for one word and checks that a word came back:
+
+```bash
+cd /Users/tallempert/src-tal/investor && ./venv/bin/python3 scripts/codex_preflight.py; echo "CODEX_OK=$?"
+```
+
+`CODEX_OK=0` → run the Codex legs below as written. `CODEX_OK=1` → tell the user Codex is unavailable, and for every Codex leg in Steps 2.5, 3, 3.5e and 4 use the Claude fallback stated at that step. Do not re-test mid-run; per-worker validation in Step 4 catches a pool that dies partway.
+
 ### Step 2.5: First-Pass Condense (Codex)
 
 Condense the raw forensic dump into a structured brief. This is mechanical, high-volume, low-judgment work — offload it to Codex so it draws on the ChatGPT quota pool and the raw text never enters this session:
@@ -120,7 +138,25 @@ Rules:
 
 ### Step 3: Refine Dossier
 
-Read the file at `/Users/tallempert/src-tal/investor/skills/refine-dossier.md`. Following those instructions, condense the initial dossier (Step 1) plus the forensic brief at `/tmp/silicon_council/{TICKER}/forensic_brief.md` (or `raw_forensic.txt` if the Codex leg was skipped) into a dense ~2500-word executive briefing. Read the brief with the Read tool — this is the one point where search material must enter Claude's context. **This step stays on Claude and is never offloaded:** evidence labeling and the net-income cross-check are the quality chokepoint every downstream output inherits, and what gets dropped here determines all 14 verdicts. Ensure every quantitative claim carries a source tag per the EVIDENCE SOURCE LABELING section in refine-dossier.md. This refined dossier will be passed to all experts.
+Read the file at `/Users/tallempert/src-tal/investor/skills/refine-dossier.md`. Following those instructions, condense the raw dossier plus the forensic brief into a dense ~2500-word executive briefing with every quantitative claim source-tagged. **The judgment work stays on Claude and is never offloaded:** evidence labeling, the net-income cross-check and the neutrality pass are the quality chokepoint every downstream output inherits. What is offloaded is the *carrying* of text, not the deciding.
+
+**3a — Split the raw file deterministically** (no model involved):
+
+```bash
+cd /Users/tallempert/src-tal/investor && ./venv/bin/python3 scripts/extract_dossier_blocks.py /tmp/silicon_council/{TICKER}/initial_dossier.txt
+```
+
+This writes `dossier_blocks.md` (every pre-computed table, verbatim — the FINANCIAL PHYSICS, FORENSIC, BUYBACK, STRESS TEST, CARRY, PEER and registry blocks the experts must receive untouched) and `dossier_narrative.md` (Sections A–N: 10-K prose and search results).
+
+**3b — Condense the narrative (Codex, `CODEX_OK=0`):** same no-drop rules as Step 2.5 — every number, date and named source preserved, conflicts reported both ways, no opinion:
+
+```bash
+CX=/Applications/ChatGPT.app/Contents/Resources/codex; D=/tmp/silicon_council/{TICKER}; { echo "Condense the company-dossier narrative below into a fact list for an investment analyst. Keep the section headings (SECTION A … SECTION N). Preserve every number, date, quotation and named source exactly; never round, infer or add. Where sources conflict, report both. No opinion, no ranking. Target 1500-2000 words."; echo; cat $D/dossier_narrative.md; } | $CX exec - -m gpt-5.6-luna -c model_reasoning_effort=low --sandbox read-only --skip-git-repo-check --output-last-message $D/narrative_brief.md >$D/narrative_brief.log 2>&1; wc -c $D/narrative_brief.md
+```
+
+**Fallback** (`CODEX_OK=1`, or `narrative_brief.md` empty): read `dossier_narrative.md` directly with the Read tool, paginated. Tell the user.
+
+**3c — Refine (Claude, this session):** Read `dossier_blocks.md` in full, `narrative_brief.md`, and `forensic_brief.md` (or `raw_forensic.txt` if Step 2.5 was skipped). Write the refined dossier per refine-dossier.md. Strip the pipeline's own `📝 VERDICT:` label from the VALUATION ANCHORS block when you copy it — the numbers pass through verbatim, the label is a conclusion and violates Step 3.4.
 
 ### Step 3.4: DOSSIER NEUTRALITY CHECK (do this before Step 3.5)
 
@@ -242,7 +278,7 @@ This ensures all 12 experts see the moat-threat data when they read the dossier.
 
 ### Step 4: Expert Council (12 Parallel Subagents)
 
-**IMPORTANT: Before launching Step 4, run `mkdir -p /tmp/silicon_council/{TICKER}` via Bash.**
+**IMPORTANT: Before launching Step 4, run `mkdir -p /tmp/silicon_council/{TICKER}` via Bash** and confirm the manifest exists (`scripts/council_manifest.py status {TICKER}`; `init` it if not).
 
 **CRITICAL PERFORMANCE RULE: launch all 12 experts concurrently, split across two token pools.** Six run as Codex workers on the ChatGPT quota; six run as Claude subagents. Fire the Codex batch first as a single backgrounded Bash call, then immediately launch the six Claude subagents in ONE message — both pools drain in parallel (~5 min wall clock vs ~35 min sequential).
 
@@ -276,7 +312,15 @@ CX=/Applications/ChatGPT.app/Contents/Resources/codex; D=/tmp/silicon_council/{T
 | 11 | Anthropologist | `anthropologist.md` | `anthropologist` |
 | 12 | Peter Lynch | `lynch.md` | `lynch` |
 
-**Fallback:** if `$CX` is missing, or any Group A file is empty or lacks a ---SUMMARY--- block after the run (check the files — the exit code is always 0), relaunch just those experts as Claude subagents with `model: "sonnet"`. Tell the user which experts fell back — never let the council run short.
+**Validation and failover — run this after BOTH pools finish, over all 12 files:**
+
+```bash
+cd /Users/tallempert/src-tal/investor && D=/tmp/silicon_council/{TICKER}; for k in jeff_bezos warren_buffett michael_burry tim_cook steve_jobs psychologist sherlock futurist biologist historian anthropologist lynch; do pool=$( [[ " jeff_bezos warren_buffett michael_burry tim_cook steve_jobs psychologist " == *" $k "* ]] && echo codex:sol || echo claude:sonnet ); if scripts/validate_worker.sh $D/$k.md; then ./venv/bin/python3 scripts/council_manifest.py worker {TICKER} $k $pool ok; else ./venv/bin/python3 scripts/council_manifest.py worker {TICKER} $k $pool failed invalid_output; fi; done; echo "PENDING:"; ./venv/bin/python3 scripts/council_manifest.py pending {TICKER}
+```
+
+`validate_worker.sh` checks the file is ≥1.5KB, has both `---SUMMARY---` and `---END SUMMARY---`, has a `VERDICT:` line, and is not a contamination error. **A byte count alone is not enough:** a worker that exhausts its quota mid-generation leaves a non-empty, truncated file that would otherwise enter the Moat Tribunal silently.
+
+For every key the manifest lists as pending, re-dispatch **that key only** on the pool the manifest names in its `next` field (`codex:sol → codex:luna → claude:sonnet → claude:haiku`). For a Claude retry, launch one Agent with the same prompt shape as Group B and the named model. Re-validate, re-mark, repeat until `pending` prints nothing. If the ladder is exhausted for any key, stop and tell the user which expert could not be produced — never proceed to Step 5 with 11 experts. Report which experts fell back and to where.
 
 Each subagent prompt should be:
 ```
@@ -296,7 +340,7 @@ FORMAT COMPLIANCE (CRITICAL): Your output MUST begin with EXACTLY this block for
 VERDICT: [one word: BUY/SELL/PASS/HOLD/WAIT]
 CONFIDENCE: [0-100 as integer, e.g. 72]
 KEY METRIC: [one line]
-TRIGGER PRICE: [price or range at which your verdict changes, @ the hurdle rate you used — never "N/A"]
+TRIGGER PRICE: [price or range at which your verdict changes, @ the hurdle rate you used, AND the basis in three words (e.g. "no-growth owner yield", "scenario grid", "peer multiple") — never "N/A". Owner EPS ÷ hurdle is a zero-growth perpetuity: publish it only if you argue g = 0, otherwise it is not your trigger, it is arithmetic]
 POSITION SIZE: [% of portfolio at the current price, or ZERO]
 KEY RISK: [one line]
 BULL CASE: [one line]
@@ -323,7 +367,7 @@ Wait for all 12 to complete — both the backgrounded Codex batch and the six Cl
 D=/tmp/silicon_council/{TICKER}; for k in jeff_bezos warren_buffett michael_burry tim_cook steve_jobs psychologist; do echo "=== $k ==="; sed -n '/---SUMMARY---/,/---END SUMMARY---/p' $D/$k.md; done
 ```
 
-If a file is missing its ---SUMMARY--- block, that expert failed format compliance — relaunch it as a Claude subagent. Do not proceed to Step 5 with 11 experts: a silently dropped verdict corrupts the Moat Tribunal.
+If any block is missing here, the validation loop above was skipped — go back and run it. Do not proceed to Step 5 with 11 experts: a silently dropped verdict corrupts the Moat Tribunal. Then write the collected blocks to one file, `$D/all_summaries.md`, labelled `=== EXPERT: <key> ===` — the pre-gate and the Reality Check read it.
 
 ### Step 5: Munger Synthesis (Opus 4.7)
 
@@ -343,9 +387,15 @@ Munger is the first and only council member to see it. Do **not** merge it into 
 
 The prompt should include all expert ---SUMMARY--- blocks labeled by expert name. Add this instruction:
 
-"IMPORTANT: Produce your synthesis immediately. Read each expert's ---SUMMARY--- block to run the Moat Tribunal before starting valuation. AFTER completing your synthesis, save your FULL output to /tmp/silicon_council/{TICKER}/verdict.md using the Write tool."
+"IMPORTANT: Produce your synthesis immediately. Read each expert's ---SUMMARY--- block to run the Moat Tribunal before starting valuation. Emit the ```json model_ledger``` block specified in munger-synthesis.md immediately above the EXECUTIVE SUMMARY — a memo without it is rejected unread. AFTER completing your synthesis, save your FULL output to /tmp/silicon_council/{TICKER}/verdict.md using the Write tool."
 
-Collect the verdict (you need its key conclusions for Step 6).
+Collect the verdict, then run the deterministic pre-gate **before** spending an Opus review pass:
+
+```bash
+cd /Users/tallempert/src-tal/investor && ./venv/bin/python3 scripts/pregate_check.py /tmp/silicon_council/{TICKER}
+```
+
+It checks that every ledger input is dossier-sourced or declared JUDGMENT, that the verdict agrees with the price-vs-ceiling geometry and the position size, that the council tally matches the summary blocks, and how many trigger prices are the owner-EPS ÷ hurdle echo. **If it prints FAIL, send its output to the Munger agent via SendMessage and have it fix those items first** — do not launch the Reality Check on a memo that fails mechanical checks. Seven of ADBE's ten FATAL findings were in this class, and each cost an 8–17 minute Opus pass to find by hand. Re-run the pre-gate on the revision. Pass its full output to the Reality Check as its starting list.
 
 ### Step 6: Reality Check GATE (runs ALONE and FIRST — must complete before Step 6b)
 
@@ -358,7 +408,11 @@ Launch the Reality Check subagent (Opus, `model: "opus"`) **by itself** and wait
 
 Same evidence tier applies: advocacy, not fact.
 
-**THE GATE RUNS TWICE. This is not optional.** On GTT.PA, pass 1 found 3 FATAL findings; Munger's rewrite fixed them and pass 2 found **6 more, all in the replacement argument**. On ACN, pass 1 found 2 FATAL plus a Check 0 violation, and the corrected memo **changed verdict from WAIT/0% to BUY/2%**. A revision that has never been red-teamed is not safer than the draft it replaced — it is a fresh argument with zero review. Run pass 2 against the REVISED verdict, telling it what changed and instructing it to attack the REPLACEMENT reasoning rather than re-litigating what was already withdrawn. Stop when a pass returns zero FATAL findings.
+**The gate runs until a pass returns zero FATAL, with a hard cap of THREE passes.** On ADBE it ran four: draft 1 WAIT → pass 1 pushed to BUY → pass 2 pushed back to WAIT → pass 3 found the return trip had copied the reviewer's own inputs verbatim. Two of those passes were the reviewer authoring the verdict. If pass 3 still returns FATAL, stop revising: publish with the `EDITOR'S CORRECTIONS` block from option (b) below and say so to the user. **Before every pass, re-run the pre-gate on the current draft** and hand the reviewer its output; **for pass 2 and later, hand the reviewer the synthesist's own change summary (§6 correction log) and tell it to attack only what changed** — it should verify prior fixes, not re-argue withdrawn claims, which on ADBE let pass 4 cost 157K tokens re-reading a 48KB memo plus three reviews.
+
+**The reviewer prescribes operations, never values.** reality-check.md now forbids it from naming a multiple, growth rate, ceiling, weight or size; if a review contains a number the memo should adopt, strike it before forwarding. A synthesist that reproduces the reviewer's number has complied, not reasoned.
+
+**THE GATE RUNS AT LEAST TWICE. This is not optional.** On GTT.PA, pass 1 found 3 FATAL findings; Munger's rewrite fixed them and pass 2 found **6 more, all in the replacement argument**. On ACN, pass 1 found 2 FATAL plus a Check 0 violation, and the corrected memo **changed verdict from WAIT/0% to BUY/2%**. A revision that has never been red-teamed is not safer than the draft it replaced — it is a fresh argument with zero review. Run pass 2 against the REVISED verdict, telling it what changed and instructing it to attack the REPLACEMENT reasoning rather than re-litigating what was already withdrawn. Stop when a pass returns zero FATAL findings.
 
 **Point the gate in BOTH directions, every pass.** Ask explicitly whether the memo has OVERCORRECTED, not only whether it is too generous. This is where the two best findings of both runs came from: on GTT that the Korean antitrust remedy had been in force since Dec-2022 *while margins expanded 650bp* (bounding a risk eight experts called unquantifiable), and on ACN that Munger had understated his own case by 3–8x. A red team that only ratchets one way is not a red team, and both times the one-directional reading was the wrong one.
 
@@ -372,14 +426,7 @@ Do NOT publish a report whose headline verdict rests on an argument the gate has
 
 Launch these two in a single message with `run_in_background: true`, passing the verdict **as corrected by Step 6**.
 
-<!-- superseded header retained for reference -->
-### Step 6: Family Newsletter + Reality Check + Business Explainer (PARALLEL)
-
-Launch these three subagents **in parallel** in a single message, all with `run_in_background: true`:
-
 **Newsletter (sonnet model):** Read `/Users/tallempert/src-tal/investor/skills/family-newsletter.md`. Pass the Munger verdict summary and refined dossier. Add: "IMPORTANT: All data is provided. Output immediately. AFTER completing, save your FULL output to /tmp/silicon_council/{TICKER}/newsletter.md using the Write tool."
-
-**Reality Check (Opus 4.7, `model: "opus"`):** Read `/Users/tallempert/src-tal/investor/skills/reality-check.md`. Pass the Munger verdict and summary of all expert verdicts. Add: "IMPORTANT: All data is provided. Output immediately. AFTER completing, save your FULL output to /tmp/silicon_council/{TICKER}/reality_check.md using the Write tool."
 
 **Business Explainer (sonnet model):** Launch a subagent with these instructions:
 
@@ -419,7 +466,7 @@ AFTER completing, save your FULL output to /tmp/silicon_council/{TICKER}/teacher
 
 Pass the refined dossier and Munger verdict summary to the Business Explainer.
 
-Collect all three reports.
+Collect both reports, then record: `./venv/bin/python3 scripts/council_manifest.py step {TICKER} reports done`.
 
 ### Step 8: Assemble and Save Reports
 

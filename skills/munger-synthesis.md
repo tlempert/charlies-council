@@ -232,3 +232,53 @@ a value that determines the answer. Varying cost of equity while fixing g at 6%
 produced "warranted value IS today's price" — at the company's own implied
 `g = ROE × retention` the conclusion inverted.
 
+
+## MANDATORY: THE MODEL LEDGER (machine-checkable, placed just above the EXECUTIVE SUMMARY)
+
+Before the `---` that opens the executive summary, emit this block. It is the
+input list the deterministic pre-gate (`scripts/pregate_check.py`) and the Reality
+Check verify against. A memo without it is rejected unread.
+
+```json model_ledger
+{
+  "price": 292.79,
+  "shares_m": 413.0,
+  "shares_source": "[SEC] 10-K forensic block, FY-end",
+  "owner_eps": 18.62,
+  "hurdle_low": 0.08,
+  "hurdle_high": 0.10,
+  "inputs": [
+    {"name": "scenario_A_growth", "value": 0.102, "source": "[MEDIA] guided FY2026 ending-ARR growth 10.2%", "varied": [0.08, 0.10, 0.12]},
+    {"name": "terminal_multiple", "value": 19, "source": "JUDGMENT — quality band, see §4", "varied": [18, 19, 20]},
+    {"name": "scenario_weights", "value": "50/30/20", "source": "JUDGMENT — no NRR in dossier", "varied": ["40/30/30", "60/25/15"]}
+  ],
+  "central_value": 313.0,
+  "ceiling": 282.0,
+  "floor": 175.0,
+  "margin_of_safety": 0.10,
+  "verdict": "WAIT",
+  "position_pct": 0,
+  "council_tally": {"BUY": 3, "HOLD": 6, "PASS": 2, "SELL": 1}
+}
+```
+
+Rules:
+- **Every input that moves the answer is listed.** If the reviewer finds an input
+  that is not here, that is a smuggled assumption — FATAL.
+- **`source` carries a dossier tag** (`[SEC]`, `[CALC]`, `[MEDIA]`, `[SEARCH]`)
+  and the value must appear in the refined dossier — or it is marked `JUDGMENT`
+  and defended in the prose. A tagged value that appears nowhere in the dossier
+  is an invented number (ADBE draft 2: a "~17% effective tax rate" that decided a
+  franchise-premium gate and existed nowhere in the file).
+- **`varied` lists what you actually swept.** An input with an empty `varied`
+  list is held fixed; say so in the prose and say why.
+- **Geometry must agree with the verdict:** BUY requires `price ≤ ceiling`; WAIT
+  requires `price > ceiling`; `ceiling ≤ central_value` always. ADBE draft 2
+  recommended BUY at $292.79 with a central value of $282 and a $310 ceiling —
+  buying above its own answer.
+- **Print your implied multiple** in the prose: `central_value ÷ owner_eps` and
+  `÷ GAAP EPS`, beside the traded multiple and the peer median. A central value
+  below the traded multiple for a business you grade A− is the tell of an
+  overcorrection, and it is visible in one line.
+- **`council_tally` is recomputed from the summary blocks by the pre-gate.** Count
+  the VERDICT lines yourself before you type it.

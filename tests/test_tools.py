@@ -1808,3 +1808,174 @@ def test_overvalued_when_above_both():
 def test_does_not_depend_on_which_basis_produced_which_anchor():
     """Same three values, arguments swapped, must give the same verdict."""
     assert _verdict(5.38, 10.03, 2.75) == _verdict(5.38, 2.75, 10.03)
+
+
+# =============================================================================
+# ADBE 2026-09-01 regressions — pipeline defects that cost Reality Check passes
+# =============================================================================
+
+class TestShareCountChoice:
+    """`get_advanced_valuations` forced shares = market_cap / price for EVERY
+    ticker under an 'ADR Adjustment' label. On ADBE (no ADR) that printed
+    397.50M against 413M filed, moved owner EPS from $18.62 to $19.35, and the
+    synthesist cited the pipeline line as corroboration — FATAL P2-3, one gate
+    pass burned. The implied count is right for BIDU-style ADRs where the
+    reported count is the foreign share class; it is wrong when the reported
+    count already agrees with market cap."""
+
+    def _choose(self, market_cap, price, reported):
+        from modules.tools import _choose_share_count
+        return _choose_share_count(market_cap, price, reported)
+
+    def test_uses_reported_count_when_it_agrees_with_market_cap(self):
+        # ADBE: 413M reported, implied 397.5M — 3.8% apart, same share class
+        shares, note = self._choose(116.4e9, 292.79, 413e6)
+        assert shares == 413e6
+        assert "ADR" not in note
+
+    def test_uses_implied_count_when_reported_is_a_foreign_share_class(self):
+        # BIDU-style: reported 2.8B HK shares vs ~350M ADS implied by cap/price
+        shares, note = self._choose(43e9, 124.0, 2.8e9)
+        assert abs(shares - 43e9 / 124.0) < 1
+        assert "ADR" in note
+
+    def test_falls_back_to_implied_when_nothing_is_reported(self):
+        shares, note = self._choose(43e9, 124.0, None)
+        assert abs(shares - 43e9 / 124.0) < 1
+
+    def test_falls_back_to_reported_when_market_cap_is_missing(self):
+        shares, _ = self._choose(None, 124.0, 350e6)
+        assert shares == 350e6
+
+    def test_note_always_prints_both_counts_so_the_reader_can_see_the_gap(self):
+        _, note = self._choose(116.4e9, 292.79, 413e6)
+        assert "413" in note and "397" in note
+
+
+class TestStressTestAnchoredToActualFcf:
+    """The Adjusted column was revenue minus (COGS + R&D + SG&A + SBC): no tax,
+    no capex. ADBE base row read $14.98B against actual FCF of $10.28B, 46%
+    high, and the memo built a 'fortress until -90% revenue' claim on it."""
+
+    def _data(self):
+        return {
+            'sorted_dates': ['2025-11-28', '2024-11-29'],
+            'yearly': {
+                '2025-11-28': {'revenue': 23.77e9, 'cost_of_goods_sold': 2.55e9,
+                               'rd_expense': 4.29e9, 'sga_expense': 8.0e9, 'sbc': 1.94e9},
+                '2024-11-29': {'revenue': 21.5e9, 'cost_of_goods_sold': 2.36e9,
+                               'rd_expense': 3.94e9, 'sga_expense': 7.4e9, 'sbc': 1.83e9},
+            },
+            'latest': {'revenue': 23.77e9, 'cost_of_goods_sold': 2.55e9,
+                       'rd_expense': 4.29e9, 'sga_expense': 8.0e9, 'sbc': 1.94e9},
+        }
+
+    def _base_adjusted(self, table):
+        row = [l for l in table.split('\n') if '| Base' in l][0]
+        cells = [c.strip() for c in row.split('|')]
+        return cells[4]  # Adjusted column
+
+    def test_base_row_equals_actual_fcf_when_provided(self):
+        from modules.tools import build_stress_test_table
+        table = build_stress_test_table(self._data(), '$', actual_fcf=10.28e9)
+        assert self._base_adjusted(table) == '$10.28B'
+
+    def test_declines_keep_their_shape_but_scale_from_the_real_base(self):
+        from modules.tools import build_stress_test_table
+        table = build_stress_test_table(self._data(), '$', actual_fcf=10.28e9)
+        rows = {l.split('|')[1].strip(): l for l in table.split('\n') if l.strip().startswith('| ')}
+        base = float(rows['Base'].split('|')[4].strip().strip('$B'))
+        m30 = float(rows['-30%'].split('|')[4].strip().strip('$B'))
+        assert 0 < m30 < base
+
+    def test_unanchored_column_is_labelled_as_a_pre_tax_proxy_not_fcf(self):
+        from modules.tools import build_stress_test_table
+        table = build_stress_test_table(self._data(), '$')
+        assert 'pre-tax' in table.lower()
+        assert 'not comparable to fcf' in table.lower()
+
+
+class TestEarningsVelocityLabels:
+    """Quarters arrive most-recent-first but were labelled Q1..Q4, so 'Q1' was
+    the LATEST quarter and every expert read the trend backwards until the
+    dossier was hand-annotated."""
+
+    def test_does_not_label_the_latest_quarter_q1(self):
+        from modules.tools import build_earnings_velocity
+        block = build_earnings_velocity([6.62e9, 6.40e9, 6.19e9, 6.0e9], '$')
+        latest_line = [l for l in block.split('\n') if '6.6B' in l][0]
+        assert 'Q1' not in latest_line
+
+    def test_header_states_the_ordering(self):
+        from modules.tools import build_earnings_velocity
+        block = build_earnings_velocity([6.62e9, 6.40e9, 6.19e9, 6.0e9], '$')
+        assert 'most recent first' in block.lower()
+
+    def test_uses_period_end_dates_when_given(self):
+        from modules.tools import build_earnings_velocity
+        block = build_earnings_velocity([6.62e9, 6.40e9], '$',
+                                        quarter_labels=['2026-05-29', '2026-02-27'])
+        assert '2026-05-29' in block
+        first = [l for l in block.split('\n') if '6.6B' in l][0]
+        assert '2026-05-29' in first
+
+
+class TestCarryBlockBuybackCaveat:
+    """`g = ROE × retention = 63%` printed as 'sustainable growth' for ADBE,
+    whose retention is 100% only because it returns capital via $11B/yr of
+    buybacks. Every expert had to route around the number."""
+
+    def test_no_dividend_company_gets_a_buyback_caveat_on_g(self):
+        from modules.tools import build_carry_block
+        block = build_carry_block({'returnOnEquity': 0.63, 'payoutRatio': 0.0}, 292.79)
+        g_idx = block.index('Sustainable growth')
+        assert 'buyback' in block[g_idx:].lower()
+
+    def test_dividend_payer_does_not_get_the_caveat(self):
+        from modules.tools import build_carry_block
+        block = build_carry_block({'returnOnEquity': 0.40, 'payoutRatio': 0.74,
+                                   'dividendRate': 8.68}, 101.48)
+        assert 'buyback' not in block.lower()
+
+
+class TestTenKSectionDeduplication:
+    """ADBE's 10-K arrived as a PDF, so the regex path ran. Its TOC has no dot
+    leaders, so 'Item 1. Business 3', 'Item 1A. Risk Factors 17' and 'Item 7.
+    Management's Discussion 32' each matched as a section start and all three
+    sections captured the same TOC tail plus the start of Item 1. Sections
+    C, D and E of the dossier were three copies of the same 10KB."""
+
+    PDF_STYLE = (
+        "Table of Contents\n"
+        "PART I\nItem 1.\nBusiness\n3\nItem 1A.\nRisk Factors\n17\nItem 1B.\n"
+        "Unresolved Staff Comments\n29\nItem 7.\nManagement's Discussion and Analysis\n32\n"
+        "Item 8.\nFinancial Statements\n46\nSignatures\n92\n"
+        + "Forward-Looking Statements\n" + "x " * 300 + "\n"
+        "PART I\nITEM 1. BUSINESS\nOVERVIEW\nAdobe's mission is to empower everyone to create. "
+        + "body text one. " * 80 + "\n"
+        "ITEM 1A. RISK FACTORS\nAs previously discussed, our actual results could differ. "
+        + "risk text two. " * 80 + "\n"
+        "ITEM 7.\xa0\xa0MANAGEMENT'S DISCUSSION AND ANALYSIS\n\xa0\nThe following discussion. "
+        "Discussion for fiscal 2024 is included in Item 7 of our Annual Report on Form 10-K. "
+        + "mdna text three. " * 80 + "\n"
+    )
+
+    def test_regex_path_skips_toc_entries_and_returns_the_body(self):
+        from modules.tools import _extract_sections_by_regex
+        s = _extract_sections_by_regex(self.PDF_STYLE)
+        assert s['item1'].lstrip().startswith('OVERVIEW')
+        assert s['item1a'].lstrip().startswith('As previously discussed')
+        assert s['item7'].lstrip().startswith('The following discussion')
+
+    def test_identical_sections_are_dropped_not_printed_three_times(self):
+        from modules.tools import _drop_duplicate_sections
+        same = "TOC tail " * 100 + "Adobe's mission " * 50
+        i1, i1a, i7 = _drop_duplicate_sections(same, same, same + " extra")
+        assert i1 == same
+        assert 'duplicate' in i1a.lower() and len(i1a) < 200
+        assert 'duplicate' in i7.lower() and len(i7) < 200
+
+    def test_distinct_sections_pass_through_untouched(self):
+        from modules.tools import _drop_duplicate_sections
+        a, b, c = "alpha " * 200, "beta " * 200, "gamma " * 200
+        assert _drop_duplicate_sections(a, b, c) == (a, b, c)

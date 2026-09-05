@@ -54,6 +54,38 @@ def _parse_owner_yield(val_report):
         return None
 
 
+def _choose_share_count(market_cap, price, reported_shares):
+    """Pick the share count a valuation divides by, and say why.
+
+    ADBE 2026-09-01: shares = market_cap / price was forced for EVERY ticker
+    and printed under an 'ADR Adjustment' label for a company with no ADR,
+    with no statement of what it was compared against. The synthesist cited
+    the label as corroboration of a 397.5M count (vs 413M in the 10-K block)
+    and the Reality Check struck it as FATAL for provenance. The implied count
+    is right for a BIDU-style ADR whose reported count is the foreign share
+    class; for a domestic filer the reported count is the source of record
+    and the note must say which was used and how far apart they are.
+
+    Returns (shares, note). shares is None when neither source has a value.
+    """
+    implied = (market_cap / price) if (market_cap and price and price > 0) else None
+    reported = reported_shares if reported_shares and reported_shares > 0 else None
+    if implied and reported:
+        gap = abs(implied / reported - 1.0)
+        if gap <= 0.15:
+            return reported, (f"Shares: using reported {reported/1e6:.2f}M "
+                              f"(market cap / price implies {implied/1e6:.2f}M, "
+                              f"within {gap:.1%} — same share class)")
+        return implied, (f"Shares: ADR/share-class mismatch — reported {reported/1e6:.2f}M "
+                         f"disagrees with market cap / price {implied/1e6:.2f}M by {gap:.0%}; "
+                         f"using the implied count")
+    if implied:
+        return implied, f"Shares: {implied/1e6:.2f}M implied from market cap / price (nothing reported)"
+    if reported:
+        return reported, f"Shares: {reported/1e6:.2f}M reported (no market cap to cross-check)"
+    return None, "Shares: unknown"
+
+
 def _resolve_shares_outstanding(balance_sheet_value, info_value):
     """Share count from the balance sheet, falling back to the info payload.
 
@@ -229,15 +261,12 @@ def get_advanced_valuations(ticker, info, stock):
         # =========================================================
         market_cap = info.get('marketCap') 
         
-        # 🚨 FORCE IMPLIED SHARES 🚨
-        # For International/ADR stocks (like BIDU), 'sharesOutstanding' is often 
-        # the foreign count (e.g. 2.8B HK shares), not the ADR count.
-        # We trust Market Cap ($43B) and Price ($124) to give us the true US share count.
-        if market_cap is not None and price > 0:
-            current_shares = market_cap / price
-            print(f"   ⚖️  ADR Adjustment: Implied Shares = {current_shares/1e6:.2f}M")
-        else:
-            current_shares = info.get('sharesOutstanding', 1)
+        # For an ADR (BIDU) 'sharesOutstanding' is the foreign share class and
+        # market_cap / price is the true count; for a domestic filer the reported
+        # count is right and the implied one is just stale. Choose, and say why.
+        current_shares, shares_note = _choose_share_count(
+            market_cap, price, info.get('sharesOutstanding'))
+        print(f"   ⚖️  {shares_note}")
 
         # Safety Defaults
         if not current_shares or current_shares == 0: current_shares = 1 
@@ -453,8 +482,7 @@ def get_advanced_valuations(ticker, info, stock):
 
         📝 VERDICT: {verdict}
         """
-        print(f"DEBUG: Valuation Complete.")
-        print(f"DEBUG: {output}")
+        print("DEBUG: Valuation Complete.")
         return output
     except Exception as e:
         print(f"{Fore.RED}❌ MATH CRASHED: {e}{Style.RESET_ALL}")
@@ -807,6 +835,24 @@ def _extract_sections_by_toc(soup, raw_text):
     return sections
 
 
+def _drop_duplicate_sections(item1, item1a, item7, probe=400):
+    """Replace any later section that opens with the same text as an earlier one.
+
+    ADBE (PDF 10-K): Sections C, D and E were three copies of the same TOC tail
+    plus Item 1. Twelve experts read 30KB of it three times.
+    """
+    kept, out = [], []
+    for name, text in (("Item 1", item1), ("Item 1A", item1a), ("Item 7", item7)):
+        head = (text or "")[:probe].strip()
+        dup = next((k for k, h in kept if head and h == head), None)
+        if dup:
+            out.append(f"(duplicate of {dup} extraction — dropped)")
+        else:
+            out.append(text)
+            kept.append((name, head))
+    return tuple(out)
+
+
 def _extract_sections_by_regex(raw_text):
     """Fallback: extract narrative sections via regex.
 
@@ -826,9 +872,20 @@ def _extract_sections_by_regex(raw_text):
         matches = list(re.finditer(pattern, raw_text, re.IGNORECASE))
         for match in matches:
             start = match.end()
+            # Begin after the header line so "ITEM 7. MANAGEMENT'S DISCUSSION..."
+            # does not leave "'S DISCUSSION AND ANALYSIS" as the section's first words.
+            nl = raw_text.find('\n', start)
+            if 0 <= nl - start <= 120:
+                start = nl + 1
             candidate = raw_text[start:start + limits[key]]
             # Skip TOC entries: they have dot leaders or are very short before next Item
             if re.search(r'\.{5,}', candidate[:500]):
+                continue
+            # TOCs from HTML/PDF text have no dot leaders (ADBE): a TOC entry is
+            # followed within a few lines by the next "Item N." ALONE on a line,
+            # while a real section opens with prose (which may itself cite
+            # "Item 7 of our Annual Report" inline — that must not disqualify it).
+            if re.search(r'^\s*Item\s+\d{1,2}[A-C]?\.?\s*$', candidate[:300], re.IGNORECASE | re.MULTILINE):
                 continue
             # Check it's substantive (not just a header followed by another Item)
             if len(candidate.strip()) > 500:
@@ -1613,6 +1670,11 @@ def build_carry_block(info, price, fx_rate=1.0, c_sym='$'):
                      "staleness in that trailing figure. A company that has just raised or "
                      "resumed its dividend will show an understated payout and therefore an "
                      "OVERSTATED g. Recompute from the latest declared dividend before use.")
+        if not div_rate:
+            lines.append("    ⚠️ Retention reads 100% only because no dividend is paid. If capital "
+                         "is returned through BUYBACKS, that cash is not reinvested and "
+                         "g = ROE x retention overstates reinvestment-driven growth — compare "
+                         "against realized revenue growth in FINANCIAL PHYSICS before using g.")
         lines.append("    MANDATORY: any valuation that assumes a growth rate must justify "
                      "departing from this figure. Holding g fixed while varying the discount "
                      "rate hides the assumption that drives the answer.")
@@ -1629,12 +1691,33 @@ def build_carry_block(info, price, fx_rate=1.0, c_sym='$'):
     return "\n".join(lines) + "\n"
 
 
-def build_stress_test_table(forensic_data, c_sym='$', is_lender=False):
+def _latest_fcf(stock, fx_rate=1.0):
+    """Latest fiscal-year free cash flow (OCF less capex) in price currency, or None."""
+    try:
+        cf = stock.cashflow
+        if cf is None or cf.empty or 'Operating Cash Flow' not in cf.index:
+            return None
+        ocf = float(cf.loc['Operating Cash Flow'].iloc[0])
+        capex = abs(float(cf.loc['Capital Expenditure'].iloc[0])) if 'Capital Expenditure' in cf.index else 0.0
+        fcf = (ocf - capex) * fx_rate
+        return fcf if fcf == fcf and fcf > 0 else None  # fcf != fcf guards NaN
+    except Exception:
+        return None
+
+
+def build_stress_test_table(forensic_data, c_sym='$', is_lender=False, actual_fcf=None):
     """Build revenue decline stress test with simple and adjusted FCF columns.
 
     Lenders take a different branch: an opex-stickiness model applied to a bank
     produces margins EXPANDING into a bust (KSPI: 69.1% FCF margin at -30%
     revenue), because it never models credit losses rising as conditions worsen.
+
+    The adjusted model is revenue minus (COGS + R&D + SG&A + SBC): no tax, no
+    capex. On ADBE that put the base row at $14.98B against actual FCF of
+    $10.28B and a synthesis built a "fortress" claim on it. When actual_fcf is
+    supplied, the stickiness model sets the SHAPE of the decline and the real
+    FCF sets the LEVEL; when it is not, the column is labelled as the pre-tax
+    proxy it is.
     """
     if not forensic_data:
         return ""
@@ -1693,8 +1776,18 @@ def build_stress_test_table(forensic_data, c_sym='$', is_lender=False):
         lines.append(f"    Cost stickiness derived from FY{source_year} revenue decline")
     else:
         lines.append(f"    Cost stickiness: industry defaults (no historical decline found)")
-    lines.append(f"    | Scenario | Revenue | Est. FCF (Simple) | Est. FCF (Adjusted) | Adj. Margin |")
+    anchored = bool(actual_fcf and actual_fcf > 0 and total_costs > 0 and revenue > total_costs)
+    if anchored:
+        lines.append(f"    Adjusted column anchored to actual FCF {c_sym}{actual_fcf/1e9:.2f}B: "
+                     f"the stickiness model sets the shape of the decline, real FCF sets the level.")
+        adj_header = "Est. FCF (Adjusted)"
+    else:
+        lines.append("    ⚠️ Adjusted column is a PRE-TAX, PRE-CAPEX operating-profit proxy "
+                     "(revenue minus COGS, R&D, SG&A, SBC). NOT comparable to FCF.")
+        adj_header = "Adj. Op. Profit (pre-tax)"
+    lines.append(f"    | Scenario | Revenue | Est. FCF (Simple) | {adj_header} | Adj. Margin |")
     lines.append(f"    |----------|---------|-------------------|---------------------|-------------|")
+    scale = (actual_fcf / (revenue - total_costs)) if anchored else 1.0
 
     for label, pct in scenarios:
         rev = revenue * (1 + pct)
@@ -1710,7 +1803,7 @@ def build_stress_test_table(forensic_data, c_sym='$', is_lender=False):
             adj_sga = sga * (stickiness.get('sga_expense', 0.80) + (1 - stickiness.get('sga_expense', 0.80)) * (1 + pct))
             adj_sbc = sbc * (stickiness.get('sbc', 0.90) + (1 - stickiness.get('sbc', 0.90)) * (1 + pct))
             adj_total_costs = adj_cogs + adj_rd + adj_sga + adj_sbc
-            adj_fcf = rev - adj_total_costs
+            adj_fcf = (rev - adj_total_costs) * scale
         else:
             adj_fcf = simple_fcf
 
@@ -1731,7 +1824,8 @@ def build_stress_test_table(forensic_data, c_sym='$', is_lender=False):
             t_sga = sga * (stickiness.get('sga_expense', 0.80) + (1 - stickiness.get('sga_expense', 0.80)) * (1 + test_pct / 100))
             t_sbc = sbc * (stickiness.get('sbc', 0.90) + (1 - stickiness.get('sbc', 0.90)) * (1 + test_pct / 100))
             if test_rev - t_cogs - t_rd - t_sga - t_sbc <= 0:
-                lines.append(f"    ⚠️ Adjusted FCF turns negative at approximately {test_pct}% revenue decline")
+                what = "Adjusted FCF" if anchored else "Adjusted operating profit"
+                lines.append(f"    ⚠️ {what} turns negative at approximately {test_pct}% revenue decline")
                 break
 
     return "\n".join(lines)
@@ -1777,27 +1871,36 @@ def get_disruptor_intel(company_name):
     return _tavily_search_with_relevance(query, company_name)
 
 
-def build_earnings_velocity(quarterly_revenues, c_sym='$'):
+def build_earnings_velocity(quarterly_revenues, c_sym='$', quarter_labels=None):
     """Build earnings velocity display showing quarterly trajectory and implied run rate.
 
     Args:
         quarterly_revenues: List of quarterly revenues, most recent first.
         c_sym: Currency symbol.
+        quarter_labels: Optional period-end dates, same order as the revenues.
+
+    The list is most-recent-first, and it used to be labelled Q1..Q4 — so "Q1"
+    was the LATEST quarter and the ADBE dossier had to be hand-annotated to stop
+    twelve experts reading the trend backwards. Label by period end, and say the
+    ordering in the header.
     """
     if not quarterly_revenues or len(quarterly_revenues) < 2:
         return ""
 
     lines = ["    --- EARNINGS VELOCITY ---"]
-    lines.append("    QUARTERLY REVENUE TRAJECTORY:")
+    lines.append("    QUARTERLY REVENUE TRAJECTORY (most recent first):")
 
     quarters = quarterly_revenues[:4]
+    labels = list(quarter_labels or [])[:len(quarters)]
     for i, rev in enumerate(quarters):
+        label = f"Q ending {labels[i]}" if i < len(labels) and labels[i] else \
+                ("Latest" if i == 0 else f"Latest-{i}")
         if i < len(quarters) - 1:
             prev = quarters[i + 1]
             qoq = ((rev - prev) / prev * 100) if prev > 0 else 0
-            lines.append(f"      Q{i+1}: {c_sym}{rev/1e9:.1f}B ({qoq:+.0f}% QoQ)")
+            lines.append(f"      {label}: {c_sym}{rev/1e9:.1f}B ({qoq:+.0f}% QoQ)")
         else:
-            lines.append(f"      Q{i+1}: {c_sym}{rev/1e9:.1f}B")
+            lines.append(f"      {label}: {c_sym}{rev/1e9:.1f}B")
 
     latest = quarters[0]
     ttm = sum(quarters[:4]) if len(quarters) >= 4 else latest * 4
@@ -2240,11 +2343,14 @@ def build_initial_dossier(ticker):
         xbrl_data = fut_xbrl.result() if fut_xbrl else None
 
         # Extract quarterly revenues for velocity display
-        quarterly_revenues = []
+        quarterly_revenues, quarter_labels = [], []
         try:
             q_fin = stock.quarterly_financials
             if q_fin is not None and 'Total Revenue' in q_fin.index:
-                quarterly_revenues = [v for v in q_fin.loc['Total Revenue'].iloc[:4] if v > 0]
+                for col, v in q_fin.loc['Total Revenue'].iloc[:4].items():
+                    if v > 0:
+                        quarterly_revenues.append(v)
+                        quarter_labels.append(str(col)[:10])  # Timestamp -> YYYY-MM-DD
         except Exception:
             pass
         sec_result = fut_sec_sections.result()
@@ -2252,9 +2358,8 @@ def build_initial_dossier(ticker):
 
         # Extract sections
         sections = sec_result.get('sections', {}) if sec_result else {}
-        item1 = sections.get('item1', '')
-        item1a = sections.get('item1a', '')
-        item7 = sections.get('item7', '')
+        item1, item1a, item7 = _drop_duplicate_sections(
+            sections.get('item1', ''), sections.get('item1a', ''), sections.get('item7', ''))
 
         # Phase 3b: If SEC sections are empty (non-US company), fetch narrative fallbacks
         if not item1 and not item1a and not item7:
@@ -2462,6 +2567,7 @@ def build_initial_dossier(ticker):
     # Merge peer bench data if available
     if _peer_bench_data:
         key_metrics['peer_bench'] = _peer_bench_data
+    actual_fcf = _latest_fcf(stock, _fx_rate)
     # Save key_metrics for HTML assembly
     key_metrics['ticker'] = ticker
     try:
@@ -2534,9 +2640,9 @@ def build_initial_dossier(ticker):
     --- SECTION N: CUSTOMER SEGMENTATION ---
     {segmentation_data if segmentation_data else '(No segmentation data found)'}
 
-    {build_stress_test_table(forensic_data, c_sym, _is_lender(info, forensic_data))}
+    {build_stress_test_table(forensic_data, c_sym, _is_lender(info, forensic_data), actual_fcf=actual_fcf)}
     {build_carry_block(info, info.get('currentPrice', 0) or info.get('regularMarketPrice', 0), _fx_rate, c_sym)}
-    {build_earnings_velocity([q * _fx_rate for q in quarterly_revenues], c_sym)}
+    {build_earnings_velocity([q * _fx_rate for q in quarterly_revenues], c_sym, quarter_labels)}
     """
 
     # --- Data quality warning: count empty Tavily-dependent sections ---

@@ -126,6 +126,7 @@ CX=/Applications/ChatGPT.app/Contents/Resources/codex; D=/tmp/silicon_council/{T
 Rules:
 - Group findings under: RED FLAGS, ACCOUNTING, OWNERSHIP, COMPETITIVE THREAT, ECOSYSTEM, CUSTOMER ROI.
 - Preserve every number, date, and named source exactly as written. Never round, infer, or add figures.
+- A brief shorter than its input has omitted something. End with an OMITTED section listing what you left out and why, by class (duplicate of an item above / no identifiable source / off-topic for this company / boilerplate). A reader must be able to see what was dropped, not trust that nothing was.
 - Attribute each claim to its source article title. Drop any claim with no identifiable source.
 - Where results conflict, report BOTH sides. Do not resolve the conflict.
 - No investment opinion, no recommendation, no severity ranking. Facts and attributions only.
@@ -148,10 +149,10 @@ cd /Users/tallempert/src-tal/investor && ./venv/bin/python3 scripts/extract_doss
 
 This writes `dossier_blocks.md` (every pre-computed table, verbatim — the FINANCIAL PHYSICS, FORENSIC, BUYBACK, STRESS TEST, CARRY, PEER and registry blocks the experts must receive untouched) and `dossier_narrative.md` (Sections A–N: 10-K prose and search results).
 
-**3b — Condense the narrative (Codex, `CODEX_OK=0`):** same no-drop rules as Step 2.5 — every number, date and named source preserved, conflicts reported both ways, no opinion:
+**3b — Condense the narrative (Codex, `CODEX_OK=0`):** same rules as Step 2.5 — every number, date and named source preserved, conflicts reported both ways, no opinion, and an OMITTED section naming what was left out and why:
 
 ```bash
-CX=/Applications/ChatGPT.app/Contents/Resources/codex; D=/tmp/silicon_council/{TICKER}; { echo "Condense the company-dossier narrative below into a fact list for an investment analyst. Keep the section headings (SECTION A … SECTION N). Preserve every number, date, quotation and named source exactly; never round, infer or add. Where sources conflict, report both. No opinion, no ranking. Target 1500-2000 words."; echo; cat $D/dossier_narrative.md; } | $CX exec - -m gpt-5.6-luna -c model_reasoning_effort=low --sandbox read-only --skip-git-repo-check --output-last-message $D/narrative_brief.md >$D/narrative_brief.log 2>&1; wc -c $D/narrative_brief.md
+CX=/Applications/ChatGPT.app/Contents/Resources/codex; D=/tmp/silicon_council/{TICKER}; { echo "Condense the company-dossier narrative below into a fact list for an investment analyst. Keep the section headings (SECTION A … SECTION N). Preserve every number, date, quotation and named source exactly; never round, infer or add. Where sources conflict, report both. No opinion, no ranking. End with an OMITTED section listing what you left out and why (duplicate / no source / boilerplate / off-topic). Target 1500-2000 words."; echo; cat $D/dossier_narrative.md; } | $CX exec - -m gpt-5.6-luna -c model_reasoning_effort=low --sandbox read-only --skip-git-repo-check --output-last-message $D/narrative_brief.md >$D/narrative_brief.log 2>&1; wc -c $D/narrative_brief.md
 ```
 
 **Fallback** (`CODEX_OK=1`, or `narrative_brief.md` empty): read `dossier_narrative.md` directly with the Read tool, paginated. Tell the user.
@@ -408,7 +409,7 @@ Launch the Reality Check subagent (Opus, `model: "opus"`) **by itself** and wait
 
 Same evidence tier applies: advocacy, not fact.
 
-**The gate runs until a pass returns zero FATAL, with a hard cap of THREE passes.** On ADBE it ran four: draft 1 WAIT → pass 1 pushed to BUY → pass 2 pushed back to WAIT → pass 3 found the return trip had copied the reviewer's own inputs verbatim. Two of those passes were the reviewer authoring the verdict. If pass 3 still returns FATAL, stop revising: publish with the `EDITOR'S CORRECTIONS` block from option (b) below and say so to the user. **Before every pass, re-run the pre-gate on the current draft** and hand the reviewer its output; **for pass 2 and later, hand the reviewer the synthesist's own change summary (§6 correction log) and tell it to attack only what changed** — it should verify prior fixes, not re-argue withdrawn claims, which on ADBE let pass 4 cost 157K tokens re-reading a 48KB memo plus three reviews.
+**The gate runs until a pass returns PASS, with a hard cap of THREE review passes in total — the initial review plus at most two reviews of revisions.** On ADBE it ran four: draft 1 WAIT → pass 1 pushed to BUY → pass 2 pushed back to WAIT → pass 3 found the return trip had copied the reviewer's own inputs verbatim. Two of those passes were the reviewer authoring the verdict. If pass 3 still returns FATAL, stop revising: publish with the `EDITOR'S CORRECTIONS` block from option (b) below and say so to the user. **Before every pass, re-run the pre-gate on the current draft** and hand the reviewer its output; **for pass 2 and later, hand the reviewer the synthesist's own change summary (§6 correction log) and tell it to attack only what changed** — it should verify prior fixes, not re-argue withdrawn claims, which on ADBE let pass 4 cost 157K tokens re-reading a 48KB memo plus three reviews.
 
 **The reviewer prescribes operations, never values.** reality-check.md now forbids it from naming a multiple, growth rate, ceiling, weight or size; if a review contains a number the memo should adopt, strike it before forwarding. A synthesist that reproduces the reviewer's number has complied, not reasoned.
 

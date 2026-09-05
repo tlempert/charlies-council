@@ -20,6 +20,8 @@ A judgment call you would merely argue differently is MAJOR at most. FATAL is re
 `PASS — 0 FATAL. N MAJOR, N MODERATE, N MINOR.`
 `REJECT — N FATAL: [one-line name of each].`
 
+**PASS also requires at most 3 MAJOR findings that touch a published number.** Zero FATAL is necessary, not sufficient: a memo can carry several wrong numbers the reader relies on and still have no single defect that flips the verdict. If more than three MAJORs touch published figures, return REJECT and list them under a `MAJOR-AGGREGATE` heading. A MAJOR that is purely prose (labelling, wording, a missing caveat) does not count toward the three.
+
 ## CHECK 0: TAUTOLOGY GATE (RUN BEFORE ANY OTHER CHECK)
 
 For every claim the synthesis presents as *independent corroboration* of another,

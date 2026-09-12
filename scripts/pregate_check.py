@@ -211,8 +211,15 @@ def run_checks(d):
             n = len([s for s in summaries if s["trigger_prices"]])
             msg = f"{len(echo)} of {n} trigger prices sit within 3% of owner EPS ÷ hurdle (${band[0]:.0f}–${band[1]:.0f}): {sorted(set(echo))}"
             add("WARN" if len(echo) * 2 >= max(n, 1) else "OK", "trigger_echo", msg)
-            if len(echo) * 2 >= max(n, 1) and re.search(r"(council|experts?)\s+(agree|converge)", verdict, re.I):
-                add("FAIL", "trigger_echo_claim", "memo claims council agreement on value while most triggers are one E÷r calculation")
+            if len(echo) * 2 >= max(n, 1):
+                for m in re.finditer(r"(council|experts?)\s+(agree|converge)", verdict, re.I):
+                    window = verdict[m.start():m.start() + 400]
+                    # a memo that names the echo and refutes it is doing its job
+                    if re.search(r"\b(not|no|never|fake|illusion|one calculation|arithmetic|nine hats|one witness|refut)\w*", window, re.I):
+                        add("OK", "trigger_echo_claim", "memo discusses trigger convergence and refutes it")
+                    else:
+                        add("FAIL", "trigger_echo_claim", "memo claims council agreement on value while most triggers are one E÷r calculation")
+                    break
     return results
 
 

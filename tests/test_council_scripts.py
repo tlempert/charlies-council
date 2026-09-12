@@ -439,3 +439,23 @@ class TestPregateDerivedTag:
         led["inputs"].append({"name": "gaap_eps_ttm", "value": 18.19, "source": "DERIVED", "varied": []})
         status, _ = _run(tmp_path, led)
         assert status["input:gaap_eps_ttm"] == "FAIL"
+
+
+class TestPregateConvergenceClaimNegation:
+    """The ADBE 2026-09-12 draft-2 memo wrote 'a reader glancing at that column
+    sees nine analysts converging on $180–$242 and concludes the council agreed
+    on value' — and then refuted it. The check matched the description of the
+    error as if it were the error."""
+
+    REFUTING = ("A reader glancing at that column sees nine analysts converging on $180–$242 and "
+                "concludes the council agreed on value. It did not: those nine numbers are one "
+                "calculation, owner EPS divided by the hurdle, nine times.")
+    ASSERTING = "This council agrees on value: every trigger lands in $180–250."
+
+    def test_refuted_convergence_is_not_a_fail(self, tmp_path):
+        status, _ = _run(tmp_path, _ledger(), prose=self.REFUTING)
+        assert status.get("trigger_echo_claim") != "FAIL"
+
+    def test_asserted_convergence_still_fails(self, tmp_path):
+        status, _ = _run(tmp_path, _ledger(), prose=self.ASSERTING)
+        assert status["trigger_echo_claim"] == "FAIL"

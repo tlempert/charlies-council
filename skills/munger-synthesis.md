@@ -233,6 +233,39 @@ produced "warranted value IS today's price" — at the company's own implied
 `g = ROE × retention` the conclusion inverted.
 
 
+## REQUIRED GROWTH TABLE (MANDATORY)
+
+To earn the top of the hurdle band `h` (default 10%) over a 5-year holding
+period from today's price `P`, with no dividend, the stock must simply
+reach `P × (1+h)^5` by year 5. That single number, run backward through a
+handful of plausible exit multiples, is the cleanest statement of the bet
+you can publish: it says exactly what owner earnings the business must
+produce five years from now for the hurdle to clear, at 15x, 18x, and 20x
+exit multiples — and therefore what EPS CAGR must hold from today's owner
+EPS to get there. No forecast of revenue mix, margin trajectory, or
+buyback pace is required to state it; it is pure arithmetic on the price
+and the hurdle, which is exactly why it is mandatory: it is mechanically
+checkable, and the pre-gate recomputes every row from the ledger's `price`,
+`owner_eps`, and the row's own `multiple` and `hurdle`. A memo that skips
+it is hiding the one number a skeptical buyer asks for first.
+
+**Worked example — ADBE**, `P = $292.79`, `h = 10%`, owner EPS `$18.62`:
+
+Year-5 price to hit the hurdle: `$292.79 × 1.10^5 ≈ $471.50`.
+
+| Exit multiple | Required year-5 owner EPS | Required EPS CAGR from $18.62 |
+|---|---|---|
+| 15x | $31.44 | 11.0% |
+| 18x | $26.20 | 7.1% |
+| 20x | $23.58 | 4.8% |
+
+Read this as: at a 15x exit multiple the business must compound owner EPS
+at 11.0% a year for five years just to deliver the hurdle rate with no
+multiple expansion; at 20x — already a franchise-grade multiple — the bar
+drops to 4.8%. If your bull case cannot clear the CAGR at the multiple you
+actually expect to be paid at exit, the "buy" is a bet on multiple
+expansion, not on the business, and the prose must say so.
+
 ## MANDATORY: THE MODEL LEDGER (machine-checkable, placed just above the EXECUTIVE SUMMARY)
 
 Before the `---` that opens the executive summary, emit this block. It is the
@@ -258,7 +291,16 @@ Check verify against. A memo without it is rejected unread.
   "margin_of_safety": 0.10,
   "verdict": "WAIT",
   "position_pct": 0,
-  "council_tally": {"BUY": 3, "HOLD": 6, "PASS": 2, "SELL": 1}
+  "council_tally": {"BUY": 3, "HOLD": 6, "PASS": 2, "SELL": 1},
+  "required_growth": {
+    "horizon_years": 5,
+    "hurdle": 0.10,
+    "rows": [
+      {"multiple": 15, "required_eps": 31.44, "cagr": 0.110},
+      {"multiple": 18, "required_eps": 26.20, "cagr": 0.071},
+      {"multiple": 20, "required_eps": 23.58, "cagr": 0.048}
+    ]
+  }
 }
 ```
 
@@ -282,3 +324,7 @@ Rules:
   overcorrection, and it is visible in one line.
 - **`council_tally` is recomputed from the summary blocks by the pre-gate.** Count
   the VERDICT lines yourself before you type it.
+- **`required_growth` is recomputed row by row by the pre-gate.** Each row's
+  `required_eps` and `cagr` are checked against `price`, `owner_eps`, the
+  row's `multiple`, and the block's `hurdle`/`horizon_years` — get the
+  arithmetic wrong and the pre-gate FAILs it before an Opus pass ever runs.

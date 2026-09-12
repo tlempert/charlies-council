@@ -64,6 +64,8 @@ Using the dossier, generate 8 high-precision search queries to uncover hidden ri
 7. **Query 8 — Generational/Cultural:** Brand perception among younger demographics, usage trends by age cohort
 8. **Query 9a — Customer ROI (Positive):** Search for "{COMPANY} customer ROI case study revenue impact cost savings {CORE_PRODUCT}" — looks for published customer success data and validated returns.
 9. **Query 9b — Customer ROI (Negative):** Search for "{COMPANY} largest customers capex return disappointment writedown overspending {CORE_PRODUCT}" — looks for the negative signal. The asymmetry is deliberate: Burry needs negative evidence, not marketing case studies. Both signals together let experts weigh customer economics from both sides.
+10. **Query 10 — Guidance Delta:** Search for "{COMPANY} guidance raised OR cut OR lowered {LATEST QUARTER}" — a guidance LEVEL without its prior reads as neutral. On ADBE the 10.2% ARR guide was a cut, and the dossier carried it as neutral because nothing searched for the direction of the change.
+11. **Query 11 — Organic vs Acquired:** Search for "{COMPANY} acquisition contribution revenue ARR organic growth excluding acquisition" — a headline growth rate blends the base business with any acquisition inside the period. On ADBE, Semrush contributed ~$480M of the $27.10B ARR total, so organic growth was ~10.5% against the 12.5% headline, and neither the council nor the outside auditor computed it.
 
 **MANDATORY REBUTTAL PAIRING.** Every query that seeks an accusation MUST be paired with a query that seeks the response. Run both. This applies to queries 1 and 2 (Dynamic Red Flags) and to any short-seller, lawsuit, fraud, or investigation query you generate.
 
@@ -90,7 +92,9 @@ queries = [
     'QUERY_7',
     'QUERY_8',
     'QUERY_9a',
-    'QUERY_9b'
+    'QUERY_9b',
+    'QUERY_10',
+    'QUERY_11'
 ]
 with open('/tmp/silicon_council/{TICKER}/raw_forensic.txt', 'w') as f:
     for q in queries:

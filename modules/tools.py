@@ -1,5 +1,6 @@
 import requests
 import sys
+import pandas as pd
 import yfinance as yf
 from bs4 import BeautifulSoup
 from colorama import Fore, Style
@@ -1915,6 +1916,113 @@ def build_earnings_velocity(quarterly_revenues, c_sym='$', quarter_labels=None):
     return "\n".join(lines)
 
 
+def build_cash_conversion(q_cashflow, q_income, c_sym='$', fx_rate=1.0):
+    """Build a quarterly cash-conversion table: revenue vs OCF vs FCF.
+
+    ADBE's Q2 FY2026 print was revenue +13% YoY against operating cash flow
+    essentially flat (-1% YoY) — a divergence no expert caught, because the
+    dossier carried quarterly revenue (EARNINGS VELOCITY) but no quarterly
+    cash flow at all. This block puts OCF, capex and FCF next to revenue,
+    quarter by quarter, so a growth headline that isn't converting to cash
+    is visible before the council opens its mouth.
+
+    Args:
+        q_cashflow: stock.quarterly_cashflow (yfinance DataFrame). Columns
+            are period-end Timestamps, most recent first. Rows include
+            'Operating Cash Flow' and 'Capital Expenditure' (negative).
+        q_income: stock.quarterly_financials (yfinance DataFrame), same
+            column convention. Row 'Total Revenue'.
+        c_sym: Currency symbol.
+        fx_rate: Multiplier applied to all filing-currency values.
+
+    Returns "" for anything that isn't a well-formed pair of DataFrames
+    (dossier tests pass a MagicMock `stock`) rather than raising, and for
+    fewer than 2 quarters of history.
+    """
+    if not isinstance(q_cashflow, pd.DataFrame) or not isinstance(q_income, pd.DataFrame):
+        return ""
+    if not {'Operating Cash Flow', 'Capital Expenditure'}.issubset(set(q_cashflow.index)):
+        return ""
+    if 'Total Revenue' not in q_income.index:
+        return ""
+
+    cols = list(q_cashflow.columns)
+    if len(cols) < 2:
+        return ""
+
+    def _val(df, row, col):
+        try:
+            if col not in df.columns:
+                return None
+            v = float(df.loc[row, col])
+            return v * fx_rate if v == v else None  # NaN guard
+        except Exception:
+            return None
+
+    def _yoy(latest, prior):
+        if latest is None or prior is None or prior == 0:
+            return None
+        return (latest - prior) / abs(prior) * 100
+
+    def _fmt_pct(x):
+        return f"{x:+.1f}%" if x is not None else "n/a"
+
+    quarters = cols[:4]
+    lines = ["    --- 💵 CASH CONVERSION (last 4 quarters, most recent first) ---"]
+    lines.append("    | Q ending | Revenue | OCF | Capex | FCF | FCF/Rev | Rev YoY | OCF YoY |")
+
+    ttm_rev = ttm_ocf = ttm_capex = ttm_fcf = 0.0
+    latest_rev_yoy = latest_ocf_yoy = None
+
+    for i, col in enumerate(quarters):
+        rev = _val(q_income, 'Total Revenue', col)
+        ocf = _val(q_cashflow, 'Operating Cash Flow', col)
+        capex = _val(q_cashflow, 'Capital Expenditure', col)
+        fcf = (ocf - abs(capex)) if (ocf is not None and capex is not None) else None
+        fcf_rev = (fcf / rev * 100) if (fcf is not None and rev) else None
+
+        prior_col = cols[i + 4] if i + 4 < len(cols) else None
+        rev_prior = _val(q_income, 'Total Revenue', prior_col) if prior_col is not None else None
+        ocf_prior = _val(q_cashflow, 'Operating Cash Flow', prior_col) if prior_col is not None else None
+        rev_yoy = _yoy(rev, rev_prior)
+        ocf_yoy = _yoy(ocf, ocf_prior)
+        if i == 0:
+            latest_rev_yoy, latest_ocf_yoy = rev_yoy, ocf_yoy
+
+        label = f"Q ending {str(col)[:10]}"
+        rev_s = f"{c_sym}{rev/1e9:.2f}B" if rev is not None else "n/a"
+        ocf_s = f"{c_sym}{ocf/1e9:.2f}B" if ocf is not None else "n/a"
+        capex_s = f"{c_sym}{abs(capex)/1e9:.2f}B" if capex is not None else "n/a"  # spend, not sign
+        fcf_s = f"{c_sym}{fcf/1e9:.2f}B" if fcf is not None else "n/a"
+        fcf_rev_s = f"{fcf_rev:.0f}%" if fcf_rev is not None else "n/a"
+        lines.append(f"    | {label} | {rev_s} | {ocf_s} | {capex_s} | {fcf_s} | {fcf_rev_s} | "
+                     f"{_fmt_pct(rev_yoy)} | {_fmt_pct(ocf_yoy)} |")
+
+        if rev is not None:
+            ttm_rev += rev
+        if ocf is not None:
+            ttm_ocf += ocf
+        if capex is not None:
+            ttm_capex += abs(capex)
+        if fcf is not None:
+            ttm_fcf += fcf
+
+    ttm_fcf_rev = (ttm_fcf / ttm_rev * 100) if ttm_rev else 0
+    lines.append(f"\n    TTM: Revenue {c_sym}{ttm_rev/1e9:.2f}B | OCF {c_sym}{ttm_ocf/1e9:.2f}B | "
+                 f"Capex {c_sym}{ttm_capex/1e9:.2f}B | FCF {c_sym}{ttm_fcf/1e9:.2f}B | "
+                 f"FCF/Rev {ttm_fcf_rev:.0f}%")
+
+    if (latest_rev_yoy is not None and latest_ocf_yoy is not None
+            and (latest_rev_yoy - latest_ocf_yoy) >= 5):
+        lines.append(
+            f"\n    ⚠️ CASH CONVERSION LAGGING REVENUE: revenue grew {latest_rev_yoy:+.1f}% YoY "
+            f"while operating cash flow grew {latest_ocf_yoy:+.1f}% YoY — one quarter, confirm "
+            f"before calling it a trend."
+        )
+
+    return "\n".join(lines)
+
+
 def _get_acquisition_from_8k(cik):
     """Scan recent 8-K filings for acquisition disclosures (Item 2.01).
 
@@ -2643,6 +2751,7 @@ def build_initial_dossier(ticker):
     {build_stress_test_table(forensic_data, c_sym, _is_lender(info, forensic_data), actual_fcf=actual_fcf)}
     {build_carry_block(info, info.get('currentPrice', 0) or info.get('regularMarketPrice', 0), _fx_rate, c_sym)}
     {build_earnings_velocity([q * _fx_rate for q in quarterly_revenues], c_sym, quarter_labels)}
+    {build_cash_conversion(stock.quarterly_cashflow, stock.quarterly_financials, c_sym, _fx_rate)}
     """
 
     # --- Data quality warning: count empty Tavily-dependent sections ---

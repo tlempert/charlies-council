@@ -80,6 +80,18 @@ These look identical in consolidated figures and are opposite investment cases. 
 If the BUYBACK ANALYSIS section derives average price paid from share-count deltas (marked with `~` or `*Estimated`), flag it:
 "⚠️ BUYBACK AVG PRICE IS ESTIMATED from share count changes — not actual repurchase data. Do not use as precise evidence of capital allocation quality."
 
+## LATEST-QUARTER DISCIPLINE (MANDATORY)
+
+The newest quarter is where numbers get quoted loudest and checked least — a headline growth rate, a guidance figure, an officer title travel from the raw dossier into the council's mouths in one hop, with no base, no prior, no date attached. Enforce these four rules on every latest-quarter claim.
+
+1. **No growth rate without its base and its share of total.** A rate on its own ("AI-first ARR tripled to >$500M") reads as a dominant story when it may be a rounding error on the business that actually matters. State the base it grew from and what % of the total it now represents: "AI-first ARR tripled to >$500M — 1.8% of total ARR." A tripling of 1.8% is a different fact than a tripling of 30%, and the raw number alone does not let an expert tell them apart.
+
+2. **State organic vs acquired growth, or flag it "not separable."** When the period includes an acquisition, the headline growth rate blends two things that behave differently: the base business compounding and a one-time addition to the numerator. On ADBE, Semrush contributed ~$480M inside the $27.10B ARR total — organic growth was ~10.5% against the 12.5% headline. Compute the split whenever the acquisition's contribution is disclosed; if it is not, write "organic vs acquired growth: not separable from disclosed data" rather than passing the blended rate through silently.
+
+3. **State guidance as a delta vs the prior guide, not as a level.** A guidance number reported on its own carries no information about direction — an expert has no way to tell a raise from a cut. ADBE's 10.2% ARR guide was a cut from the prior guide, and reporting it as a bare level let it read as neutral. Always pair the current guide with the immediately prior one and name the direction: raised / cut / reaffirmed.
+
+4. **State officer status by date, in the filing's own language.** "CFO" or "CEO" without a date and status is a snapshot that may already be stale — serving, transition announced, interim named, and vacant are four different facts with four different implications, and collapsing them into a name and a title erases the difference. Use the filing's own status language. A vacant seat left unstated — an "empty chair" passed through as if it were a filled one — reached the council with a POSITION SIZE of 0%: the very fact that should have driven the sizing was never in front of the expert who produced it. State vacancy explicitly; it is not neutral.
+
 ## EVIDENCE SOURCE LABELING (MANDATORY)
 
 Every quantitative claim in the refined dossier MUST carry one of four inline source tags:
@@ -180,6 +192,8 @@ Copy these blocks from the raw dossier into the refined dossier **verbatim**. Th
 1. **FORENSIC BLOCK** (SBC, SBC/Rev%, accounts receivable, share count, debt, R&D, goodwill by year)
 2. **BUYBACK ANALYSIS** (shares repurchased, dollars spent, net share-count change)
 3. **WORKING CAPITAL** (inventory, payables, COGS, DIO, DPO)
+4. **LATEST QUARTER (8-K Ex.99.1)** — without it, no expert sees a primary source newer than the 10-K: share count, guidance, and acquisition contribution can all be a full year stale.
+5. **CASH CONVERSION** — without it, no expert can check revenue growth against cash growth; it is the only block that puts the two side by side.
 
 This rule exists because they were dropped on NXPI (2026-08-21) and it cost real analysis:
 

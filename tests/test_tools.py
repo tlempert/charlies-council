@@ -1979,3 +1979,118 @@ class TestTenKSectionDeduplication:
         from modules.tools import _drop_duplicate_sections
         a, b, c = "alpha " * 200, "beta " * 200, "gamma " * 200
         assert _drop_duplicate_sections(a, b, c) == (a, b, c)
+
+
+class TestCashConversion:
+    """ADBE's Q2 FY2026 print was revenue +13% YoY against operating cash
+    flow essentially flat (-1% YoY). The dossier carried quarterly revenue
+    (EARNINGS VELOCITY) but no quarterly cash flow at all, so no expert saw
+    that the growth headline wasn't converting to cash."""
+
+    def _dates(self):
+        import pandas as pd
+        return [pd.Timestamp(d) for d in
+                ['2026-05-29', '2026-02-27', '2025-11-28', '2025-08-29', '2025-05-30']]
+
+    def _frames(self, revenues, ocfs, capexes):
+        import pandas as pd
+        dates = self._dates()[:len(revenues)]
+        q_income = pd.DataFrame({d: {'Total Revenue': r} for d, r in zip(dates, revenues)})
+        q_cashflow = pd.DataFrame({
+            d: {'Operating Cash Flow': o, 'Capital Expenditure': c}
+            for d, o, c in zip(dates, ocfs, capexes)
+        })
+        return q_cashflow, q_income
+
+    def _adbe_like(self):
+        # latest quarter (idx0) vs the quarter 4 back (idx4): revenue +13% YoY,
+        # OCF -1% YoY — the exact ADBE Q2 FY2026 divergence.
+        revenues = [5.87e9, 5.60e9, 5.41e9, 5.31e9, 5.19e9]
+        ocfs = [2.20e9, 2.35e9, 2.10e9, 2.05e9, 2.222e9]
+        capexes = [-0.08e9, -0.07e9, -0.09e9, -0.06e9, -0.08e9]
+        return self._frames(revenues, ocfs, capexes)
+
+    def test_returns_empty_string_for_non_dataframe_input(self):
+        from modules.tools import build_cash_conversion
+        assert build_cash_conversion(MagicMock(), MagicMock()) == ""
+        assert build_cash_conversion(None, None) == ""
+
+    def test_returns_empty_string_for_fewer_than_two_quarters(self):
+        from modules.tools import build_cash_conversion
+        q_cashflow, q_income = self._frames([5.87e9], [2.20e9], [-0.08e9])
+        assert build_cash_conversion(q_cashflow, q_income) == ""
+
+    def test_lists_up_to_four_quarters_most_recent_first_with_dates(self):
+        from modules.tools import build_cash_conversion
+        q_cashflow, q_income = self._adbe_like()
+        block = build_cash_conversion(q_cashflow, q_income)
+        rows = [l for l in block.split('\n') if 'Q ending 20' in l]
+        assert len(rows) == 4
+        assert '2026-05-29' in rows[0]
+        assert '2026-02-27' in rows[1]
+        assert '2025-11-28' in rows[2]
+        assert '2025-08-29' in rows[3]
+
+    def test_fcf_is_ocf_minus_absolute_capex(self):
+        from modules.tools import build_cash_conversion
+        q_cashflow, q_income = self._adbe_like()
+        block = build_cash_conversion(q_cashflow, q_income)
+        latest_row = [l for l in block.split('\n') if '2026-05-29' in l][0]
+        cells = [c.strip() for c in latest_row.split('|')]
+        fcf_cell = cells[5]  # | Q ending | Revenue | OCF | Capex | FCF | ...
+        assert fcf_cell == '$2.12B'  # 2.20B - |-0.08B|
+
+    def test_yoy_computed_when_a_fifth_quarter_exists(self):
+        from modules.tools import build_cash_conversion
+        q_cashflow, q_income = self._adbe_like()
+        block = build_cash_conversion(q_cashflow, q_income)
+        latest_row = [l for l in block.split('\n') if '2026-05-29' in l][0]
+        cells = [c.strip() for c in latest_row.split('|')]
+        rev_yoy, ocf_yoy = cells[7], cells[8]
+        assert rev_yoy == '+13.1%'
+        assert ocf_yoy == '-1.0%'
+
+    def test_yoy_is_n_a_without_a_quarter_four_back(self):
+        from modules.tools import build_cash_conversion
+        # Only 4 quarters — no column exists four quarters before any of them.
+        revenues = [5.87e9, 5.60e9, 5.41e9, 5.31e9]
+        ocfs = [2.20e9, 2.35e9, 2.10e9, 2.05e9]
+        capexes = [-0.08e9, -0.07e9, -0.09e9, -0.06e9]
+        q_cashflow, q_income = self._frames(revenues, ocfs, capexes)
+        from modules.tools import build_cash_conversion
+        block = build_cash_conversion(q_cashflow, q_income)
+        for l in block.split('\n'):
+            if 'Q ending 20' in l:
+                cells = [c.strip() for c in l.split('|')]
+                assert cells[7] == 'n/a' and cells[8] == 'n/a'
+
+    def test_lagging_flag_fires_on_the_adbe_divergence(self):
+        from modules.tools import build_cash_conversion
+        q_cashflow, q_income = self._adbe_like()
+        block = build_cash_conversion(q_cashflow, q_income)
+        assert 'CASH CONVERSION LAGGING REVENUE' in block
+
+    def test_lagging_flag_does_not_fire_when_growth_is_aligned(self):
+        from modules.tools import build_cash_conversion
+        # Revenue and OCF both up ~10% YoY — no divergence to flag.
+        revenues = [5.90e9, 5.60e9, 5.41e9, 5.31e9, 5.36e9]
+        ocfs = [2.42e9, 2.35e9, 2.10e9, 2.05e9, 2.20e9]
+        capexes = [-0.08e9, -0.07e9, -0.09e9, -0.06e9, -0.08e9]
+        q_cashflow, q_income = self._frames(revenues, ocfs, capexes)
+        block = build_cash_conversion(q_cashflow, q_income)
+        assert 'LAGGING REVENUE' not in block
+
+    def test_applies_fx_rate_to_printed_values(self):
+        from modules.tools import build_cash_conversion
+        q_cashflow, q_income = self._adbe_like()
+        block = build_cash_conversion(q_cashflow, q_income, c_sym='$', fx_rate=2.0)
+        latest_row = [l for l in block.split('\n') if '2026-05-29' in l][0]
+        cells = [c.strip() for c in latest_row.split('|')]
+        assert cells[2] == '$11.74B'  # 5.87B revenue * fx_rate 2.0
+
+    def test_header_names_the_block_and_the_ordering(self):
+        from modules.tools import build_cash_conversion
+        q_cashflow, q_income = self._adbe_like()
+        block = build_cash_conversion(q_cashflow, q_income)
+        assert 'CASH CONVERSION' in block
+        assert 'most recent first' in block.lower()

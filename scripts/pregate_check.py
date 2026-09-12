@@ -142,6 +142,34 @@ def run_checks(d):
         else:
             add("OK", "position", f"{verdict_word} sized {pos}%")
 
+    # 3b. required-growth table — every row is arithmetic, recompute and check it
+    rg = L.get("required_growth")
+    if not rg or not rg.get("rows"):
+        add("FAIL", "required_growth", "block missing from ledger")
+    else:
+        missing = [k for k in ("price", "owner_eps") if L.get(k) is None]
+        if missing:
+            add("FAIL", "required_growth", f"ledger missing {' and '.join(missing)} — cannot verify rows")
+        else:
+            rg_price, rg_owner_eps = L["price"], L["owner_eps"]
+            hurdle = rg.get("hurdle")
+            horizon = rg.get("horizon_years", 5)
+            for row in rg["rows"]:
+                mult = row.get("multiple")
+                required_eps = row.get("required_eps")
+                cagr = row.get("cagr")
+                name = f"required_growth:{mult}x"
+                expected_eps = rg_price * (1 + hurdle) ** horizon / mult
+                if abs(required_eps / expected_eps - 1) > 0.01:
+                    add("FAIL", name, f"required_eps {required_eps} vs expected {expected_eps:.2f} (>1% off)")
+                    continue
+                expected_cagr = (required_eps / rg_owner_eps) ** (1 / horizon) - 1
+                if abs(cagr - expected_cagr) > 0.003:
+                    add("FAIL", name, f"cagr {cagr} vs expected {expected_cagr:.3f} (>0.003 off)")
+                else:
+                    add("OK", name, f"required_eps {required_eps:.2f} (expected {expected_eps:.2f}), "
+                                     f"cagr {cagr:.3f} (expected {expected_cagr:.3f})")
+
     # 4. council tally recomputed from the summary blocks
     if summaries:
         tally = {}

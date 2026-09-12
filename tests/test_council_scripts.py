@@ -208,12 +208,27 @@ DOSSIER = ("CURRENT PRICE: $292.79\n| 2025 | $1.94B | 8.2% | $2.34B | 413M |\n"
 TALLY = {"BUY": 3, "HOLD": 6, "PASS": 2, "SELL": 1}
 
 
+REQUIRED_GROWTH = {
+    "horizon_years": 5, "hurdle": 0.10,
+    "rows": [
+        {"multiple": 15, "required_eps": 31.44, "cagr": 0.110},
+        {"multiple": 18, "required_eps": 26.20, "cagr": 0.071},
+        {"multiple": 20, "required_eps": 23.58, "cagr": 0.048},
+    ],
+}
+
+
 def _ledger(**over):
     base = {"price": 292.79, "shares_m": 413.0, "owner_eps": 18.62, "hurdle_low": 0.08, "hurdle_high": 0.10,
             "inputs": [{"name": "scenario_A_growth", "value": 0.102, "source": "[MEDIA] guided ARR 10.2%", "varied": [0.08, 0.10, 0.12]},
                        {"name": "terminal_multiple", "value": 19, "source": "JUDGMENT", "varied": [18, 19, 20]}],
             "central_value": 313.0, "ceiling": 282.0, "floor": 175.0,
-            "verdict": "WAIT", "position_pct": 0, "council_tally": TALLY}
+            "verdict": "WAIT", "position_pct": 0, "council_tally": TALLY,
+            "required_growth": {
+                "horizon_years": REQUIRED_GROWTH["horizon_years"],
+                "hurdle": REQUIRED_GROWTH["hurdle"],
+                "rows": [dict(row) for row in REQUIRED_GROWTH["rows"]],
+            }}
     base.update(over)
     return base
 
@@ -282,6 +297,35 @@ class TestPregate:
         _, results = _run(tmp_path, _ledger())
         detail = [d for s, n, d in results if n == "buyers_at_price"][0]
         assert detail.startswith("3 expert")
+
+
+class TestPregateRequiredGrowth:
+    """Action item 8: the required-growth table is arithmetic on price, owner_eps,
+    hurdle and each row's multiple — the pre-gate recomputes it and FAILs drift."""
+
+    def test_clean_rows_pass(self, tmp_path):
+        status, _ = _run(tmp_path, _ledger())
+        assert status["required_growth:15x"] == "OK"
+        assert status["required_growth:18x"] == "OK"
+        assert status["required_growth:20x"] == "OK"
+
+    def test_cagr_off_by_two_points_fails(self, tmp_path):
+        led = _ledger()
+        led["required_growth"]["rows"][1]["cagr"] = 0.091  # 18x row should be 0.071
+        status, _ = _run(tmp_path, led)
+        assert status["required_growth:18x"] == "FAIL"
+
+    def test_missing_block_fails(self, tmp_path):
+        led = _ledger()
+        del led["required_growth"]
+        status, _ = _run(tmp_path, led)
+        assert status["required_growth"] == "FAIL"
+
+    def test_required_eps_off_by_five_percent_fails(self, tmp_path):
+        led = _ledger()
+        led["required_growth"]["rows"][0]["required_eps"] = 31.44 * 1.05  # 15x row
+        status, _ = _run(tmp_path, led)
+        assert status["required_growth:15x"] == "FAIL"
 
 
 # --- council_manifest.py timestamps -------------------------------------------

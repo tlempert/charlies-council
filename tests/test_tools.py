@@ -2360,3 +2360,38 @@ class TestLatestEarningsReleaseLayout:
         out = self._run()
         assert "forward-looking statements" not in out
         assert "Undue reliance" not in out
+
+
+class TestDropEmptyQuarters:
+    """yfinance returns a placeholder all-NaN column for the quarter that was
+    just reported (ADBE 2026-08-31, three days after the 8-K). iloc[:4] then
+    spans three real quarters and pandas' NaN-skipping sum silently reports
+    a three-quarter 'TTM': net income $5.46B against a true ~$7.2B, ROIC and
+    the Graham floor down by a quarter with it."""
+
+    def _df(self):
+        import pandas as pd
+        cols = [pd.Timestamp('2026-08-31'), pd.Timestamp('2026-05-31'),
+                pd.Timestamp('2026-02-28'), pd.Timestamp('2025-11-30'), pd.Timestamp('2025-08-31')]
+        # The placeholder column is NOT all-NaN: yfinance fills EPS and share
+        # counts from the release while the flow rows stay empty.
+        return pd.DataFrame({cols[0]: [float('nan'), float('nan'), 4.62],
+                             cols[1]: [6.618e9, 1.712e9, 4.25], cols[2]: [6.398e9, 1.889e9, 4.67],
+                             cols[3]: [6.194e9, 1.856e9, 4.43], cols[4]: [5.988e9, 1.772e9, 4.05]},
+                            index=['Total Revenue', 'Net Income', 'Diluted EPS'])
+
+    def test_leading_all_nan_column_is_dropped(self):
+        from modules.tools import _drop_empty_quarters
+        out = _drop_empty_quarters(self._df())
+        assert len(out.columns) == 4
+        assert str(out.columns[0])[:10] == '2026-05-31'
+
+    def test_ttm_over_four_real_quarters_after_drop(self):
+        from modules.tools import _drop_empty_quarters
+        out = _drop_empty_quarters(self._df())
+        assert abs(out.loc['Net Income'].iloc[:4].sum() - 7.229e9) < 1e6
+
+    def test_passes_non_dataframes_through(self):
+        from modules.tools import _drop_empty_quarters
+        m = MagicMock()
+        assert _drop_empty_quarters(m) is m

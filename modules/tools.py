@@ -55,6 +55,22 @@ def _parse_owner_yield(val_report):
         return None
 
 
+def _drop_empty_quarters(df):
+    """Drop all-NaN quarter columns yfinance emits as placeholders for a quarter
+    that was reported but not yet populated (ADBE 2026-08-31, three days after
+    the 8-K). Left in, iloc[:4] covers three real quarters and the NaN-skipping
+    sum reports a three-quarter "TTM" as if it were four."""
+    if not isinstance(df, pd.DataFrame) or df.empty:
+        return df
+    # The placeholder is not all-NaN: it carries EPS and share counts from the
+    # release while revenue, net income and cash flow are still empty. Judge a
+    # quarter by its flow rows, not by whether any cell is filled.
+    keys = [k for k in ('Total Revenue', 'Net Income', 'Operating Cash Flow') if k in df.index]
+    if not keys:
+        return df.dropna(axis=1, how='all')
+    return df.loc[:, df.loc[keys].notna().any(axis=0)]
+
+
 def _choose_share_count(market_cap, price, reported_shares):
     """Pick the share count a valuation divides by, and say why.
 
@@ -253,8 +269,8 @@ def get_advanced_valuations(ticker, info, stock):
         income = convert_df(stock.financials)
         balance = convert_df(stock.balance_sheet)
         cashflow = convert_df(stock.cashflow)
-        q_income = convert_df(stock.quarterly_financials)
-        q_cashflow = convert_df(stock.quarterly_cashflow)
+        q_income = _drop_empty_quarters(convert_df(stock.quarterly_financials))
+        q_cashflow = _drop_empty_quarters(convert_df(stock.quarterly_cashflow))
         
         
         # =========================================================

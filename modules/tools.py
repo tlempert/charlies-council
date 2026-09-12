@@ -2116,6 +2116,124 @@ def _get_acquisition_from_8k(cik):
         return ""
 
 
+_LATEST_QUARTER_KEY_PATTERN = re.compile(
+    r'cash flows? from operations|operating cash flow|free cash flow'
+    r'|repurchas'
+    r'|weighted average|diluted shares|shares outstanding'
+    r'|guidance|targets|expects|outlook'
+    r'|\bARR\b|annualized recurring'
+    r'|acquisition|including approximately'
+    r'|cash and short-term|cash, cash equivalents'
+    r'|remaining performance obligations',
+    re.IGNORECASE
+)
+
+
+_RELEASE_BOILERPLATE = re.compile(
+    r'forward-looking|undue reliance|assumes no obligation|reconciliation between GAAP',
+    re.IGNORECASE)
+
+
+def get_latest_earnings_release(cik):
+    """Fetch the most recent 8-K Item 2.02 earnings release (Ex-99.1 exhibit).
+
+    The 10-K is the pipeline's newest primary source by default, but the
+    freshest numbers — OCF, buybacks, diluted shares, guidance deltas, ARR —
+    sit in the latest quarterly earnings release 8-K, which the dossier never
+    fetched. Never raises; returns "" on any miss (no 2.02 8-K, no exhibit,
+    network failure), mirroring _get_acquisition_from_8k.
+    """
+    try:
+        url = f"https://data.sec.gov/submissions/CIK{cik}.json"
+        r = requests.get(url, headers=SEC_HEADERS)
+        filings = r.json()['filings']['recent']
+
+        cik_num = cik.lstrip("0") or "0"
+        target_accession = None
+        filed_date = None
+        for i, form in enumerate(filings['form']):
+            if form != '8-K':
+                continue
+            items_str = (filings.get('items', [''])[i] or '')
+            if '2.02' in items_str:
+                target_accession = filings['accessionNumber'][i].replace("-", "")
+                filed_date = filings['filingDate'][i]
+                break
+
+        if not target_accession:
+            return ""
+
+        index_url = f"https://www.sec.gov/Archives/edgar/data/{cik_num}/{target_accession}/index.json"
+        r_idx = requests.get(index_url, headers=SEC_HEADERS)
+        idx_items = r_idx.json().get('directory', {}).get('item', [])
+
+        exhibit_name = None
+        for it in idx_items:
+            name = it.get('name', '')
+            if re.search(r'ex-?99', name, re.IGNORECASE) and name.lower().endswith(('.htm', '.html')):
+                exhibit_name = name
+                break
+
+        if not exhibit_name:
+            return ""
+
+        doc_url = f"https://www.sec.gov/Archives/edgar/data/{cik_num}/{target_accession}/{exhibit_name}"
+        r_doc = requests.get(doc_url, headers=SEC_HEADERS)
+
+        try:
+            html = r_doc.content.decode('utf-8')
+        except UnicodeDecodeError:
+            html = r_doc.content.decode('latin-1')
+
+        soup = BeautifulSoup(html, 'html.parser')
+        text = soup.get_text("\n")
+        raw_lines = [line.strip() for line in text.split("\n") if line.strip()]
+
+        # (a) opening — from the headline line (inclusive, so its bullets are
+        # kept) past the contact-info preamble; from the top if none is found.
+        start = 0
+        for i, line in enumerate(raw_lines):
+            if re.search(r'reports|results', line, re.IGNORECASE):
+                start = i
+                break
+        opening = "\n".join(l for l in raw_lines[start:] if not _RELEASE_BOILERPLATE.search(l))[:1200]
+
+        # (b) the guidance table, verbatim. It is label/value pairs on
+        # alternating lines ("Total Adobe ending ARR growth" / "10.2% year over
+        # year"), so keyword matching alone keeps the label and loses the value.
+        targets = []
+        for i, line in enumerate(raw_lines):
+            if re.match(r'^(financial\s+)?(targets|outlook|guidance)\b', line, re.IGNORECASE):
+                for t in raw_lines[i:i + 45]:
+                    if re.search(r'conference call|forward-looking|^about ', t, re.IGNORECASE):
+                        break
+                    targets.append(t)
+                break
+
+        # (c) every other line hitting a key-metric keyword, deduplicated, in
+        # order of first appearance; boilerplate is not evidence.
+        seen = set(targets)
+        key_lines = []
+        for line in raw_lines:
+            if line in seen or _RELEASE_BOILERPLATE.search(line):
+                continue
+            if _LATEST_QUARTER_KEY_PATTERN.search(line):
+                seen.add(line)
+                key_lines.append(line)
+
+        body = opening
+        if targets:
+            body += "\n\nTARGETS:\n" + "\n".join(targets)
+        body += "\n\nKEY LINES:\n" + "\n".join(key_lines)
+        body = body[:6000]
+
+        return f"--- 📰 LATEST QUARTER (8-K Ex.99.1 filed {filed_date}) --- [SEC]\n{body}"
+
+    except Exception as e:
+        print(f"   ⚠️ 8-K earnings release extraction failed: {e}")
+        return ""
+
+
 # --- Peer Company Discovery & Benchmarking ---
 
 # Keys are lowercased with non-alphanumeric chars stripped for fuzzy matching
@@ -2480,12 +2598,14 @@ def build_initial_dossier(ticker):
         # Phase 2a: As soon as CIK is ready, fan out SEC-dependent tasks
         cik = fut_cik.result()
         fut_xbrl = pool.submit(get_xbrl_facts, cik) if cik else None
+        fut_release = pool.submit(get_latest_earnings_release, cik) if cik else None
         fut_sec_sections = pool.submit(get_sec_sections, ticker, "10-K", cik)
         fut_sec_ars = pool.submit(get_sec_text, ticker, "ARS", cik)
 
         # Phase 3: Collect SEC results first (needed for competitive intel + fallbacks)
         val_report = fut_val.result()
         xbrl_data = fut_xbrl.result() if fut_xbrl else None
+        release_block = fut_release.result() if fut_release else ""
 
         # Extract quarterly revenues for velocity display
         quarterly_revenues, quarter_labels = [], []
@@ -2732,6 +2852,8 @@ def build_initial_dossier(ticker):
     {val_report}
 
     {forensic_block}
+
+    {release_block}
 
     {buyback_block}
 

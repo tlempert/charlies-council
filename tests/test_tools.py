@@ -344,7 +344,7 @@ class TestSaveToHtml:
 # --- build_initial_dossier ---
 
 def _dossier_patches(func):
-    """Apply all 14 patches needed for build_initial_dossier tests.
+    """Apply all 15 patches needed for build_initial_dossier tests.
 
     Patch application order: last in list = first positional arg (after self).
     So _fetch_yf is last → becomes first arg, disruptor_intel is first → becomes last arg.
@@ -364,6 +364,7 @@ def _dossier_patches(func):
         patch("modules.tools.get_ecosystem_intel"),      # → 12th: mock_ecosystem
         patch("modules.tools.get_cultural_intel"),       # → 13th: mock_cultural
         patch("modules.tools.get_disruptor_intel"),      # → 14th: mock_disruptor
+        patch("modules.tools.get_latest_earnings_release", return_value=""),  # → 15th: mock_release
     ]
     for p in patches:
         func = p(func)
@@ -411,7 +412,7 @@ class TestBuildInitialDossier:
     def test_assembles_all_sections(self, mock_fetch_yf, mock_val, mock_cik, mock_xbrl,
                                     mock_sec_sections, mock_sec_text, mock_intel, mock_strat,
                                     mock_nrr, mock_competitive, mock_product_econ,
-                                    mock_ecosystem, mock_cultural, mock_disruptor):
+                                    mock_ecosystem, mock_cultural, mock_disruptor, mock_release):
         from modules.tools import build_initial_dossier
         self._setup_defaults(mock_fetch_yf, mock_val, mock_cik, mock_xbrl,
                             mock_sec_sections, mock_sec_text, mock_intel, mock_strat,
@@ -442,7 +443,7 @@ class TestBuildInitialDossier:
     def test_handles_missing_xbrl_and_sec(self, mock_fetch_yf, mock_val, mock_cik, mock_xbrl,
                                           mock_sec_sections, mock_sec_text, mock_intel, mock_strat,
                                           mock_nrr, mock_competitive, mock_product_econ,
-                                          mock_ecosystem, mock_cultural, mock_disruptor):
+                                          mock_ecosystem, mock_cultural, mock_disruptor, mock_release):
         """Dossier should still build even when XBRL and SEC extraction fail."""
         from modules.tools import build_initial_dossier
         self._setup_defaults(mock_fetch_yf, mock_val, mock_cik, mock_xbrl,
@@ -464,7 +465,7 @@ class TestBuildInitialDossier:
     def test_cik_fetched_once(self, mock_fetch_yf, mock_val, mock_cik, mock_xbrl,
                               mock_sec_sections, mock_sec_text, mock_intel, mock_strat,
                               mock_nrr, mock_competitive, mock_product_econ,
-                              mock_ecosystem, mock_cultural, mock_disruptor):
+                              mock_ecosystem, mock_cultural, mock_disruptor, mock_release):
         """get_cik should be called exactly once."""
         from modules.tools import build_initial_dossier
         self._setup_defaults(mock_fetch_yf, mock_val, mock_cik, mock_xbrl,
@@ -482,7 +483,7 @@ class TestBuildInitialDossier:
     def test_transcript_always_in_section_f(self, mock_fetch_yf, mock_val, mock_cik, mock_xbrl,
                                             mock_sec_sections, mock_sec_text, mock_intel, mock_strat,
                                             mock_nrr, mock_competitive, mock_product_econ,
-                                            mock_ecosystem, mock_cultural, mock_disruptor):
+                                            mock_ecosystem, mock_cultural, mock_disruptor, mock_release):
         """Transcript always appears in Section F, even when ARS is found."""
         from modules.tools import build_initial_dossier
         self._setup_defaults(mock_fetch_yf, mock_val, mock_cik, mock_xbrl,
@@ -501,7 +502,7 @@ class TestBuildInitialDossier:
     def test_opex_breakdown_in_dossier(self, mock_fetch_yf, mock_val, mock_cik, mock_xbrl,
                                        mock_sec_sections, mock_sec_text, mock_intel, mock_strat,
                                        mock_nrr, mock_competitive, mock_product_econ,
-                                       mock_ecosystem, mock_cultural, mock_disruptor):
+                                       mock_ecosystem, mock_cultural, mock_disruptor, mock_release):
         """OpEx breakdown should appear when XBRL has R&D and SGA data."""
         from modules.tools import build_initial_dossier
         self._setup_defaults(mock_fetch_yf, mock_val, mock_cik, mock_xbrl,
@@ -1202,7 +1203,7 @@ class TestRevenueTrendCurrency:
     def test_converts_revenue_trend_to_price_currency(
             self, mock_fetch_yf, mock_val, mock_cik, mock_xbrl, mock_sec_sections,
             mock_sec_text, mock_intel, mock_strat, mock_nrr, mock_competitive,
-            mock_product_econ, mock_ecosystem, mock_cultural, mock_disruptor, mock_fx):
+            mock_product_econ, mock_ecosystem, mock_cultural, mock_disruptor, mock_release, mock_fx):
         from modules.tools import build_initial_dossier
         TestBuildInitialDossier()._setup_defaults(
             mock_fetch_yf, mock_val, mock_cik, mock_xbrl, mock_sec_sections,
@@ -1223,7 +1224,7 @@ class TestRevenueTrendCurrency:
     def test_labels_the_currency_financials_were_filed_in(
             self, mock_fetch_yf, mock_val, mock_cik, mock_xbrl, mock_sec_sections,
             mock_sec_text, mock_intel, mock_strat, mock_nrr, mock_competitive,
-            mock_product_econ, mock_ecosystem, mock_cultural, mock_disruptor, mock_fx):
+            mock_product_econ, mock_ecosystem, mock_cultural, mock_disruptor, mock_release, mock_fx):
         """'CURRENCY: USD' alone hides that the source filings are in KZT."""
         from modules.tools import build_initial_dossier
         TestBuildInitialDossier()._setup_defaults(
@@ -1243,7 +1244,7 @@ class TestRevenueTrendCurrency:
     def test_usd_filer_trend_needs_no_fx_lookup(
             self, mock_fetch_yf, mock_val, mock_cik, mock_xbrl, mock_sec_sections,
             mock_sec_text, mock_intel, mock_strat, mock_nrr, mock_competitive,
-            mock_product_econ, mock_ecosystem, mock_cultural, mock_disruptor, mock_fx):
+            mock_product_econ, mock_ecosystem, mock_cultural, mock_disruptor, mock_release, mock_fx):
         """Regression guard: a domestic filer must not gain an FX round-trip."""
         import pandas as pd
         from modules.tools import build_initial_dossier
@@ -1267,7 +1268,7 @@ class TestRevenueTrendCurrency:
     def test_converts_quarterly_revenue_velocity_to_price_currency(
             self, mock_fetch_yf, mock_val, mock_cik, mock_xbrl, mock_sec_sections,
             mock_sec_text, mock_intel, mock_strat, mock_nrr, mock_competitive,
-            mock_product_econ, mock_ecosystem, mock_cultural, mock_disruptor, mock_fx):
+            mock_product_econ, mock_ecosystem, mock_cultural, mock_disruptor, mock_release, mock_fx):
         """EARNINGS VELOCITY reads stock.quarterly_financials, which is also raw KZT."""
         import pandas as pd
         from modules.tools import build_initial_dossier
@@ -1297,7 +1298,7 @@ class TestRevenueTrendCurrency:
     def test_converts_yfinance_forensic_fallback_to_price_currency(
             self, mock_fetch_yf, mock_val, mock_cik, mock_xbrl, mock_sec_sections,
             mock_sec_text, mock_intel, mock_strat, mock_nrr, mock_competitive,
-            mock_product_econ, mock_ecosystem, mock_cultural, mock_disruptor, mock_fx):
+            mock_product_econ, mock_ecosystem, mock_cultural, mock_disruptor, mock_release, mock_fx):
         """When SEC XBRL is unavailable the forensic block falls back to yfinance,
         which is raw KZT. Share COUNTS must survive unscaled."""
         import pandas as pd
@@ -2203,3 +2204,159 @@ class TestFormatForensicBlockLatestFiledShareCount:
         from modules.tools import format_forensic_block
         block = format_forensic_block(self._data(413_000_000, None))
         assert "LATEST FILED SHARE COUNT" not in block
+
+
+# --- get_latest_earnings_release (8-K Ex.99.1) -------------------------------
+
+class TestLatestEarningsRelease:
+    """The pipeline's newest primary source used to be the 10-K. Astra's edge
+    on ADBE was the Q2 earnings release: OCF, buybacks, diluted shares,
+    guidance, and Semrush's $480M inside ARR — all sitting in the 8-K Item
+    2.02 exhibit the dossier never fetched."""
+
+    def _submissions(self, second_items='2.02,9.01'):
+        return {
+            'filings': {
+                'recent': {
+                    'form': ['8-K', '8-K'],
+                    'accessionNumber': ['0001-23-000010', '0001-23-000011'],
+                    'items': ['5.02', second_items],
+                    'filingDate': ['2026-05-01', '2026-06-15'],
+                }
+            }
+        }
+
+    def _index_json(self, with_ex99=True):
+        items = []
+        if with_ex99:
+            items.append({'name': 'adbe-ex991_20260611.htm', 'type': 'text.htm', 'size': 50000})
+        items.append({'name': 'adbe-8k_20260611.htm', 'type': 'text.htm', 'size': 9000})
+        return {'directory': {'item': items}}
+
+    def _exhibit_html(self):
+        filler = "Adobe today reported financial results for its second fiscal quarter. " * 20
+        return f"""<html><body>
+        <p>Adobe Reports Second Quarter Fiscal Year 2026 Financial Results</p>
+        <p>{filler}</p>
+        <p>Cash flows from operations were $2.2 billion for the quarter.</p>
+        <p>The company repurchased approximately 2.5 million shares during the quarter.</p>
+        <p>Diluted shares outstanding were approximately 411 million.</p>
+        <p>AI-first ARR more than tripled year-over-year, including approximately $480 million from Semrush.</p>
+        <p>The company lowered its fiscal 2026 outlook, now targeting ARR growth of 10.2%.</p>
+        </body></html>""".encode('utf-8')
+
+    def _fake_get(self, submissions=None, index=None, exhibit=None, raise_error=False):
+        def _get(url, headers=None):
+            if raise_error:
+                raise ConnectionError("network down")
+            resp = MagicMock()
+            resp.status_code = 200
+            if 'submissions' in url:
+                resp.json.return_value = submissions
+            elif url.endswith('index.json'):
+                resp.json.return_value = index
+            else:
+                resp.content = exhibit
+            return resp
+        return _get
+
+    def test_selects_the_202_8k_and_extracts_key_lines_even_when_not_first(self):
+        """The 2.02 8-K is second in the filings list — selection must not
+        just take the first 8-K it sees."""
+        from modules.tools import get_latest_earnings_release
+        with patch('modules.tools.requests.get') as mock_get:
+            mock_get.side_effect = self._fake_get(
+                submissions=self._submissions(),
+                index=self._index_json(),
+                exhibit=self._exhibit_html(),
+            )
+            result = get_latest_earnings_release('0000001234')
+
+        assert "--- 📰 LATEST QUARTER (8-K Ex.99.1 filed 2026-06-15) --- [SEC]" in result
+        assert "KEY LINES:" in result
+        assert "Cash flows from operations were $2.2 billion" in result
+        assert "repurchased approximately 2.5 million shares" in result
+        assert "including approximately $480 million from Semrush" in result
+        assert "targeting ARR growth of 10.2%" in result
+
+    def test_returns_empty_string_when_no_202_8k_exists(self):
+        from modules.tools import get_latest_earnings_release
+        with patch('modules.tools.requests.get') as mock_get:
+            mock_get.side_effect = self._fake_get(
+                submissions=self._submissions(second_items='7.01,9.01'),
+            )
+            result = get_latest_earnings_release('0000001234')
+        assert result == ""
+
+    def test_returns_empty_string_when_no_ex99_exhibit_in_index(self):
+        from modules.tools import get_latest_earnings_release
+        with patch('modules.tools.requests.get') as mock_get:
+            mock_get.side_effect = self._fake_get(
+                submissions=self._submissions(),
+                index=self._index_json(with_ex99=False),
+            )
+            result = get_latest_earnings_release('0000001234')
+        assert result == ""
+
+    def test_never_raises_and_returns_empty_string_on_request_failure(self):
+        from modules.tools import get_latest_earnings_release
+        with patch('modules.tools.requests.get') as mock_get:
+            mock_get.side_effect = self._fake_get(raise_error=True)
+            result = get_latest_earnings_release('0000001234')
+        assert result == ""
+
+
+class TestLatestEarningsReleaseLayout:
+    """Live ADBE Q3 FY2026 exhibit (filed 2026-09-10) showed three extraction
+    misses: contact-info junk precedes the headline and the opening skipped the
+    headline bullets; the guidance table is label/value pairs on alternating
+    lines, so key-line matching captured "Total Adobe ending ARR growth" but
+    not the "10.2% year over year" beneath it; and the forward-looking
+    boilerplate matched the keyword net."""
+
+    EXHIBIT = b"""<html><body>
+    <p>EX-99.1</p><p>Investor Relations Contact</p><p>Doug Clark</p><p>ir@adobe.com</p>
+    <p>Adobe Reports Record Revenue in Q3 Fiscal 2026</p>
+    <p>\xe2\x80\xa2 Record Q3 revenue of $6.72 billion, up 12% year over year</p>
+    <p>\xe2\x80\xa2 Adobe AI-first ARR grew more than 150% year over year</p>
+    <p>SAN JOSE, Calif. - Sept. 10, 2026 - Adobe today reported financial results for its third quarter.</p>
+    <p>Record Q3 cash flows from operations were $2.52 billion.</p>
+    <p>Financial Targets</p>
+    <p>The following table summarizes Adobe's fourth quarter FY2026 targets:</p>
+    <p>Total revenue</p><p>$6.80 billion to $6.85 billion</p>
+    <p>Total Adobe ending ARR growth</p><p>10.2% year over year</p>
+    <p>Targets assume non-GAAP operating margin of ~44.0% and diluted share count of ~389 million.</p>
+    <p>Adobe to Host Conference Call</p>
+    <p>Adobe will webcast its earnings call today at 2:00 p.m. Pacific Time.</p>
+    <p>In addition to historical information, this press release contains "forward-looking statements" and expects results to vary.</p>
+    <p>Undue reliance should not be placed on the outlook set forth in this press release.</p>
+    </body></html>"""
+
+    def _run(self):
+        from modules.tools import get_latest_earnings_release
+        base = TestLatestEarningsRelease()
+        with patch('modules.tools.requests.get') as mock_get:
+            mock_get.side_effect = base._fake_get(
+                submissions=base._submissions(), index=base._index_json(), exhibit=self.EXHIBIT)
+            return get_latest_earnings_release('0000001234')
+
+    def test_opening_starts_at_the_headline_and_keeps_its_bullets(self):
+        out = self._run()
+        head = out.split("KEY LINES:")[0]
+        assert "Adobe Reports Record Revenue in Q3 Fiscal 2026" in head
+        assert "Record Q3 revenue of $6.72 billion" in head
+        assert "Investor Relations Contact" not in head
+
+    def test_targets_table_is_captured_with_its_values(self):
+        out = self._run()
+        assert "TARGETS:" in out
+        targets = out.split("TARGETS:")[1].split("KEY LINES:")[0]
+        assert "$6.80 billion to $6.85 billion" in targets
+        assert "10.2% year over year" in targets
+        assert "diluted share count of ~389 million" in targets
+        assert "Conference Call" not in targets
+
+    def test_forward_looking_boilerplate_is_excluded(self):
+        out = self._run()
+        assert "forward-looking statements" not in out
+        assert "Undue reliance" not in out

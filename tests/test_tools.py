@@ -2094,3 +2094,112 @@ class TestCashConversion:
         block = build_cash_conversion(q_cashflow, q_income)
         assert 'CASH CONVERSION' in block
         assert 'most recent first' in block.lower()
+
+
+# --- LATEST FILED SHARE COUNT (dei cover page, all forms) -------------------
+
+class TestLatestFiledShareCount:
+    """ADBE's dossier carried the FY-end 413M share count while the true
+    current count (~397-402M) sat unread on the latest 10-Q cover page —
+    get_xbrl_facts only scanned us-gaap/ifrs-full ANNUAL forms and never
+    looked at the dei EntityCommonStockSharesOutstanding block at all."""
+
+    def _min_gaap(self):
+        # Minimal annual us-gaap fact so get_xbrl_facts doesn't bail early.
+        return {
+            'Revenues': {
+                'units': {'USD': [
+                    {'end': '2025-11-28', 'val': 1.0e10, 'form': '10-K', 'filed': '2026-01-15'},
+                ]}
+            }
+        }
+
+    def _payload(self, dei_entries):
+        payload = {'facts': {'us-gaap': self._min_gaap()}}
+        if dei_entries is not None:
+            payload['facts']['dei'] = {
+                'EntityCommonStockSharesOutstanding': {
+                    'units': {'shares': dei_entries}
+                }
+            }
+        return payload
+
+    def _mock_response(self, payload):
+        resp = MagicMock()
+        resp.status_code = 200
+        resp.json.return_value = payload
+        return resp
+
+    def test_picks_the_latest_10q_cover_count_over_the_10k(self):
+        from modules.tools import get_xbrl_facts
+        dei_entries = [
+            {'end': '2025-11-28', 'val': 413000000, 'form': '10-K', 'filed': '2026-01-10'},
+            {'end': '2026-02-27', 'val': 405000000, 'form': '10-Q', 'filed': '2026-03-05'},
+            {'end': '2026-05-29', 'val': 402100000, 'form': '10-Q', 'filed': '2026-06-10'},
+        ]
+        with patch('modules.tools.requests.get') as mock_get:
+            mock_get.return_value = self._mock_response(self._payload(dei_entries))
+            result = get_xbrl_facts('0000001234')
+
+        assert result['latest_shares']['value'] == 402100000
+        assert result['latest_shares']['end'] == '2026-05-29'
+        assert result['latest_shares']['form'] == '10-Q'
+
+    def test_ties_on_end_date_are_broken_by_the_later_filed_date(self):
+        from modules.tools import get_xbrl_facts
+        dei_entries = [
+            {'end': '2026-05-29', 'val': 402100000, 'form': '10-Q', 'filed': '2026-06-10'},
+            {'end': '2026-05-29', 'val': 397800000, 'form': '10-Q/A', 'filed': '2026-06-25'},
+        ]
+        with patch('modules.tools.requests.get') as mock_get:
+            mock_get.return_value = self._mock_response(self._payload(dei_entries))
+            result = get_xbrl_facts('0000001234')
+
+        assert result['latest_shares']['value'] == 397800000
+        assert result['latest_shares']['filed'] == '2026-06-25'
+
+    def test_no_dei_block_leaves_the_key_absent_without_crashing(self):
+        from modules.tools import get_xbrl_facts
+        with patch('modules.tools.requests.get') as mock_get:
+            mock_get.return_value = self._mock_response(self._payload(None))
+            result = get_xbrl_facts('0000001234')
+
+        assert 'latest_shares' not in result
+
+
+class TestFormatForensicBlockLatestFiledShareCount:
+    def _data(self, fy_shares, latest_shares):
+        data = {
+            'sorted_dates': ['2025-11-28'],
+            'source': 'SEC XBRL',
+            'yearly': {'2025-11-28': {
+                'sbc': 4.6e8, 'revenue': 1.0e10, 'accounts_receivable': 1.05e9,
+                'shares_outstanding': fy_shares, 'total_debt_par': 1.229e10,
+                'rd_expense': 2.36e9, 'goodwill': 1.03e10}},
+        }
+        if latest_shares is not None:
+            data['latest_shares'] = latest_shares
+        return data
+
+    def test_prints_the_line_with_the_pct_vs_fy_end(self):
+        from modules.tools import format_forensic_block
+        data = self._data(413_000_000, {
+            'value': 402100000, 'end': '2026-06-27', 'form': '10-Q', 'filed': '2026-07-01',
+        })
+        block = format_forensic_block(data)
+        assert ("LATEST FILED SHARE COUNT: 402.1M as of 2026-06-27 "
+                "(10-Q cover, filed 2026-07-01) — vs FY-end 413M: -2.6%") in block
+
+    def test_omits_the_vs_fy_end_clause_when_fy_end_shares_are_missing(self):
+        from modules.tools import format_forensic_block
+        data = self._data(0, {
+            'value': 402100000, 'end': '2026-06-27', 'form': '10-Q', 'filed': '2026-07-01',
+        })
+        block = format_forensic_block(data)
+        assert "LATEST FILED SHARE COUNT: 402.1M as of 2026-06-27 (10-Q cover, filed 2026-07-01)" in block
+        assert "vs FY-end" not in block
+
+    def test_omits_the_line_entirely_when_latest_shares_is_absent(self):
+        from modules.tools import format_forensic_block
+        block = format_forensic_block(self._data(413_000_000, None))
+        assert "LATEST FILED SHARE COUNT" not in block

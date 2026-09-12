@@ -550,6 +550,28 @@ def get_xbrl_facts(cik):
         return None
 
     facts = r.json()
+
+    # Cover-page share count (dei:EntityCommonStockSharesOutstanding). Unlike
+    # the us-gaap/ifrs-full concepts below, this is scanned across ALL forms
+    # (10-K, 10-Q, 20-F, 40-F, 6-K) because the freshest count usually sits on
+    # the latest 10-Q cover page, not the annual filing — ADBE's dossier
+    # carried the FY-end 413M count while the true current count was ~397-402M.
+    latest_shares = None
+    dei_shares = facts.get('facts', {}).get('dei', {}) \
+        .get('EntityCommonStockSharesOutstanding', {}).get('units', {}).get('shares', [])
+    for entry in dei_shares:
+        end = entry.get('end', '')
+        val = entry.get('val')
+        if not end or val is None:
+            continue
+        filed = entry.get('filed', '')
+        if latest_shares is None or end > latest_shares['end'] or \
+                (end == latest_shares['end'] and filed > latest_shares['filed']):
+            latest_shares = {
+                'value': val, 'end': end,
+                'form': entry.get('form', ''), 'filed': filed,
+            }
+
     gaap = facts.get('facts', {}).get('us-gaap', {})
     ifrs = facts.get('facts', {}).get('ifrs-full', {})
     if not gaap and not ifrs:
@@ -680,6 +702,8 @@ def get_xbrl_facts(cik):
         'source_currency': source_currency,
         'fx_rate': fx_rate,
     }
+    if latest_shares:
+        result['latest_shares'] = latest_shares
 
     return result
 
@@ -1245,6 +1269,19 @@ def format_forensic_block(xbrl_data, c_sym='$'):
             f"| {c_sym}{ar/1e9:.2f}B | {shares_cell} "
             f"| {c_sym}{debt/1e9:.2f}B | {c_sym}{rd/1e9:.2f}B | {c_sym}{gw/1e9:.1f}B |"
         )
+
+    latest_shares = xbrl_data.get('latest_shares')
+    if latest_shares and latest_shares.get('value') is not None:
+        share_line = (
+            f"\nLATEST FILED SHARE COUNT: {latest_shares['value']/1e6:.1f}M "
+            f"as of {latest_shares.get('end', '')} "
+            f"({latest_shares.get('form', '')} cover, filed {latest_shares.get('filed', '')})"
+        )
+        fy_end_shares = yearly[dates[0]].get('shares_outstanding') if dates else 0
+        if fy_end_shares:
+            pct = (latest_shares['value'] - fy_end_shares) / fy_end_shares * 100
+            share_line += f" — vs FY-end {fy_end_shares/1e6:.0f}M: {pct:+.1f}%"
+        lines.append(share_line)
 
     latest = xbrl_data.get('latest', {})
     amort = latest.get('amortization_intangibles', 0)

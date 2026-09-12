@@ -29,9 +29,11 @@ Extract the ticker from the arguments. If no ticker was provided, ask the user f
 - If a manifest exists **from today** and the user did not ask for a fresh run, say which steps are already `done`, skip them, and continue from the first step that is not.
 - Otherwise run `rm -rf /tmp/silicon_council/{TICKER}` (only this ticker's directory — other analyses are unaffected) and initialise: `./venv/bin/python3 scripts/council_manifest.py init {TICKER}`.
 
-After each step completes, record it: `./venv/bin/python3 scripts/council_manifest.py step {TICKER} <step-name> done`. Step names: `dossier`, `forensic`, `condense`, `refine`, `threats`, `experts`, `synthesis`, `gate`, `reports`, `assemble`.
+Every step below records itself twice: `./venv/bin/python3 scripts/council_manifest.py step {TICKER} <step-name> started` the moment the step begins, and the same line with `done` when it completes — the dashboard times a step from the gap between them. Step names: `dossier`, `forensic`, `condense`, `refine`, `threats`, `experts`, `synthesis`, `gate`, `reports`, `assemble`.
 
 ### Step 1: Build Dossier (Python)
+
+Record the checkpoint: `./venv/bin/python3 scripts/council_manifest.py step {TICKER} dossier started`
 
 Run the Python data collection to build the initial dossier:
 
@@ -48,6 +50,8 @@ Replace `{TICKER}` with the actual ticker. **The raw dossier goes to a file, nev
 If the DATA WARNING count is non-zero or the build errored, inform the user and stop.
 
 ### Step 2: Forensic Interrogation
+
+Record the checkpoint: `./venv/bin/python3 scripts/council_manifest.py step {TICKER} forensic started`
 
 Using the dossier, generate 8 high-precision search queries to uncover hidden risks:
 
@@ -114,6 +118,8 @@ cd /Users/tallempert/src-tal/investor && ./venv/bin/python3 scripts/codex_prefli
 
 ### Step 2.5: First-Pass Condense (Codex)
 
+Record the checkpoint: `./venv/bin/python3 scripts/council_manifest.py step {TICKER} condense started`
+
 Condense the raw forensic dump into a structured brief. This is mechanical, high-volume, low-judgment work — offload it to Codex so it draws on the ChatGPT quota pool and the raw text never enters this session:
 
 **Codex binary and models are both pinned explicitly.** Use `$CX` (`/Applications/ChatGPT.app/Contents/Resources/codex`), NOT the `codex` on PATH — the Homebrew build is far older and rejects current models. Models are pinned rather than inherited from `~/.codex/config.toml`, otherwise retuning Codex for coding work would silently change investment output. Condense steps use `gpt-5.6-luna` (clear, repeatable extraction) at low effort; the Step 4 experts use `gpt-5.6-sol` (deep analysis) at high effort. Do not substitute `gpt-5.4` / `gpt-5.4-mini` — both retire from Codex on 2026-08-31.
@@ -138,6 +144,8 @@ Rules:
 **Codex condenses; it does not decide.** It must not drop a finding for seeming unimportant — that judgment belongs to Step 3.
 
 ### Step 3: Refine Dossier
+
+Record the checkpoint: `./venv/bin/python3 scripts/council_manifest.py step {TICKER} refine started`
 
 Read the file at `/Users/tallempert/src-tal/investor/skills/refine-dossier.md`. Following those instructions, condense the raw dossier plus the forensic brief into a dense ~2500-word executive briefing with every quantitative claim source-tagged. **The judgment work stays on Claude and is never offloaded:** evidence labeling, the net-income cross-check and the neutrality pass are the quality chokepoint every downstream output inherits. What is offloaded is the *carrying* of text, not the deciding.
 
@@ -176,6 +184,8 @@ Keep, and strengthen: unresolved conflicts stated as conflicts with both sides s
 **Test before proceeding:** could a reader tell from the dossier alone which way you expect the council to vote? If yes, keep cutting. Twelve experts reading one steered dossier are one opinion with twelve signatures.
 
 ### Step 3.5: Moat Threat Search
+
+Record the checkpoint: `./venv/bin/python3 scripts/council_manifest.py step {TICKER} threats started`
 
 Read the `MOAT TYPES:` line from the refined dossier. Then execute three layers of threat queries to surface non-obvious risks the experts would otherwise miss.
 
@@ -279,6 +289,8 @@ This ensures all 12 experts see the moat-threat data when they read the dossier.
 
 ### Step 4: Expert Council (12 Parallel Subagents)
 
+Record the checkpoint: `./venv/bin/python3 scripts/council_manifest.py step {TICKER} experts started`
+
 **IMPORTANT: Before launching Step 4, run `mkdir -p /tmp/silicon_council/{TICKER}` via Bash** and confirm the manifest exists (`scripts/council_manifest.py status {TICKER}`; `init` it if not).
 
 **CRITICAL PERFORMANCE RULE: launch all 12 experts concurrently, split across two token pools.** Six run as Codex workers on the ChatGPT quota; six run as Claude subagents. Fire the Codex batch first as a single backgrounded Bash call, then immediately launch the six Claude subagents in ONE message — both pools drain in parallel (~5 min wall clock vs ~35 min sequential).
@@ -372,6 +384,8 @@ If any block is missing here, the validation loop above was skipped — go back 
 
 ### Step 5: Munger Synthesis (Opus 4.7)
 
+Record the checkpoint: `./venv/bin/python3 scripts/council_manifest.py step {TICKER} synthesis started`
+
 Read `/Users/tallempert/src-tal/investor/skills/munger-synthesis.md`. Launch a **single subagent using the latest Opus model (Opus 4.7, `model: "opus"` via the Agent tool)** with `run_in_background: true`:
 - The full dossier (not just refined — Munger needs the raw numbers)
 - All 12 expert ---SUMMARY--- blocks (from Step 4 agent outputs)
@@ -400,6 +414,8 @@ It checks that every ledger input is dossier-sourced or declared JUDGMENT, that 
 
 ### Step 6: Reality Check GATE (runs ALONE and FIRST — must complete before Step 6b)
 
+Record the checkpoint: `./venv/bin/python3 scripts/council_manifest.py step {TICKER} gate started`
+
 Launch the Reality Check subagent (Opus, `model: "opus"`) **by itself** and wait for it before launching anything else. Read `/Users/tallempert/src-tal/investor/skills/reality-check.md`. Pass it the Munger verdict, all 12 expert `---SUMMARY---` blocks, every known data-quality defect, and the strongest available counter-argument to the verdict (e.g. a superinvestor who acted the other way, with their cost basis).
 
 **VIC pitch guard (only when `/tmp/vic_scan/{TICKER}/pitch.md` exists).** Pass the pitch to the Reality Check too, with its job set by which way Munger went:
@@ -424,6 +440,8 @@ Same evidence tier applies: advocacy, not fact.
 Do NOT publish a report whose headline verdict rests on an argument the gate has refuted, with the refutation buried several sections below it. That is what happened on KSPI.
 
 ### Step 6b: Family Newsletter + Business Explainer (PARALLEL)
+
+Record the checkpoint: `./venv/bin/python3 scripts/council_manifest.py step {TICKER} reports started`
 
 Launch these two in a single message with `run_in_background: true`, passing the verdict **as corrected by Step 6**.
 
@@ -470,6 +488,8 @@ Pass the refined dossier and Munger verdict summary to the Business Explainer.
 Collect both reports, then record: `./venv/bin/python3 scripts/council_manifest.py step {TICKER} reports done`.
 
 ### Step 8: Assemble and Save Reports
+
+Record the checkpoint: `./venv/bin/python3 scripts/council_manifest.py step {TICKER} assemble started`
 
 All 16 temp files should already exist in `/tmp/silicon_council/{TICKER}/` — each expert, Munger, newsletter, reality check, and business explainer wrote their own file in Steps 4-6.
 

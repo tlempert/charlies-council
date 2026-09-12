@@ -9,6 +9,7 @@ import importlib.util
 import json
 import os
 import subprocess
+import time
 import sys
 
 import pytest
@@ -281,3 +282,60 @@ class TestPregate:
         _, results = _run(tmp_path, _ledger())
         detail = [d for s, n, d in results if n == "buyers_at_price"][0]
         assert detail.startswith("3 expert")
+
+
+# --- council_manifest.py timestamps -------------------------------------------
+
+class TestManifestTimestamps:
+    def test_a_step_mark_records_when_it_happened(self, manifest):
+        m = manifest.init("ADBE")
+        before = int(time.time())
+        manifest.mark_step(m, "dossier", "done")
+        assert before <= m["steps"]["dossier"]["ts"] <= int(time.time())
+        assert m["steps"]["dossier"]["status"] == "done"
+
+    def test_the_first_touch_of_a_step_is_kept_as_its_start(self, manifest):
+        m = manifest.init("ADBE")
+        manifest.mark_step(m, "experts", "started")
+        started = m["steps"]["experts"]["started"]
+        time.sleep(1.1)
+        manifest.mark_step(m, "experts", "done")
+        assert m["steps"]["experts"]["started"] == started
+        assert m["steps"]["experts"]["ts"] > started
+
+    def test_started_is_a_status_the_cli_accepts(self, manifest, tmp_path):
+        env = dict(os.environ, COUNCIL_ROOT=str(tmp_path))
+        script = os.path.join(_SCRIPTS, "council_manifest.py")
+        subprocess.run([sys.executable, script, "init", "ADBE"], env=env, check=True)
+        subprocess.run([sys.executable, script, "step", "ADBE", "dossier", "started"], env=env, check=True)
+        subprocess.run([sys.executable, script, "step", "ADBE", "dossier", "done"], env=env, check=True)
+        m = json.load(open(tmp_path / "ADBE" / "manifest.json"))
+        assert m["steps"]["dossier"]["status"] == "done"
+        assert "started" in m["steps"]["dossier"]
+
+    def test_a_worker_keeps_the_pool_it_was_first_tried_on(self, manifest):
+        m = manifest.init("ADBE")
+        manifest.mark_worker(m, "lynch", "codex:sol", "failed", "empty")
+        manifest.mark_worker(m, "lynch", "codex:luna", "ok")
+        assert m["workers"]["lynch"]["first_pool"] == "codex:sol"
+        assert m["workers"]["lynch"]["pool"] == "codex:luna"
+        assert m["workers"]["lynch"]["ts"] > 0
+
+
+class TestTheSkillMarksEveryStepTwice:
+    """The stepper on the job page is only as honest as the skill's checkpoints:
+    without a `started` mark a step has no clock until the moment it ends."""
+
+    SKILL = os.path.join(_ROOT, "skills", "analyze-company.md")
+
+    def test_every_pipeline_step_records_itself_as_started_exactly_once(self):
+        text = open(self.SKILL, encoding="utf-8").read()
+        names = ["dossier", "forensic", "condense", "refine", "threats",
+                 "experts", "synthesis", "gate", "reports", "assemble"]
+        counts = {n: text.count(f"council_manifest.py step {{TICKER}} {n} started") for n in names}
+        assert counts == {n: 1 for n in names}
+
+    def test_the_manifest_paragraph_says_a_step_is_recorded_at_both_ends(self):
+        text = open(self.SKILL, encoding="utf-8").read()
+        assert "records itself twice" in text
+        assert "step {TICKER} <step-name> started" in text

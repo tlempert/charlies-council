@@ -3,7 +3,7 @@
 workers succeeded, and where a failed worker goes next.
 
     council_manifest.py init   TICKER
-    council_manifest.py step   TICKER NAME STATUS            # done | partial | failed
+    council_manifest.py step   TICKER NAME STATUS            # started | done | partial | failed
     council_manifest.py worker TICKER KEY POOL STATUS [REASON]
     council_manifest.py pending TICKER                       # keys that still need a run
     council_manifest.py status TICKER
@@ -15,6 +15,7 @@ next pool in LADDER, instead of the whole batch being re-run.
 import json
 import os
 import sys
+import time
 
 ROOT = os.environ.get("COUNCIL_ROOT", "/tmp/silicon_council")
 LADDER = ["codex:sol", "codex:luna", "claude:sonnet", "claude:haiku"]
@@ -56,9 +57,27 @@ def next_pool(pool):
     return LADDER[i] if i < len(LADDER) else None
 
 
+def mark_step(m, name, status):
+    """Record `status` for a step, keeping the moment the step was first touched.
+
+    The dashboard reads `started`/`ts` to time each step; until the skill marks
+    a step `started`, its first mark is also its start and durations read
+    finish-to-finish."""
+    now = int(time.time())
+    s = m["steps"].get(name)
+    if not isinstance(s, dict):                    # legacy plain-string status
+        s = {} if s is None else {"status": s}
+    s.setdefault("started", now)
+    s["status"] = status
+    s["ts"] = now
+    m["steps"][name] = s
+    return s
+
+
 def mark_worker(m, key, pool, status, reason=""):
     w = m["workers"].setdefault(key, {})
-    w.update({"pool": pool, "status": status})
+    w.setdefault("first_pool", pool)               # the pool it was tried on first
+    w.update({"pool": pool, "status": status, "ts": int(time.time())})
     if status == "ok":
         w.pop("reason", None)
         w.pop("next", None)
@@ -86,7 +105,7 @@ def main(argv):
         print(f"no manifest for {ticker}; run: council_manifest.py init {ticker}")
         return 1
     if cmd == "step":
-        m["steps"][argv[3]] = argv[4]
+        mark_step(m, argv[3], argv[4])
         save(ticker, m)
     elif cmd == "worker":
         w = mark_worker(m, argv[3], argv[4], argv[5], argv[6] if len(argv) > 6 else "")

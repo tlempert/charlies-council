@@ -1,0 +1,43 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<!DOCTYPE plist PUBLIC "-//Apple//DTD PLIST 1.0//EN" "http://www.apple.com/DTDs/PropertyList-1.0.dtd">
+<!-- Template. install.sh substitutes @REPO@ and @COUNCIL_HOME@ and writes the
+     result to ~/Library/LaunchAgents/com.tal.council.plist. -->
+<plist version="1.0">
+<dict>
+    <key>Label</key>
+    <string>com.tal.council</string>
+
+    <key>ProgramArguments</key>
+    <array>
+        <string>@REPO@/venv/bin/python3</string>
+        <string>-m</string>
+        <string>dashboard</string>
+    </array>
+
+    <key>WorkingDirectory</key>
+    <string>@REPO@</string>
+
+    <key>EnvironmentVariables</key>
+    <dict>
+        <key>COUNCIL_HOME</key>
+        <string>@COUNCIL_HOME@</string>
+        <key>PYTHONUNBUFFERED</key>
+        <string>1</string>
+    </dict>
+
+    <key>RunAtLoad</key>
+    <true/>
+
+    <key>KeepAlive</key>
+    <true/>
+
+    <key>StandardOutPath</key>
+    <string>@COUNCIL_HOME@/dashboard.log</string>
+
+    <key>StandardErrorPath</key>
+    <string>@COUNCIL_HOME@/dashboard.err</string>
+
+    <key>ProcessType</key>
+    <string>Background</string>
+</dict>
+</plist>

@@ -175,6 +175,8 @@ Print the exact calls. **Never run them automatically.**
 
 State in one line why each is the highest-priority run. If a pitch was saved, note that `analyze-company` will pick it up for Munger and Reality Check automatically.
 
+Record every finalist so the dashboard can offer it a run later: `cd /Users/tallempert/src-tal/investor && ./venv/bin/python3 -m dashboard.candidates add {TICKER} --source scan-vic --note "{one-line reason}"`
+
 ---
 
 ## OUTPUT FORMAT

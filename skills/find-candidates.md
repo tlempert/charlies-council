@@ -83,6 +83,8 @@ Pick the top 2–3 and present the exact calls to run:
 `/analyze-company TICKER`
 State in one line why each is the highest-priority run. Do NOT run them automatically.
 
+Record every finalist so the dashboard can offer it a run later: `cd /Users/tallempert/src-tal/investor && ./venv/bin/python3 -m dashboard.candidates add {TICKER} --source find-candidates --note "{one-line reason}"`
+
 ---
 
 ## OUTPUT FORMAT TEMPLATE

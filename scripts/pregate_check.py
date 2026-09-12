@@ -17,7 +17,7 @@ import os
 import re
 import sys
 
-TAGS = ("[SEC]", "[CALC]", "[MEDIA]", "[SEARCH]", "JUDGMENT")
+TAG_RE = re.compile(r"\[(SEC|CALC|MEDIA|SEARCH)\b|JUDGMENT|DERIVED")   # accepts "[SEARCH per Finsee]" as the dossier writes it
 VERDICTS = ("BUY", "WAIT", "HOLD", "PASS", "SELL", "TOO UNCERTAIN")
 
 
@@ -75,7 +75,11 @@ def _num_variants(v):
     if isinstance(v, bool) or not isinstance(v, (int, float)):
         return []
     out = set()
-    for fmt in ("{:.0f}", "{:.1f}", "{:.2f}", "{:,.0f}", "{:.1%}", "{:.0%}", "{:.2%}", "{:.1f}%"):
+    # A fractional value must be found as itself: 7.69 may not be "found" as "8".
+    fmts = ("{:.1f}", "{:.2f}", "{:.1%}", "{:.0%}", "{:.2%}", "{:.1f}%")
+    if float(v).is_integer():
+        fmts += ("{:.0f}", "{:,.0f}")
+    for fmt in fmts:
         try:
             out.add(fmt.format(v))
         except (ValueError, TypeError):
@@ -108,11 +112,18 @@ def run_checks(d):
     for inp in L.get("inputs", []):
         src = str(inp.get("source", ""))
         name = inp.get("name", "?")
-        if not any(t in src for t in TAGS):
+        if not TAG_RE.search(src):
             add("FAIL", f"input:{name}", f"source '{src}' carries no [SEC]/[CALC]/[MEDIA]/[SEARCH] tag and is not JUDGMENT")
             continue
         if "JUDGMENT" in src:
             add("OK", f"input:{name}", "declared judgment")
+            continue
+        if "DERIVED" in src:
+            # computed in the memo from dossier inputs; the formula is the audit
+            if re.search(r"[/÷×*+\-]\s*\S", src.split("DERIVED", 1)[1]):
+                add("OK", f"input:{name}", "derived, formula stated")
+            else:
+                add("FAIL", f"input:{name}", "tagged DERIVED but no formula given")
             continue
         hits = [s for s in _num_variants(inp.get("value")) if _appears(s, dossier)]
         if hits:

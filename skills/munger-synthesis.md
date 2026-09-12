@@ -312,6 +312,7 @@ Rules:
   and defended in the prose. A tagged value that appears nowhere in the dossier
   is an invented number (ADBE draft 2: a "~17% effective tax rate" that decided a
   franchise-premium gate and existed nowhere in the file).
+- **A value you compute yourself** (GAAP EPS = TTM net income ÷ shares, an implied multiple, a yield) is tagged `DERIVED:` followed by the formula with each operand's own tag, e.g. `DERIVED: $7.23B TTM net income [CALC] / 397.5M shares [SEC]`. It is not checked for presence in the dossier; the formula is the audit, and a `DERIVED` with no formula fails.
 - **`varied` lists what you actually swept.** An input with an empty `varied`
   list is held fixed; say so in the prose and say why.
 - **Geometry must agree with the verdict:** BUY requires `price ≤ ceiling`; WAIT

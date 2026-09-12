@@ -383,3 +383,59 @@ class TestTheSkillMarksEveryStepTwice:
         text = open(self.SKILL, encoding="utf-8").read()
         assert "records itself twice" in text
         assert "step {TICKER} <step-name> started" in text
+
+
+class TestPregateTagConvention:
+    """refine-dossier.md prescribes '[SEARCH per Ahrefs]' and '[MEDIA per DOJ
+    filings]'; the checker looked for the literal '[SEARCH]' and failed the
+    ADBE 2026-09-12 memo on a correctly tagged input. And 7.69 was 'found in
+    dossier as 8' — a whole-number rounding of a fractional value matched
+    unrelated text."""
+
+    def test_source_tag_with_per_clause_is_accepted(self, tmp_path):
+        led = _ledger()
+        led["inputs"].append({"name": "organic_arr", "value": 0.083,
+                              "source": "[SEARCH per Finsee] ~8.3% organic ex-Semrush", "varied": []})
+        status, _ = _run(tmp_path, led, dossier=DOSSIER + "third-party derivation ~8.3% organic\n")
+        assert status["input:organic_arr"] == "OK"
+
+    def test_dossier_pseudo_tag_is_not_a_source(self, tmp_path):
+        led = _ledger()
+        led["inputs"].append({"name": "discount_rate", "value": 0.09,
+                              "source": "[DOSSIER] LOCAL COST OF EQUITY midpoint", "varied": []})
+        status, _ = _run(tmp_path, led)
+        assert status["input:discount_rate"] == "FAIL"
+
+    def test_fractional_value_does_not_match_its_rounded_integer(self, tmp_path):
+        led = _ledger()
+        led["inputs"].append({"name": "owner_earnings_bn", "value": 7.69,
+                              "source": "[CALC] TTM owner earnings", "varied": []})
+        # dossier has "8" only as an unrelated number, never 7.69
+        status, _ = _run(tmp_path, led, dossier="| 2025 | $1.94B | 8.2% |\nSBC $1.94B\n")
+        assert status["input:owner_earnings_bn"] == "FAIL"
+
+    def test_fractional_value_matches_when_actually_present(self, tmp_path):
+        led = _ledger()
+        led["inputs"].append({"name": "owner_earnings_bn", "value": 7.69,
+                              "source": "[CALC] TTM owner earnings", "varied": []})
+        status, _ = _run(tmp_path, led, dossier=DOSSIER)  # DOSSIER carries $7.69B
+        assert status["input:owner_earnings_bn"] == "OK"
+
+
+class TestPregateDerivedTag:
+    """A value the synthesist computes from dossier inputs (GAAP EPS = TTM net
+    income ÷ shares) cannot appear in the dossier. It is tagged DERIVED with
+    its formula and is not checked for presence; the formula is the audit."""
+
+    def test_derived_with_formula_is_accepted(self, tmp_path):
+        led = _ledger()
+        led["inputs"].append({"name": "gaap_eps_ttm", "value": 18.19,
+                              "source": "DERIVED: $7.23B TTM net income [CALC] / 397.5M shares [SEC]", "varied": []})
+        status, _ = _run(tmp_path, led)
+        assert status["input:gaap_eps_ttm"] == "OK"
+
+    def test_derived_without_formula_fails(self, tmp_path):
+        led = _ledger()
+        led["inputs"].append({"name": "gaap_eps_ttm", "value": 18.19, "source": "DERIVED", "varied": []})
+        status, _ = _run(tmp_path, led)
+        assert status["input:gaap_eps_ttm"] == "FAIL"

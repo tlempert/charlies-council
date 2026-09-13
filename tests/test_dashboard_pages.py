@@ -91,17 +91,17 @@ class TestTheJobPage:
         store.mark_running(job_id, "sess-1")
         return job_id
 
-    def test_all_ten_steps_are_listed_with_the_status_the_pipeline_recorded(self, client, job_id):
+    def test_all_eleven_steps_are_listed_with_the_status_the_pipeline_recorded(self, client, job_id):
         body = client.get(f"/jobs/{job_id}")[1]
         for label in ("Dossier", "Forensic search", "Assemble &amp; save"):
             assert label in body
         assert 'id="step-forensic" class="failed"' in body
 
-    def test_the_ten_checkpoints_are_drawn_as_one_track(self, client, job_id):
+    def test_the_eleven_checkpoints_are_drawn_as_one_track(self, client, job_id):
         body = client.get(f"/jobs/{job_id}")[1]
         track = body[body.index("<ol class=track>"):body.index("</ol>")]
-        assert track.count("<li id=\"step-") == 10
-        assert track.count("<i></i>") == 10
+        assert track.count("<li id=\"step-") == 11
+        assert track.count("<i></i>") == 11
 
     def test_a_step_that_is_still_running_shows_a_clock_and_a_finished_one_its_total(self, client, job_id):
         body = client.get(f"/jobs/{job_id}")[1]
@@ -171,7 +171,7 @@ class TestPolling:
         assert payload["state"] == "running"
         assert payload["current"] == "forensic"
         assert payload["fallbacks"] == 2
-        assert len(payload["steps"]) == 10
+        assert len(payload["steps"]) == 11
         assert payload["gate_passes"] == 0
 
     def test_status_json_carries_the_clock_each_checkpoint_shows(self, client, store, council_root):
@@ -437,12 +437,12 @@ class TestFindingCandidatesFromThePage:
         assert "Find candidates: UK consumer" in body
         assert "class=bar" not in body
 
-    def test_a_live_analysis_shows_ten_segments_and_the_step_it_is_on(self, client, store, council_root):
+    def test_a_live_analysis_shows_eleven_segments_and_the_step_it_is_on(self, client, store, council_root):
         job_id = store.enqueue("ADBE")
         store.mark_running(job_id, "sess-1")
         body = client.get("/")[1]
         bar = body[body.index("<span class=bar>"):body.index("</span>", body.index("<span class=bar>"))]
-        assert bar.count("<i class=") == 10
+        assert bar.count("<i class=") == 11
         assert "<i class=done>" in bar and "<i class=failed>" in bar and "<i class=pending>" in bar
         assert "forensic" in body
 

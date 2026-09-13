@@ -525,3 +525,94 @@ class TestPregateConvergenceClaimNegation:
     def test_asserted_convergence_still_fails(self, tmp_path):
         status, _ = _run(tmp_path, _ledger(), prose=self.ASSERTING)
         assert status["trigger_echo_claim"] == "FAIL"
+
+
+# --- validate_memo.py ---------------------------------------------------------
+
+MEMO_HEADINGS = [
+    "## What you would own", "## Reading guide", "## The economic engine",
+    "### Cash flow and shareholder economics", "### The latest quarter",
+    "## The bull case and the counterargument", "## Valuation: the bet behind the price",
+    "### The cross-check: what growth must occur?", "## How I would make the decision",
+    "### Conditions that would support buying", "### Conditions that would support waiting",
+    "### Conditions that would invalidate the thesis", "### Capital allocation deserves its own test",
+    "### Price discipline without false precision", "## What the gate changed — and what remains open",
+    "### Corrections that mattered to the conclusion", "### The next review should answer five questions",
+    "### Final investment view", "## Sources and scope",
+]
+
+
+def _memo(ledger=None, **over):
+    """A memo that satisfies every rule in skills/investor-memo.md for `ledger`."""
+    L = dict(_ledger(), **(ledger or {}))
+    body = {h: "Prose. " * 70 for h in MEMO_HEADINGS}
+    body["## Valuation: the bet behind the price"] = (
+        f"The central value is ${L['central_value']:.2f} [1; calculation]; the ceiling ${L['ceiling']:.2f} "
+        f"and the floor ${L['floor']:.2f} [2; judgment] against a price of ${L['price']:.2f} [3; filing]. "
+        + "Prose. " * 30)
+    body["### Final investment view"] = (
+        f"**Verdict: {L['verdict']} — {L['position_pct']}% position.** Prose about the franchise [4; media]. "
+        + "Prose. " * 20)
+    tags = " ".join(f"[{n}; {k}]" for n, k in enumerate(["filing", "calculation", "media", "search", "judgment"] * 3, 1))
+    text = "# Acme as an investment\n*A subtitle*\n\nOpening paragraph " + tags + "\n\n"
+    for h in MEMO_HEADINGS:
+        text += f"{h}\n{body[h]}\n\n"
+    for k, v in over.items():
+        text = text.replace(k, v)
+    return text
+
+
+def _memo_run(tmp_path, memo, ledger=None):
+    (tmp_path / "memo.md").write_text(memo)
+    (tmp_path / "verdict.md").write_text(f"Prose.\n```json model_ledger\n{json.dumps(dict(_ledger(), **(ledger or {})))}\n```\n")
+    return _load("validate_memo").problems(str(tmp_path / "memo.md"), str(tmp_path / "verdict.md"))
+
+
+class TestValidateMemo:
+    """The memo is written by whichever model is available, so the format is
+    checked mechanically before it is accepted: the headings the reader
+    navigates by, the ledger's numbers, the verdict word, and citations."""
+
+    def test_a_memo_that_follows_the_skill_has_no_problems(self, tmp_path):
+        assert _memo_run(tmp_path, _memo()) == []
+
+    def test_a_missing_heading_is_named(self, tmp_path):
+        problems = _memo_run(tmp_path, _memo(**{"### Final investment view": "### Final view"}))
+        assert any("### Final investment view" in p for p in problems)
+
+    def test_the_ledger_price_points_must_appear(self, tmp_path):
+        problems = _memo_run(tmp_path, _memo(**{"$282.00": "$285.00"}))
+        assert any("ceiling" in p and "282" in p for p in problems)
+
+    def test_a_rounded_price_point_in_prose_is_accepted(self, tmp_path):
+        assert _memo_run(tmp_path, _memo(**{"$282.00": "$282"})) == []
+
+    def test_the_verdict_word_must_match_the_ledger(self, tmp_path):
+        problems = _memo_run(tmp_path, _memo(**{"Verdict: WAIT — 0% position": "Verdict: BUY — 0% position"}))
+        assert any("verdict" in p.lower() and "WAIT" in p for p in problems)
+
+    def test_too_few_citations_fails(self, tmp_path):
+        memo = _memo()
+        import re as _re
+        memo = _re.sub(r"\[\d+; \w+\]", "", memo)
+        problems = _memo_run(tmp_path, memo)
+        assert any("citation" in p for p in problems)
+
+    def test_a_memo_that_sprawls_fails(self, tmp_path):
+        problems = _memo_run(tmp_path, _memo() + "\nword " * 4000)
+        assert any("too long" in p for p in problems)
+
+    def test_a_short_memo_fails(self, tmp_path):
+        problems = _memo_run(tmp_path, _memo()[:3000])
+        assert any("short" in p for p in problems)
+
+    def test_cli_exit_code(self, tmp_path):
+        (tmp_path / "memo.md").write_text(_memo())
+        (tmp_path / "verdict.md").write_text(f"```json model_ledger\n{json.dumps(_ledger())}\n```\n")
+        r = subprocess.run([sys.executable, os.path.join(_SCRIPTS, "validate_memo.py"),
+                            str(tmp_path / "memo.md"), str(tmp_path / "verdict.md")], capture_output=True, text=True)
+        assert r.returncode == 0, r.stdout
+        (tmp_path / "memo.md").write_text("too short")
+        r = subprocess.run([sys.executable, os.path.join(_SCRIPTS, "validate_memo.py"),
+                            str(tmp_path / "memo.md"), str(tmp_path / "verdict.md")], capture_output=True, text=True)
+        assert r.returncode == 1 and "MEMO: FAIL" in r.stdout

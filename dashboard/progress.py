@@ -9,7 +9,7 @@ import os
 import time
 from pathlib import Path
 
-#: The ten steps of skills/analyze-company.md, in the order it runs them.
+#: The eleven steps of skills/analyze-company.md, in the order it runs them.
 STEPS = [
     ("dossier", "Dossier"),
     ("forensic", "Forensic search"),
@@ -19,6 +19,7 @@ STEPS = [
     ("experts", "Expert council"),
     ("synthesis", "Munger synthesis"),
     ("gate", "Reality Check gate"),
+    ("memo", "Investor memo"),
     ("reports", "Reports"),
     ("assemble", "Assemble & save"),
 ]

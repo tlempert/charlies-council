@@ -25,10 +25,10 @@ def write_manifest(root, ticker, manifest):
 
 
 class TestSteps:
-    def test_all_ten_pipeline_steps_are_listed_in_order(self):
+    def test_all_eleven_pipeline_steps_are_listed_in_order(self):
         names = [s["name"] for s in progress.steps(None)]
         assert names == ["dossier", "forensic", "condense", "refine", "threats",
-                         "experts", "synthesis", "gate", "reports", "assemble"]
+                         "experts", "synthesis", "gate", "memo", "reports", "assemble"]
 
     def test_a_job_with_no_manifest_yet_shows_every_step_pending(self):
         assert {s["status"] for s in progress.steps(None)} == {"pending"}
@@ -168,7 +168,7 @@ class TestReadingFromDisk:
             "workers": {"lynch": {"pool": "codex:sol", "status": "ok"}}})
         snapshot = progress.snapshot("ADBE")
         assert snapshot["current"] == "forensic"
-        assert len(snapshot["steps"]) == 10
+        assert len(snapshot["steps"]) == 11
         assert snapshot["steps"][0]["elapsed"] == 60
         assert snapshot["workers"][-1]["status"] == "ok"
         assert snapshot["gate_passes"] == 0

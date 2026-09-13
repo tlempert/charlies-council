@@ -199,6 +199,16 @@ class TestSaveToMarkdown:
         assert "TEST" in simple_content
         assert "Simple summary" in simple_content
 
+    def test_memo_is_saved_as_its_own_file_and_kept_out_of_the_evidence(self, tmp_path):
+        from modules.tools import save_to_markdown
+        reports = {"jeff_bezos": "analysis", "reality_check": "critique", "memo": "# Acme as an investment\nLetter."}
+        result = save_to_markdown("TEST", "BUY", reports, base_dir=str(tmp_path))
+        assert result["memo"].endswith("TEST_Memo_" + __import__("datetime").date.today().isoformat() + ".md")
+        memo = open(result["memo"], encoding="utf-8").read()
+        assert "# Acme as an investment" in memo and "Letter." in memo
+        full = open(result["full"], encoding="utf-8").read()
+        assert "MEMO REPORT" not in full and "Letter." not in full
+
     def test_ansi_stripped_in_output(self, tmp_path):
         from modules.tools import save_to_markdown
 
@@ -304,6 +314,16 @@ class TestSaveToHtml:
         content = open(result["html"], encoding="utf-8").read()
         assert "metrics-strip" in content
         assert "25.0%" in content
+
+    def test_memo_in_its_own_tab_not_in_the_expert_grid(self, tmp_path):
+        reports = {"jeff_bezos": "Flywheel", "memo": "# Acme as an investment\nMemo letter body."}
+        result = self._save(tmp_path, reports=reports)
+        content = open(result["html"], encoding="utf-8").read()
+        assert "Memo letter body." in content
+        assert 'id="tab-memo"' in content
+        assert "switchTab('memo'" in content
+        grid = content[content.index('class="expert-grid"'):content.index("Munger&#39;s Verdict")]
+        assert "memo" not in grid.lower()
 
     def test_newsletter_in_tab(self, tmp_path):
         result = self._save(tmp_path, simple_report="Family newsletter content")

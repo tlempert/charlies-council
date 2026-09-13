@@ -3002,6 +3002,7 @@ def save_to_markdown(ticker, verdict, reports, simple_report=None, base_dir=None
         for key, text in reports.items():
             if key == "teacher": continue
             if key == "reality_check": continue # Skip here, we want it at the end!
+            if key == "memo": continue          # its own file below
             full_content += f"### 🕵️ {key.replace('_', ' ').upper()} REPORT\n"
             full_content += f"{clean_ansi(text)}\n"
             full_content += "\n" + "-"*40 + "\n\n"
@@ -3023,6 +3024,12 @@ def save_to_markdown(ticker, verdict, reports, simple_report=None, base_dir=None
         
         # Save it
         saved_paths['simple'] = write_file("SIMPLE", simple_content)
+
+    # --- 6. INVESTOR MEMO: the council's conclusion as one analyst's letter ---
+    if reports and reports.get("memo"):
+        memo_content = f"**{ticker} — Silicon Council investor memo, {datetime.now().strftime('%B %d, %Y')}**\n\n"
+        memo_content += f"{clean_ansi(reports['memo'])}\n"
+        saved_paths['memo'] = write_file("Memo", memo_content)
 
     return saved_paths
 
@@ -3611,7 +3618,7 @@ def save_to_html(ticker, verdict, reports, simple_report=None, base_dir=None,
             )
 
     # --- Expert grid and accordions ---
-    expert_keys = [k for k in reports if k not in ("teacher", "reality_check")]
+    expert_keys = [k for k in reports if k not in ("teacher", "reality_check", "memo")]
 
     # Guard: detect expert reports accidentally concatenated into verdict
     _all_empty = expert_keys and all(not reports.get(k, "").strip() for k in expert_keys)
@@ -3733,6 +3740,12 @@ def save_to_html(ticker, verdict, reports, simple_report=None, base_dir=None,
             f'<div class="tab-panel tab-content" id="tab-newsletter" style="display:none">{nr}</div>'
         )
 
+    # --- Investor Memo tab ---
+    memo_html = ""
+    if reports.get("memo"):
+        memo_html = (f'<div class="tab-panel tab-content" id="tab-memo" style="display:none">'
+                     f'{md2html(reports["memo"])}</div>')
+
     # --- Teacher / Business Explainer tab ---
     teacher_html = ""
     if "teacher" in reports:
@@ -3757,6 +3770,8 @@ def save_to_html(ticker, verdict, reports, simple_report=None, base_dir=None,
 
     # --- Tab buttons ---
     tab_buttons = '<button class="tab active" onclick="switchTab(\'experts\',this)">Expert Council</button>'
+    if reports.get("memo"):
+        tab_buttons += '<button class="tab" onclick="switchTab(\'memo\',this)">Investor Memo</button>'
     if "teacher" in reports:
         tab_buttons += '<button class="tab" onclick="switchTab(\'teacher\',this)">Business Explainer</button>'
     if "reality_check" in reports:
@@ -3794,6 +3809,7 @@ def save_to_html(ticker, verdict, reports, simple_report=None, base_dir=None,
             verdict_full=verdict_full,
             tab_buttons=tab_buttons,
             expert_accordions=expert_accordions,
+            memo_html=memo_html,
             teacher_html=teacher_html,
             newsletter_html=newsletter_html,
             reality_html=reality_html,
@@ -3816,6 +3832,7 @@ def save_to_html(ticker, verdict, reports, simple_report=None, base_dir=None,
             f'<div class="metrics-strip">{metrics_html}</div>'
             f'{verdict_formatted}'
             f'{expert_accordions}'
+            f'{memo_html}'
             f'{reality_html}'
             f'</body></html>'
         )

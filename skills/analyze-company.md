@@ -29,7 +29,7 @@ Extract the ticker from the arguments. If no ticker was provided, ask the user f
 - If a manifest exists **from today** and the user did not ask for a fresh run, say which steps are already `done`, skip them, and continue from the first step that is not.
 - Otherwise run `rm -rf /tmp/silicon_council/{TICKER}` (only this ticker's directory — other analyses are unaffected) and initialise: `./venv/bin/python3 scripts/council_manifest.py init {TICKER}`.
 
-Every step below records itself twice: `./venv/bin/python3 scripts/council_manifest.py step {TICKER} <step-name> started` the moment the step begins, and the same line with `done` when it completes — the dashboard times a step from the gap between them. Step names: `dossier`, `forensic`, `condense`, `refine`, `threats`, `experts`, `synthesis`, `gate`, `reports`, `assemble`.
+Every step below records itself twice: `./venv/bin/python3 scripts/council_manifest.py step {TICKER} <step-name> started` the moment the step begins, and the same line with `done` when it completes — the dashboard times a step from the gap between them. Step names: `dossier`, `forensic`, `condense`, `refine`, `threats`, `experts`, `synthesis`, `gate`, `memo`, `reports`, `assemble`.
 
 ### Step 1: Build Dossier (Python)
 
@@ -491,11 +491,33 @@ Pass the refined dossier and Munger verdict summary to the Business Explainer.
 
 Collect both reports, then record: `./venv/bin/python3 scripts/council_manifest.py step {TICKER} reports done`.
 
+### Step 7: Investor Memo (Codex → Claude)
+
+Record the checkpoint: `./venv/bin/python3 scripts/council_manifest.py step {TICKER} memo started`
+
+Runs once the gate has PASSed and may be launched alongside Step 6b — it needs only the gated `verdict.md`, `refined_dossier.md`, `all_summaries.md` and `reality_check.md`. The memo is the council's conclusion rewritten as one analyst's letter in the shape of the GPT-Astra memo the harness was measured against: what you would own, the engine, the bull case and its counterargument, the bet behind the price with the required-growth cross-check, conditions to buy / wait / walk away, what the gate struck, five questions for the next review, and a numbered source list. Every number is cited and the ledger's figures are unchanged — the spec is `skills/investor-memo.md` and `scripts/validate_memo.py` enforces it.
+
+**The writer is cascaded: Codex first, Claude when Codex is unavailable or its draft fails validation.** Codex writing it is also a second model reading the verdict; Claude writing it is the same conclusion in the same shape.
+
+**Codex leg (`CODEX_OK=0`):**
+
+```bash
+cd /Users/tallempert/src-tal/investor && CX=/Applications/ChatGPT.app/Contents/Resources/codex; D=/tmp/silicon_council/{TICKER}; { cat skills/investor-memo.md; echo; echo "=== INPUT 1: verdict.md ==="; cat $D/verdict.md; echo; echo "=== INPUT 2: refined_dossier.md ==="; cat $D/refined_dossier.md; echo; echo "=== INPUT 3: all_summaries.md ==="; cat $D/all_summaries.md; echo; echo "=== INPUT 4: reality_check.md ==="; cat $D/reality_check.md; } | $CX exec - -m gpt-5.6-sol -c model_reasoning_effort=medium --sandbox read-only --skip-git-repo-check --output-last-message $D/memo.md >$D/memo.log 2>&1; wc -c $D/memo.md; ./venv/bin/python3 scripts/validate_memo.py $D/memo.md $D/verdict.md; echo "MEMO_OK=$?"
+```
+
+`MEMO_OK=0` → record `step {TICKER} memo done`; Step 9 names Codex (gpt-5.6-sol) as the writer. Otherwise move the draft aside (`mv $D/memo.md $D/memo.codex-rejected.md`), keep the validator's lines for Step 9, and run the Claude leg.
+
+**Claude leg (`CODEX_OK=1`, or the Codex draft failed):** launch one subagent with `model: sonnet`, `run_in_background: true`:
+
+"Read /Users/tallempert/src-tal/investor/skills/investor-memo.md and follow it exactly. Inputs, in this order — read each with the Read tool in full: /tmp/silicon_council/{TICKER}/verdict.md, /tmp/silicon_council/{TICKER}/refined_dossier.md, /tmp/silicon_council/{TICKER}/all_summaries.md, /tmp/silicon_council/{TICKER}/reality_check.md. Write the memo to /tmp/silicon_council/{TICKER}/memo.md with the Write tool. Then run `cd /Users/tallempert/src-tal/investor && ./venv/bin/python3 scripts/validate_memo.py /tmp/silicon_council/{TICKER}/memo.md /tmp/silicon_council/{TICKER}/verdict.md` and fix every line it reports until it exits 0. Do not change any number in the ledger. Report back only the validator's final output and the word count."
+
+When it returns, run the validator once more from this session. `MEMO_OK=0` → `step {TICKER} memo done`. Still failing → `mv $D/memo.md $D/memo.claude-rejected.md`, record `step {TICKER} memo failed`, and continue to Step 8 without a memo: the memo is a deliverable, not a gate, and Step 9 says which leg failed and why. Never patch the memo's numbers by hand from this session — the ledger is the only source of numbers, and a memo the validator rejects is a memo the reader should not get.
+
 ### Step 8: Assemble and Save Reports
 
 Record the checkpoint: `./venv/bin/python3 scripts/council_manifest.py step {TICKER} assemble started`
 
-All 16 temp files should already exist in `/tmp/silicon_council/{TICKER}/` — each expert, Munger, newsletter, reality check, and business explainer wrote their own file in Steps 4-6.
+All 17 temp files should already exist in `/tmp/silicon_council/{TICKER}/` — each expert, Munger, newsletter, reality check, business explainer and the investor memo wrote their own file in Steps 4-7 (`memo.md` is absent only if Step 7 recorded `failed`).
 
 **Verify files exist**, then run Python to assemble into Obsidian:
 
@@ -538,6 +560,9 @@ reports = {
     "teacher": read_tmp("teacher"),
 }
 simple_report = read_tmp("newsletter")
+memo = read_tmp("memo")
+if memo:
+    reports["memo"] = memo          # its own file ({TICKER}_Memo_{date}.md) and dashboard tab
 
 paths = save_to_markdown(ticker, verdict, reports, simple_report=simple_report)
 
@@ -592,7 +617,7 @@ The index captures per-ticker: Decision, **Δ vs Prior** (how the verdict moved 
 Display a summary:
 1. The Munger verdict (BUY/SELL/PASS + buy zone)
 2. The reality check scorecard
-3. The file paths where reports were saved
+3. The file paths where reports were saved, including the investor memo and which leg wrote it (Codex gpt-5.6-sol or Claude sonnet) — or that Step 7 failed on both, with the validator's lines
 4. The GitHub Pages URL for the interactive dashboard
 
 Done.

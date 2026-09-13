@@ -2477,3 +2477,46 @@ class TestDashboardHeadline:
     def test_header_omits_headline_when_nothing_is_known(self, tmp_path):
         content = self._content(tmp_path, "BUY at $100-120")
         assert 'class="headline"' not in content
+
+
+class TestMemoHtml:
+    """The memo is a standalone document, so it gets its own page on GitHub
+    Pages beside the dashboard, and the dashboard's memo tab links to it."""
+
+    MEMO = "# Acme as an investment\n*A subtitle*\n\nOpening [1; filing].\n\n## What you would own\nProse.\n"
+
+    def test_saves_a_standalone_page(self, tmp_path):
+        from modules.tools import save_memo_html
+        result = save_memo_html("TEST", self.MEMO, base_dir=str(tmp_path))
+        assert result["memo_html"].endswith("TEST_Memo_" + __import__("datetime").date.today().isoformat() + ".html")
+        content = open(result["memo_html"], encoding="utf-8").read()
+        assert "<title>Acme as an investment</title>" in content
+        assert "<h1>Acme as an investment</h1>" in content
+        assert 'href="https://tlempert.github.io/investor-reports/TEST.html"' in content
+        assert "viewport" in content
+
+    def test_nothing_saved_without_a_memo(self, tmp_path):
+        from modules.tools import save_memo_html
+        assert save_memo_html("TEST", "", base_dir=str(tmp_path)) == {}
+
+    def test_dashboard_tab_links_to_the_standalone_page(self, tmp_path):
+        from modules.tools import save_to_html
+        result = save_to_html("TEST", "BUY", {"jeff_bezos": "x", "memo": self.MEMO}, base_dir=str(tmp_path))
+        content = open(result["html"], encoding="utf-8").read()
+        tab = content[content.index('id="tab-memo"'):]
+        assert 'href="https://tlempert.github.io/investor-reports/TEST_memo.html"' in tab
+
+    def test_deploys_beside_the_dashboard_under_its_own_name(self, tmp_path, monkeypatch):
+        import subprocess
+        import modules.tools as tools
+        repo = tmp_path / "repo"; repo.mkdir()
+        (repo / "index.html").write_text("<!-- Reports will be listed here -->\n")
+        src = tmp_path / "TEST_Memo_2026-09-13.html"; src.write_text("<html>memo</html>")
+        calls = []
+        monkeypatch.setattr(tools, "REPORTS_REPO", str(repo))
+        monkeypatch.setattr(subprocess, "run", lambda cmd, **kw: calls.append(cmd))
+        result = tools.deploy_memo_to_github_pages(str(src), "test")
+        assert result == {"url": "https://tlempert.github.io/investor-reports/TEST_memo.html"}
+        assert (repo / "TEST_memo.html").read_text() == "<html>memo</html>"
+        assert "TEST" not in (repo / "index.html").read_text()      # the index lists dashboards, not memos
+        assert [c[1] for c in calls] == ["add", "commit", "push"]

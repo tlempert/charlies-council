@@ -592,6 +592,15 @@ if "html" in paths:
         paths["github_pages"] = deploy_result["url"]
         print(f"github_pages: {deploy_result['url']}")
 
+# The investor memo as its own page ({TICKER}_Memo_{date}.html locally, {TICKER}_memo.html on Pages)
+from modules.tools import save_memo_html, deploy_memo_to_github_pages
+if memo:
+    paths.update(save_memo_html(ticker, memo))
+    if "memo_html" in paths:
+        memo_deploy = deploy_memo_to_github_pages(paths["memo_html"], ticker)
+        if "url" in memo_deploy:
+            paths["memo_pages"] = memo_deploy["url"]
+
 for k, v in paths.items():
     print(f"{k}: {v}")
 
@@ -618,6 +627,6 @@ Display a summary:
 1. The Munger verdict (BUY/SELL/PASS + buy zone)
 2. The reality check scorecard
 3. The file paths where reports were saved, including the investor memo and which leg wrote it (Codex gpt-5.6-sol or Claude sonnet) — or that Step 7 failed on both, with the validator's lines
-4. The GitHub Pages URL for the interactive dashboard
+4. The GitHub Pages URLs: the interactive dashboard and the standalone memo page
 
 Done.

@@ -2395,3 +2395,65 @@ class TestDropEmptyQuarters:
         from modules.tools import _drop_empty_quarters
         m = MagicMock()
         assert _drop_empty_quarters(m) is m
+
+
+class TestDashboardLedgerRendering:
+    """The Munger memo ends with a ```json model_ledger fence. Python-Markdown's
+    fenced_code only recognises a one-word info string, so the block fell through
+    as a paragraph, and the pre-escape then double-escaped every quote."""
+
+    VERDICT = ('## EXECUTIVE SUMMARY\n**Decision:** BUY\n**Trigger:** ≤ $268\n'
+               '**Buy Zone: $181–$268**\n\n```json model_ledger\n'
+               '{\n  "price": 252.23,\n  "ceiling": 267.72\n}\n```\n')
+
+    def _content(self, tmp_path):
+        from modules.tools import save_to_html
+        result = save_to_html("LEDG", self.VERDICT, {"jeff_bezos": "x"}, base_dir=str(tmp_path))
+        return open(result["html"], encoding="utf-8").read()
+
+    def test_ledger_renders_as_a_code_block(self, tmp_path):
+        content = self._content(tmp_path)
+        assert '<pre><code class="language-json">' in content
+
+    def test_ledger_quotes_are_escaped_once(self, tmp_path):
+        content = self._content(tmp_path)
+        assert "&amp;quot;" not in content
+        assert "&quot;price&quot;: 252.23" in content
+
+    def test_inline_code_quotes_are_escaped_once(self, tmp_path):
+        from modules.tools import save_to_html
+        verdict = self.VERDICT + '\nThe row `{"name": "exit_multiple"}` is fixed.\n'
+        result = save_to_html("LEDG", verdict, {"jeff_bezos": "x"}, base_dir=str(tmp_path))
+        content = open(result["html"], encoding="utf-8").read()
+        assert '<code>{"name": "exit_multiple"}</code>' in content
+
+    def test_prose_is_still_escaped(self, tmp_path):
+        from modules.tools import save_to_html
+        verdict = self.VERDICT + "\n<script>alert(1)</script>\n"
+        result = save_to_html("LEDG", verdict, {"jeff_bezos": "x"}, base_dir=str(tmp_path))
+        content = open(result["html"], encoding="utf-8").read()
+        assert "<script>alert(1)</script>" not in content
+
+
+class TestDashboardHeadline:
+    """The page header said only 'Silicon Council: ADBE'. The price the verdict
+    was written at and the buy zone belong beside the title."""
+
+    def _content(self, tmp_path, verdict, key_metrics=None):
+        from modules.tools import save_to_html
+        result = save_to_html("HEAD", verdict, {"jeff_bezos": "x"}, base_dir=str(tmp_path),
+                              key_metrics=key_metrics)
+        return open(result["html"], encoding="utf-8").read()
+
+    def test_header_carries_ledger_price_and_buy_zone(self, tmp_path):
+        content = self._content(tmp_path, TestDashboardLedgerRendering.VERDICT)
+        assert '<div class="headline">$252.23 · Buy Zone: $181 – $268</div>' in content
+
+    def test_header_falls_back_to_key_metrics_price(self, tmp_path):
+        verdict = "## EXECUTIVE SUMMARY\n**Decision:** WAIT\n**Trigger:** ≤ $1,900\n**Buy Zone: $1,500 – $1,900**\n"
+        content = self._content(tmp_path, verdict, key_metrics={"price": 2100.5})
+        assert '<div class="headline">$2,100.50 · Buy Zone: $1,500 – $1,900</div>' in content
+
+    def test_header_omits_headline_when_nothing_is_known(self, tmp_path):
+        content = self._content(tmp_path, "BUY at $100-120")
+        assert 'class="headline"' not in content

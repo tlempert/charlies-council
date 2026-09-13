@@ -3162,6 +3162,15 @@ def _parse_expert_summary(report_text):
     return None
 
 
+def _ledger_price(verdict_text):
+    """The `price` field of the memo's ```json model_ledger block, or None."""
+    m = re.search(r"```json model_ledger\s*\n(.*?)```", verdict_text or "", re.S)
+    if not m:
+        return None
+    pm = re.search(r'"price"\s*:\s*([\d.]+)', m.group(1))
+    return float(pm.group(1)) if pm else None
+
+
 def _parse_verdict_highlights(verdict_text):
     """Extract key fields from Munger's verdict for the hero card.
 
@@ -3231,7 +3240,12 @@ def _parse_verdict_highlights(verdict_text):
         def _money(s):
             return float(s.replace(',', ''))
 
-        zone_match = re.search(rf'\$({_NUM})\s*[-–—]\s*\$?({_NUM})', result['trigger'])
+        # The memo states the zone twice: an explicit `**Buy Zone: $181–$268**`
+        # line and, less reliably, inside the Trigger prose. Read the line first.
+        zone_line = (extract_field(r'\*\*Buy Zone:\s*([^\n]+?)\*\*')
+                     or extract_field(r'(?:^|\n)BUY[ _]ZONE:\s*([^\n]+)'))
+        zone_match = (re.search(rf'\$({_NUM})\s*[-–—]\s*\$?({_NUM})', zone_line)
+                      or re.search(rf'\$({_NUM})\s*[-–—]\s*\$?({_NUM})', result['trigger']))
         if zone_match:
             try:
                 result['buy_zone_low'] = _money(zone_match.group(1))
@@ -3341,11 +3355,26 @@ def save_to_html(ticker, verdict, reports, simple_report=None, base_dir=None,
     esc = lambda t: _html.escape(clean_ansi(str(t)))
 
     import markdown as _md
+    _CODE = re.compile(r"^```[^\n]*\n.*?^```[ \t]*$|`[^`\n]+`", re.M | re.S)
+
     def md2html(text):
-        """Convert markdown text to HTML, with HTML-injection prevention."""
+        """Convert markdown text to HTML, with HTML-injection prevention.
+
+        Prose is escaped before Markdown sees it. Code — fenced blocks and
+        backtick spans — is left to Markdown, which escapes it itself; escaping
+        it here too rendered every quote in the model ledger as a literal
+        ``&quot;``. A fence's info string is cut to its first word
+        (``json model_ledger`` → ``json``); Python-Markdown treats a two-word
+        info string as no fence at all."""
         cleaned = clean_ansi(str(text))
-        safe = _html.escape(cleaned)
-        return _md.markdown(safe, extensions=["tables", "fenced_code"])
+        parts, pos = [], 0
+        for m in _CODE.finditer(cleaned):
+            parts.append(_html.escape(cleaned[pos:m.start()]))
+            code = m.group(0)
+            parts.append(re.sub(r"^```(\w+)[^\n]*", r"```\1", code) if code.startswith("```") else code)
+            pos = m.end()
+        parts.append(_html.escape(cleaned[pos:]))
+        return _md.markdown("".join(parts), extensions=["tables", "fenced_code"])
 
     def _verdict_visual(decision_str, degraded=False):
         """Map parsed decision to badge color, icon, and subtitle template."""
@@ -3475,10 +3504,16 @@ def save_to_html(ticker, verdict, reports, simple_report=None, base_dir=None,
                          f'⚠ Structured summary unavailable — hero card showing minimal info. '
                          f'See full synthesis below.</div>')
 
-    # --- Buy zone text (kept for backward compat, no longer in hero card) ---
+    # --- Headline under the title: the price the verdict was written at, and the zone ---
+    def _plain(v):
+        return f"{v:,.2f}".rstrip("0").rstrip(".")
+
     buy_zone_text = ""
     if vh.get("buy_zone_low") and vh.get("buy_zone_high"):
-        buy_zone_text = f"Buy Zone: ${vh['buy_zone_low']:,} \u2013 ${vh['buy_zone_high']:,}"
+        buy_zone_text = f"Buy Zone: ${_plain(vh['buy_zone_low'])} \u2013 ${_plain(vh['buy_zone_high'])}"
+    headline_price = _ledger_price(verdict_clean) or (key_metrics or {}).get("price")
+    headline_parts = ([f"${headline_price:,.2f}"] if headline_price else []) + ([buy_zone_text] if buy_zone_text else [])
+    headline_html = f'<div class="headline">{esc(" · ".join(headline_parts))}</div>' if headline_parts else ""
 
     # --- Conviction and council vote ---
     conviction = esc(vh.get('conviction', '') or '—')
@@ -3749,6 +3784,7 @@ def save_to_html(ticker, verdict, reports, simple_report=None, base_dir=None,
             hero_rationale=hero_rationale,
             metrics_html=metrics_html,
             buy_zone_text=esc(buy_zone_text),
+            headline_html=headline_html,
             price_gauge_html=price_gauge_html,
             council_vote=council_vote,
             conviction=conviction,
@@ -3775,6 +3811,7 @@ def save_to_html(ticker, verdict, reports, simple_report=None, base_dir=None,
             f'.metrics-strip{{display:flex;gap:12px;margin:16px 0}}'
             f'</style></head><body>'
             f'<h1>Silicon Council: {esc(ticker)}</h1>'
+            f'{headline_html}'
             f'<div class="expert-grid">{expert_grid_html}</div>'
             f'<div class="metrics-strip">{metrics_html}</div>'
             f'{verdict_formatted}'

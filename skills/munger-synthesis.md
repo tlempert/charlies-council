@@ -278,6 +278,7 @@ Check verify against. A memo without it is rejected unread.
   "shares_m": 413.0,
   "shares_source": "[SEC] 10-K forensic block, FY-end",
   "owner_eps": 18.62,
+  "owner_eps_source": "DERIVED: $7.69B owner earnings [CALC] / 413M shares [SEC]",
   "hurdle_low": 0.08,
   "hurdle_high": 0.10,
   "inputs": [
@@ -313,6 +314,12 @@ Rules:
   is an invented number (ADBE draft 2: a "~17% effective tax rate" that decided a
   franchise-premium gate and existed nowhere in the file).
 - **A value you compute yourself** (GAAP EPS = TTM net income ÷ shares, an implied multiple, a yield) is tagged `DERIVED:` followed by the formula with each operand's own tag, e.g. `DERIVED: $7.23B TTM net income [CALC] / 397.5M shares [SEC]`. It is not checked for presence in the dossier; the formula is the audit, and a `DERIVED` with no formula fails.
+- **`shares_source` and `owner_eps_source` are checked under the same rule as
+  an input.** Every per-share figure divides by `shares_m` and every
+  required-growth row divides by `owner_eps`; a ledger that sources its inputs
+  but not its two denominators is audited at the leaves and unsourced at the
+  root. Owner EPS is nearly always `DERIVED:` owner earnings ÷ shares, each
+  operand with its own tag. A missing field FAILs the pre-gate.
 - **`varied` lists what you actually swept.** An input with an empty `varied`
   list is held fixed; say so in the prose and say why.
 - **Geometry must agree with the verdict:** BUY requires `price ≤ ceiling`; WAIT

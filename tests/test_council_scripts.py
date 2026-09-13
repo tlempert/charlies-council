@@ -219,7 +219,9 @@ REQUIRED_GROWTH = {
 
 
 def _ledger(**over):
-    base = {"price": 292.79, "shares_m": 413.0, "owner_eps": 18.62, "hurdle_low": 0.08, "hurdle_high": 0.10,
+    base = {"price": 292.79, "shares_m": 413.0, "shares_source": "[SEC] 10-K forensic block, FY-end",
+            "owner_eps": 18.62, "owner_eps_source": "DERIVED: $7.69B owner earnings [CALC] / 413M shares [SEC]",
+            "hurdle_low": 0.08, "hurdle_high": 0.10,
             "inputs": [{"name": "scenario_A_growth", "value": 0.102, "source": "[MEDIA] guided ARR 10.2%", "varied": [0.08, 0.10, 0.12]},
                        {"name": "terminal_multiple", "value": 19, "source": "JUDGMENT", "varied": [18, 19, 20]}],
             "central_value": 313.0, "ceiling": 282.0, "floor": 175.0,
@@ -439,6 +441,39 @@ class TestPregateDerivedTag:
         led["inputs"].append({"name": "gaap_eps_ttm", "value": 18.19, "source": "DERIVED", "varied": []})
         status, _ = _run(tmp_path, led)
         assert status["input:gaap_eps_ttm"] == "FAIL"
+
+
+class TestPregateHeadlineSources:
+    """Every required-growth row divides by owner_eps and every per-share figure
+    divides by shares_m, yet the pre-gate checked the sourcing of the inputs
+    list and never of those two. Munger flagged it on ADBE 2026-09-13: the
+    ledger had no place to say where owner EPS came from."""
+
+    def test_missing_owner_eps_source_fails(self, tmp_path):
+        led = _ledger(); del led["owner_eps_source"]
+        status, _ = _run(tmp_path, led)
+        assert status["owner_eps_source"] == "FAIL"
+
+    def test_missing_shares_source_fails(self, tmp_path):
+        led = _ledger(); del led["shares_source"]
+        status, _ = _run(tmp_path, led)
+        assert status["shares_source"] == "FAIL"
+
+    def test_owner_eps_derived_with_a_formula_passes(self, tmp_path):
+        status, _ = _run(tmp_path, _ledger())
+        assert status["owner_eps_source"] == "OK" and status["shares_source"] == "OK"
+
+    def test_owner_eps_derived_without_a_formula_fails(self, tmp_path):
+        status, _ = _run(tmp_path, _ledger(owner_eps_source="DERIVED"))
+        assert status["owner_eps_source"] == "FAIL"
+
+    def test_tagged_owner_eps_must_appear_in_the_dossier(self, tmp_path):
+        status, _ = _run(tmp_path, _ledger(owner_eps=99.99, owner_eps_source="[CALC] owner yield block"))
+        assert status["owner_eps_source"] == "FAIL"
+
+    def test_tagged_shares_found_in_the_dossier_pass(self, tmp_path):
+        status, _ = _run(tmp_path, _ledger(shares_m=413, shares_source="[SEC] 10-K cover"))
+        assert status["shares_source"] == "OK"
 
 
 class TestPregateConvergenceClaimNegation:

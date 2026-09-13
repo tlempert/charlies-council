@@ -90,6 +90,25 @@ def _num_variants(v):
     return [s for s in out if s and s not in ("0", "0.0", "0.00")]
 
 
+def _source_check(name, value, source, dossier):
+    """One sourced value: a dossier tag whose value appears in the dossier,
+    DERIVED with its formula, or a declared JUDGMENT. Returns (status, name, detail)."""
+    src = str(source or "")
+    if not TAG_RE.search(src):
+        return "FAIL", name, f"source '{src}' carries no [SEC]/[CALC]/[MEDIA]/[SEARCH] tag and is not JUDGMENT"
+    if "JUDGMENT" in src:
+        return "OK", name, "declared judgment"
+    if "DERIVED" in src:
+        # computed in the memo from dossier inputs; the formula is the audit
+        if re.search(r"[/÷×*+\-]\s*\S", src.split("DERIVED", 1)[1]):
+            return "OK", name, "derived, formula stated"
+        return "FAIL", name, "tagged DERIVED but no formula given"
+    hits = [s for s in _num_variants(value) if _appears(s, dossier)]
+    if hits:
+        return "OK", name, f"value found in dossier as {hits[0]}"
+    return "FAIL", name, f"value {value} tagged {src} but appears nowhere in refined_dossier.md"
+
+
 def run_checks(d):
     verdict = read(d, "verdict.md")
     summaries = summaries_from(read(d, "all_summaries.md"))
@@ -110,26 +129,15 @@ def run_checks(d):
 
     # 1. every model input is sourced or declared a judgment
     for inp in L.get("inputs", []):
-        src = str(inp.get("source", ""))
-        name = inp.get("name", "?")
-        if not TAG_RE.search(src):
-            add("FAIL", f"input:{name}", f"source '{src}' carries no [SEC]/[CALC]/[MEDIA]/[SEARCH] tag and is not JUDGMENT")
-            continue
-        if "JUDGMENT" in src:
-            add("OK", f"input:{name}", "declared judgment")
-            continue
-        if "DERIVED" in src:
-            # computed in the memo from dossier inputs; the formula is the audit
-            if re.search(r"[/÷×*+\-]\s*\S", src.split("DERIVED", 1)[1]):
-                add("OK", f"input:{name}", "derived, formula stated")
-            else:
-                add("FAIL", f"input:{name}", "tagged DERIVED but no formula given")
-            continue
-        hits = [s for s in _num_variants(inp.get("value")) if _appears(s, dossier)]
-        if hits:
-            add("OK", f"input:{name}", f"value found in dossier as {hits[0]}")
+        add(*_source_check(f"input:{inp.get('name', '?')}", inp.get("value"), inp.get("source"), dossier))
+
+    # 1b. the two headline numbers every per-share figure and required-growth
+    #     row divides by are sourced under the same rule
+    for field, src_key in (("shares_m", "shares_source"), ("owner_eps", "owner_eps_source")):
+        if L.get(src_key) is None:
+            add("FAIL", src_key, f"missing — say where {field} = {L.get(field)} comes from, like any input")
         else:
-            add("FAIL", f"input:{name}", f"value {inp.get('value')} tagged {src} but appears nowhere in refined_dossier.md")
+            add(*_source_check(src_key, L.get(field), L[src_key], dossier))
 
     # 2. verdict ↔ price geometry
     if None not in (price, ceiling):

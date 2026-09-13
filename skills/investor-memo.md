@@ -9,7 +9,8 @@ You are writing an investor memo on the company named in the inputs, for an inte
 - **Judgment is labelled as judgment.** Where you interpret rather than report, open the sentence with *My interpretation:*. Use conditional language for what has not happened: would, should, could, may.
 - **No new facts.** If the inputs do not contain a figure, say the figure is not disclosed. If the reader needs it, put it in the five questions.
 - **No expert names.** Write "the council", "one member of the council", "the council's dissent", "the red team". The reader is buying a conclusion, not a cast.
-- **Length:** 2,000–3,000 words. Tables for numbers, prose for reasoning. Sub-headings are `###`.
+- **Length:** aim for 1,200–1,350 words of reading; 1,500 is a hard ceiling and the validator rejects a longer draft, so leave yourself the margin — drafts asked for 1,500 have come in at 1,560. Citation tags and the *Sources and scope* list are not counted; everything else is. Nineteen headings in 1,500 words means every sentence earns its place: tables carry the numbers, bullets are one line each, no paragraph runs past four sentences, and the corrections section is a table. Prose is for reasoning the reader cannot get from a table. Sub-headings are `###`.
+- **Cite a table once.** Put the tag in the column header or the table's footnote, not in every cell; a cell carries its own tag only when its source differs from the column's.
 
 ## Inputs, in the order they are given to you
 
@@ -24,9 +25,9 @@ You are writing an investor memo on the company named in the inputs, for an inte
 # {Company} as an investment
 *{one-line subtitle: the tension the memo resolves}*
 ```
-Two or three paragraphs: the stance and its conviction in the first sentence; the central risk; the paradox (what is strong, what is exposed). Then the decision in one dense sentence with its tags.
+One paragraph: the stance and its conviction in the first sentence; the central risk; the paradox (what is strong, what is exposed). Then the decision in one dense sentence with its tags.
 
-`## What you would own` — the segments and what each sells, narratively; the switching cost or moat as the reader would experience it; one paragraph summarising the decision with bracketed references.
+`## What you would own` — one paragraph: the segments and what each sells; the switching cost or moat as the reader would experience it.
 
 `## Reading guide` — one line, arrow-separated: what the memo covers in what order.
 
@@ -45,8 +46,8 @@ each a short bulleted list of observable conditions, not values to be hit.
 `### Price discipline without false precision` — the buy zone, what each end means, and why the bounds are honest only to the width the memo states.
 
 `## What the gate changed — and what remains open`
-`### Corrections that mattered to the conclusion` — from the Reality Check findings and the verdict's correction log: topic by topic, what the first draft said, what the gate struck, and what the memo now says. The reader should see which numbers were withdrawn, not trust that none were.
-`### The next review should answer five questions` — numbered 1–5, each a specific metric or disclosure and where it would come from; close with one line on how to evaluate the answers.
+`### Corrections that mattered to the conclusion` — a table `Topic | First draft said | Gate struck | Memo now says`, one row per correction that moved a number the reader sees, from the Reality Check findings and the verdict's correction log. The reader should see which numbers were withdrawn, not trust that none were.
+`### The next review should answer five questions` — numbered 1–5, one line each: a specific metric or disclosure and where it would come from.
 `### Final investment view` — open with `**Verdict: {VERDICT} — {position_pct}% position.**` exactly as the ledger has it, then two or three sentences on franchise versus price.
 
 `## Sources and scope` — one paragraph on what this memo is (a reading of the council's gated report, not an audit or a live valuation refresh) and its cut-off date. Then the numbered source list: one line per source, `n. type — what it is and where it sits in the inputs` (e.g. `3. filing — 10-Q cover-page share count, 397.5M as of 2026-06-11, forensic block`; `7. judgment — ledger input terminal_multiple, 16x, varied 15–18x`). Every `n` cited above must be here.

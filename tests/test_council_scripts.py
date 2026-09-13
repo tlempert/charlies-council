@@ -599,8 +599,17 @@ class TestValidateMemo:
         assert any("citation" in p for p in problems)
 
     def test_a_memo_that_sprawls_fails(self, tmp_path):
-        problems = _memo_run(tmp_path, _memo() + "\nword " * 4000)
+        memo = _memo().replace("## Reading guide", "word " * 700 + "\n\n## Reading guide")
+        problems = _memo_run(tmp_path, memo)
         assert any("too long" in p for p in problems)
+
+    def test_citation_tags_and_the_source_list_are_not_reading(self, tmp_path):
+        """The 2026-09-13 ADBE memo was 1,718 words by wc, 1,392 once the 83
+        tags and the 199-word source list were set aside. The reader wanted
+        1,500 words of reading; that is what is counted."""
+        memo = _memo().replace("## Reading guide", "[3; filing] " * 300 + "\n\n## Reading guide")
+        memo += "\n" + "source words " * 300
+        assert not any("too long" in p for p in _memo_run(tmp_path, memo))
 
     def test_a_short_memo_fails(self, tmp_path):
         problems = _memo_run(tmp_path, _memo()[:3000])

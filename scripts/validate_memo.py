@@ -13,8 +13,8 @@ import json
 import re
 import sys
 
-MIN_CHARS = 8000
-MAX_WORDS = 4000          # the skill asks for 2,000–3,000; Sonnet's first ADBE draft ran to 4,443
+MIN_CHARS = 5000          # ~900 words; the skill aims for 1,200–1,350
+MAX_WORDS = 1500          # of reading: citation tags and the source list are not counted
 MIN_CITATIONS = 12
 HEADINGS = [
     "## What you would own", "## Reading guide", "## The economic engine",
@@ -46,15 +46,21 @@ def _appears(value, text):
     return False
 
 
+def reading_words(memo):
+    """Words the reader reads: citation tags and the source list are bookkeeping."""
+    body = re.split(r"^## Sources and scope\s*$", memo, maxsplit=1, flags=re.M)[0]
+    return len(CITATION_RE.sub("", body).split())
+
+
 def problems(memo_path, verdict_path):
     memo = open(memo_path, encoding="utf-8").read()
     L = ledger_from(open(verdict_path, encoding="utf-8").read())
     out = []
     if len(memo) < MIN_CHARS:
         out.append(f"too short: {len(memo)} chars, need {MIN_CHARS}")
-    words = len(memo.split())
+    words = reading_words(memo)
     if words > MAX_WORDS:
-        out.append(f"too long: {words} words, the skill asks for 2,000–3,000 (cap {MAX_WORDS})")
+        out.append(f"too long: {words} words of reading, the ceiling is {MAX_WORDS}")
     if not re.search(r"^# .+ as an investment\s*$", memo, re.M):
         out.append("missing title: '# {Company} as an investment'")
     for h in HEADINGS:

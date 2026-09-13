@@ -69,21 +69,52 @@ class TestCodexPreflight:
             open(out, "w").write(text)
         return run
 
+    LIMIT_STDERR = (b"ERROR: You've hit your usage limit. Upgrade to Pro (https://chatgpt.com/explore/pro), "
+                    b"visit https://chatgpt.com/codex/settings/usage to purchase more credits or try again at 7:51 PM.\n")
+
+    def _run_at_limit(self):
+        def run(cmd, **kw):
+            out = cmd[cmd.index("--output-last-message") + 1]
+            open(out, "w").write("")
+            return subprocess.CompletedProcess(cmd, 1, stdout=b"", stderr=self.LIMIT_STDERR)
+        return run
+
     def test_reachable_when_the_model_answers(self):
-        assert _load("codex_preflight").preflight(run=self._run_writing("PONG")) is True
+        assert _load("codex_preflight").preflight(run=self._run_writing("PONG")) == (True, "")
 
     def test_unavailable_when_the_answer_is_empty(self):
-        assert _load("codex_preflight").preflight(run=self._run_writing("")) is False
+        ok, note = _load("codex_preflight").preflight(run=self._run_writing(""))
+        assert ok is False and note
 
     def test_unavailable_when_the_binary_is_missing(self):
         def run(cmd, **kw):
             raise FileNotFoundError(cmd[0])
-        assert _load("codex_preflight").preflight(run=run) is False
+        assert _load("codex_preflight").preflight(run=run)[0] is False
 
     def test_unavailable_on_timeout(self):
         def run(cmd, **kw):
             raise subprocess.TimeoutExpired(cmd, 45)
-        assert _load("codex_preflight").preflight(run=run) is False
+        assert _load("codex_preflight").preflight(run=run)[0] is False
+
+    def test_reports_the_reset_time_when_codex_is_at_its_limit(self):
+        """ADBE 2026-09-13: codex exec returned rc=1 with the reset time on stderr,
+        and the preflight said only UNAVAILABLE. The user had to grep the log."""
+        assert _load("codex_preflight").preflight(run=self._run_at_limit()) == (False, "usage limit, try again at 7:51 PM")
+
+    def test_records_the_verdict_in_the_manifest(self, tmp_path, monkeypatch, capsys):
+        monkeypatch.setenv("COUNCIL_ROOT", str(tmp_path))
+        monkeypatch.delitem(sys.modules, "council_manifest", raising=False)
+        _load("council_manifest").init("ADBE")
+        rc = _load("codex_preflight").main(["codex_preflight.py", "ADBE"], run=self._run_at_limit())
+        assert rc == 1
+        codex = json.load(open(tmp_path / "ADBE" / "manifest.json"))["codex"]
+        assert codex["ok"] is False and codex["note"] == "usage limit, try again at 7:51 PM" and codex["ts"] > 0
+        assert "try again at 7:51 PM" in capsys.readouterr().out
+
+    def test_no_manifest_is_not_an_error(self, tmp_path, monkeypatch):
+        monkeypatch.setenv("COUNCIL_ROOT", str(tmp_path))
+        monkeypatch.delitem(sys.modules, "council_manifest", raising=False)
+        assert _load("codex_preflight").main(["codex_preflight.py", "NOPE"], run=self._run_writing("PONG")) == 0
 
 
 # --- council_manifest.py ------------------------------------------------------

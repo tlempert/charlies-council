@@ -112,13 +112,13 @@ Only the byte count returns to your context. Do NOT `cat` this file.
 
 ### Step 2.4: Codex Preflight (once per run)
 
-Decide once, up front, whether the Codex leg is viable. Nothing in `codex exec`'s exit code or in `~/.codex/log` distinguishes a quota-exhausted call from a successful one — only the output does — so this asks for one word and checks that a word came back:
+Decide once, up front, whether the Codex leg is viable. `codex exec`'s exit code does not settle it — it has returned 0 with an empty output file, and 1 at a usage limit — so this asks for one word and checks that a word came back:
 
 ```bash
-cd /Users/tallempert/src-tal/investor && ./venv/bin/python3 scripts/codex_preflight.py; echo "CODEX_OK=$?"
+cd /Users/tallempert/src-tal/investor && cd /Users/tallempert/src-tal/investor && ./venv/bin/python3 scripts/codex_preflight.py {TICKER}; echo "CODEX_OK=$?"
 ```
 
-`CODEX_OK=0` → run the Codex legs below as written. `CODEX_OK=1` → tell the user Codex is unavailable, and for every Codex leg in Steps 2.5, 3, 3.5e and 4 use the Claude fallback stated at that step. Do not re-test mid-run; per-worker validation in Step 4 catches a pool that dies partway.
+`CODEX_OK=0` → run the Codex legs below as written. `CODEX_OK=1` → tell the user Codex is unavailable **and when it comes back**: at a usage limit Codex prints the reset time on stderr (`... or try again at 7:51 PM`), and the preflight repeats it (`codex: UNAVAILABLE (usage limit, try again at 7:51 PM)`) and records it in the manifest under `codex`. For every Codex leg in Steps 2.5, 3, 3.5e, 4 and 7 use the Claude fallback stated at that step. Do not re-test mid-run; per-worker validation in Step 4 catches a pool that dies partway. On a resumed run, `status` shows the recorded `codex` block — if the reset time has passed, run the preflight again before the next Codex leg.
 
 ### Step 2.5: First-Pass Condense (Codex)
 
@@ -128,7 +128,7 @@ Condense the raw forensic dump into a structured brief. This is mechanical, high
 
 **Codex binary and models are both pinned explicitly.** Use `$CX` (`/Applications/ChatGPT.app/Contents/Resources/codex`), NOT the `codex` on PATH — the Homebrew build is far older and rejects current models. Models are pinned rather than inherited from `~/.codex/config.toml`, otherwise retuning Codex for coding work would silently change investment output. Condense steps use `gpt-5.6-luna` (clear, repeatable extraction) at low effort; the Step 4 experts use `gpt-5.6-sol` (deep analysis) at high effort. Do not substitute `gpt-5.4` / `gpt-5.4-mini` — both retire from Codex on 2026-08-31.
 
-**Never trust `codex exec`'s exit code.** It returns 0 even when the model call fails outright, writing an empty output file. Every fallback below keys on the output file being non-empty, never on `$?`.
+**Never trust `codex exec`'s exit code.** It has returned 0 when the model call failed outright (writing an empty output file) and 1 at a usage limit. Every fallback below keys on the output file being non-empty, never on `$?`.
 
 ```bash
 CX=/Applications/ChatGPT.app/Contents/Resources/codex; D=/tmp/silicon_council/{TICKER}; { echo "Condense the raw web-search results below into a structured brief for an investment analyst.
@@ -143,7 +143,7 @@ Rules:
 - Target 800-1200 words."; echo; cat $D/raw_forensic.txt; } | $CX exec - -m gpt-5.6-luna -c model_reasoning_effort=low --sandbox read-only --skip-git-repo-check --output-last-message $D/forensic_brief.md >$D/forensic_brief.log 2>&1; wc -c $D/forensic_brief.md
 ```
 
-**Fallback:** if `$CX` is missing or `forensic_brief.md` is empty (check the byte count — the exit code is always 0), skip this step and let Step 3 read `raw_forensic.txt` directly. Tell the user the Codex leg was skipped — never continue silently with a missing brief.
+**Fallback:** if `$CX` is missing or `forensic_brief.md` is empty (check the byte count, not the exit code), skip this step and let Step 3 read `raw_forensic.txt` directly. Tell the user the Codex leg was skipped — never continue silently with a missing brief.
 
 **Codex condenses; it does not decide.** It must not drop a finding for seeming unimportant — that judgment belongs to Step 3.
 

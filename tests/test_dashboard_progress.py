@@ -105,6 +105,38 @@ class TestCurrentStep:
         assert progress.current_step(manifest) is None
 
 
+class TestWhetherThePipelineFinished:
+    """KNSL, 2026-09-16: the headless process exited 0 with the manifest stuck
+    on `experts`. Exit zero says the process ended; only the manifest says the
+    pipeline finished."""
+
+    def test_a_manifest_whose_last_step_is_done_is_complete(self):
+        manifest = {"steps": {name: {"status": "done"} for name in progress.STEP_NAMES}}
+        assert progress.is_complete(manifest) is True
+        assert progress.stopped_at(manifest) is None
+
+    def test_a_run_that_stopped_while_the_experts_were_out_is_not_complete(self):
+        manifest = {"steps": {"dossier": {"status": "done"}, "forensic": {"status": "done"},
+                              "condense": {"status": "done"}, "refine": {"status": "done"},
+                              "threats": {"status": "done"}, "experts": {"status": "started"}}}
+        assert progress.is_complete(manifest) is False
+        assert progress.stopped_at(manifest) == "experts"
+
+    def test_a_job_with_no_manifest_has_not_even_begun(self):
+        assert progress.is_complete(None) is False
+        assert progress.stopped_at(None) == "dossier"
+
+    def test_a_step_the_run_skipped_does_not_undo_a_finished_pipeline(self):
+        manifest = {"steps": {name: {"status": "done"} for name in progress.STEP_NAMES
+                              if name != "memo"}}
+        assert progress.is_complete(manifest) is True
+        assert progress.stopped_at(manifest) is None
+
+    def test_the_first_unfinished_step_is_where_the_run_stopped(self):
+        manifest = {"steps": {"dossier": {"status": "done"}, "forensic": {"status": "failed"}}}
+        assert progress.stopped_at(manifest) == "forensic"
+
+
 class TestGatePasses:
     """The Reality Check writes one file per review pass, and nothing else does."""
 

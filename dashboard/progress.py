@@ -95,6 +95,28 @@ def current_step(manifest):
     return None
 
 
+def is_complete(manifest):
+    """Did the pipeline actually finish? Only the last step can say so.
+
+    A headless run can exit 0 having stopped anywhere — a turn that ends while a
+    background task is outstanding ends the session — so the process's exit code
+    is no evidence at all. `assemble` is the step that saves the report."""
+    for step in steps(manifest):
+        if step["name"] == "assemble":
+            return step["status"] == "done"
+    return False
+
+
+def stopped_at(manifest):
+    """The step a run that did not finish never got past. None once complete."""
+    if is_complete(manifest):
+        return None
+    for step in steps(manifest):
+        if step["status"] != "done":
+            return step["name"]
+    return None
+
+
 def gate_passes(folder):
     """How many Reality Check reviews the run left behind, if any."""
     try:

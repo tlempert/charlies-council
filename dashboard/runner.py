@@ -15,12 +15,25 @@ import threading
 import uuid
 from pathlib import Path
 
-from . import events, metrics, store as store_mod
+from . import events, metrics, progress, store as store_mod
 
 REPO_ROOT = Path(__file__).resolve().parent.parent
 REPORT_BASE = "https://tlempert.github.io/investor-reports"
 DEFAULT_MAX_TURNS = 400
+DEFAULT_RESUME_LIMIT = 4
 STDERR_TAIL = 4000
+
+#: What to say to a session that stopped before the pipeline finished. KNSL,
+#: 2026-09-16: the turn ended while the Codex batch was still out, the process
+#: exited 0 after six task notifications, and nothing after Step 4 ever ran.
+RESUME_PROMPT = (
+    "The headless run ended before the pipeline finished. Read "
+    "/tmp/silicon_council/{TICKER}/manifest.json (scripts/council_manifest.py status {TICKER}). "
+    "Continue /analyze-company {TICKER} from the first step that is not marked done, without "
+    "redoing done steps. For the experts step, validate every expert file with "
+    "scripts/validate_worker.sh and re-dispatch only the pending keys down the ladder before "
+    "moving on. Do not end your turn while any background task is still running; wait for it in "
+    "the foreground.")
 
 
 class Runner(threading.Thread):
@@ -31,6 +44,7 @@ class Runner(threading.Thread):
         self.claude_bin = config.get("claude_bin") or "claude"
         self.repo_root = Path(config.get("repo_root") or REPO_ROOT)
         self.max_turns = config.get("max_turns") or DEFAULT_MAX_TURNS
+        self.resume_limit = config.get("resume_limit") or DEFAULT_RESUME_LIMIT
         self.home = Path(home) if home else store_mod.home()
         self.poll_seconds = poll_seconds
         self.cancel_poll = cancel_poll
@@ -67,29 +81,62 @@ class Runner(threading.Thread):
                  "--max-turns", str(self.max_turns)]
         return " ".join(shlex.quote(part) for part in parts)
 
+    def resume_command(self, job, session_id):
+        """The same run, asked to carry on in the session it already opened."""
+        parts = [self.claude_bin, "-p", "--resume", session_id,
+                 "--output-format", "stream-json", "--verbose",
+                 "--permission-mode", "bypassPermissions",
+                 "--max-turns", str(self.max_turns),
+                 RESUME_PROMPT.replace("{TICKER}", job["ticker"])]
+        return " ".join(shlex.quote(part) for part in parts)
+
     def run_next(self):
         """Run the oldest queued job to completion. Returns its id, or None."""
         job = self.store.next_queued()
         if job is None:
             return None
-        session_id = str(uuid.uuid4())
+        carrying_on = bool(job.get("resume_requested") and job.get("session_id"))
+        session_id = job["session_id"] if carrying_on else str(uuid.uuid4())
         self.store.mark_running(job["id"], session_id)
+        self.store.clear_resume_request(job["id"])
         try:
-            exit_code, result_event = self._execute(job, session_id)
+            exit_code, result_event, resumes = self._pursue(job, session_id, carrying_on)
         except Exception as exc:                   # a broken runner must not silently stall the queue
             self._settle(job, "failed", None, None, f"runner error: {exc}")
             return job["id"]
         self._settle(job, self._verdict_state(job, exit_code, result_event),
-                     exit_code, result_event, self._error_text(job, exit_code, result_event))
+                     exit_code, result_event, self._error_text(job, exit_code, result_event, resumes))
         return job["id"]
 
-    def _execute(self, job, session_id):
+    def _pursue(self, job, session_id, carrying_on):
+        """Run the job, then keep asking the session to carry on for as long as
+        its own manifest says the pipeline stopped short of the end."""
+        exit_code, result_event, resumes = 0, None, 0
+        if not carrying_on:
+            exit_code, result_event = self._execute(job, self.command(job, session_id))
+        while self._stopped_short(job, exit_code, result_event) and resumes < self.resume_limit:
+            resumes += 1
+            self.store.record_resume(job["id"])
+            exit_code, event = self._execute(job, self.resume_command(job, session_id), append=True)
+            result_event = event or result_event
+        return exit_code, result_event, resumes
+
+    def _stopped_short(self, job, exit_code, result_event):
+        """An analysis that ended on its own terms but never reached `assemble`.
+        A scan writes no manifest, so it is finished when the process is."""
+        if job.get("kind") == "discover" or self.store.cancel_requested(job["id"]):
+            return False
+        if exit_code != 0 or (result_event or {}).get("is_error"):
+            return False
+        return not progress.is_complete(progress.read_manifest(job["ticker"]))
+
+    def _execute(self, job, command, append=False):
         folder = self.job_dir(job["id"])
-        command = self.command(job, session_id)
+        mode = "a" if append else "w"
         result_event = None
-        with open(folder / "events.jsonl", "w", encoding="utf-8") as stream, \
-                open(folder / "stdout.log", "w", encoding="utf-8") as raw, \
-                open(folder / "stderr.log", "w", encoding="utf-8") as errors:
+        with open(folder / "events.jsonl", mode, encoding="utf-8") as stream, \
+                open(folder / "stdout.log", mode, encoding="utf-8") as raw, \
+                open(folder / "stderr.log", mode, encoding="utf-8") as errors:
             process = subprocess.Popen(
                 ["zsh", "-lic", command], cwd=str(self.repo_root),
                 stdout=subprocess.PIPE, stderr=errors, text=True, bufsize=1,
@@ -137,11 +184,15 @@ class Runner(threading.Thread):
             return "cancelled"
         if exit_code != 0 or (result_event or {}).get("is_error"):
             return "failed"
-        return "done"
+        return "failed" if self._stopped_short(job, exit_code, result_event) else "done"
 
-    def _error_text(self, job, exit_code, result_event):
+    def _error_text(self, job, exit_code, result_event, resumes):
         if self.store.cancel_requested(job["id"]):
             return None
+        if self._stopped_short(job, exit_code, result_event):
+            step = progress.stopped_at(progress.read_manifest(job["ticker"]))
+            return (f"pipeline stopped at {step} after {resumes} "
+                    f"resume{'s' if resumes != 1 else ''}")
         if exit_code == 0 and not (result_event or {}).get("is_error"):
             return None
         reported = (result_event or {}).get("result")

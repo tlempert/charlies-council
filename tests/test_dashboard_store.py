@@ -108,6 +108,75 @@ class TestStateTransitions:
         assert [j["ticker"] for j in store.list_jobs()] == ["MSFT", "ADBE"]
 
 
+class TestContinuingARunThatStoppedShort:
+    """A run whose pipeline stopped short still holds its session, so it can be
+    put back on the queue and carried on rather than started from scratch."""
+
+    def stopped(self, store, state="done"):
+        job_id = store.enqueue("ADBE")
+        store.mark_running(job_id, "sess-1")
+        store.finish(job_id, state, exit_code=0, error="pipeline stopped at experts after 4 resumes")
+        return job_id
+
+    def test_a_finished_run_goes_back_on_the_queue_carrying_its_session(self, store):
+        job_id = self.stopped(store)
+        assert store.requeue_for_resume(job_id) is True
+        job = store.get_job(job_id)
+        assert (job["state"], job["session_id"]) == ("queued", "sess-1")
+        assert (job["finished_at"], job["error"], job["exit_code"]) == (None, None, None)
+        assert job["resume_requested"] == 1
+
+    def test_a_requeued_run_is_the_one_the_runner_takes_next(self, store):
+        job_id = self.stopped(store)
+        store.requeue_for_resume(job_id)
+        assert store.next_queued()["id"] == job_id
+
+    def test_a_failed_run_can_be_continued_too(self, store):
+        assert store.requeue_for_resume(self.stopped(store, "failed")) is True
+
+    @pytest.mark.parametrize("state", ["queued", "running", "cancelled"])
+    def test_a_run_that_is_not_over_cannot_be_continued(self, store, state):
+        job_id = store.enqueue("ADBE")
+        store.mark_running(job_id, "sess-1")
+        if state != "running":
+            store.db.execute("UPDATE jobs SET state = ? WHERE id = ?", (state, job_id))
+        assert store.requeue_for_resume(job_id) is False
+        assert store.get_job(job_id)["state"] == state
+
+    def test_a_run_that_never_opened_a_session_has_nothing_to_continue(self, store):
+        job_id = store.enqueue("ADBE")
+        store.finish(job_id, "failed", error="runner error")
+        assert store.requeue_for_resume(job_id) is False
+        assert store.get_job(job_id)["state"] == "failed"
+
+    def test_a_job_nobody_has_cannot_be_continued(self, store):
+        assert store.requeue_for_resume("no-such-job") is False
+
+    def test_starting_a_requeued_job_keeps_the_session_it_is_carrying_on(self, store):
+        job_id = self.stopped(store)
+        store.requeue_for_resume(job_id)
+        store.mark_running(job_id, "sess-2")
+        assert store.get_job(job_id)["session_id"] == "sess-1"
+
+    def test_starting_a_fresh_job_takes_the_session_it_is_handed(self, store):
+        job_id = store.enqueue("ADBE")
+        store.mark_running(job_id, "sess-2")
+        assert store.get_job(job_id)["session_id"] == "sess-2"
+
+    def test_every_resume_is_counted_on_the_job(self, store):
+        job_id = store.enqueue("ADBE")
+        assert store.get_job(job_id)["resumes"] == 0
+        store.record_resume(job_id)
+        store.record_resume(job_id)
+        assert store.get_job(job_id)["resumes"] == 2
+
+    def test_the_request_is_cleared_once_the_runner_has_taken_it(self, store):
+        job_id = self.stopped(store)
+        store.requeue_for_resume(job_id)
+        store.clear_resume_request(job_id)
+        assert store.get_job(job_id)["resume_requested"] == 0
+
+
 class TestQuestions:
     def test_a_question_waits_unanswered_until_the_worker_gets_to_it(self, store):
         job_id = store.enqueue("ADBE")
@@ -239,6 +308,41 @@ class TestUpgradingAnOlderDatabase:
         old.close()
         store = store_mod.Store(path)
         assert store.get_job("old1")["kind"] == "analysis"
+
+    def test_an_old_jobs_table_gains_the_resume_columns(self, tmp_path):
+        """The run that stopped short is on the live database, which predates
+        both new columns: it has to be continuable the moment this ships."""
+        path = tmp_path / "old-jobs.db"
+        old = sqlite3.connect(path)
+        old.execute("CREATE TABLE jobs (id TEXT PRIMARY KEY, ticker TEXT NOT NULL, "
+                    "kind TEXT NOT NULL DEFAULT 'analysis', session_id TEXT, state TEXT NOT NULL, "
+                    "created_at REAL NOT NULL, started_at REAL, finished_at REAL, "
+                    "exit_code INTEGER, error TEXT, report_url TEXT, "
+                    "cancel_requested INTEGER NOT NULL DEFAULT 0)")
+        old.execute("INSERT INTO jobs (id, ticker, session_id, state, created_at) "
+                    "VALUES ('old1', 'ADBE', 'sess-1', 'done', 1000)")
+        old.commit()
+        old.close()
+        store = store_mod.Store(path)
+        job = store.get_job("old1")
+        assert (job["resumes"], job["resume_requested"]) == (0, 0)
+        assert store.requeue_for_resume("old1") is True
+
+    def test_an_old_metrics_table_gains_the_columns_a_resumed_run_needs(self, tmp_path):
+        path = tmp_path / "old-metrics.db"
+        old = sqlite3.connect(path)
+        old.execute("CREATE TABLE metrics (job_id TEXT PRIMARY KEY, wall_seconds REAL, "
+                    "step_seconds TEXT, input_tokens INTEGER, output_tokens INTEGER, "
+                    "cache_read_tokens INTEGER, cost_usd REAL, num_turns INTEGER, "
+                    "fallbacks TEXT, gate_passes INTEGER, verdict TEXT, "
+                    "followup_cost_usd REAL, followup_turns INTEGER)")
+        old.commit()
+        old.close()
+        store = store_mod.Store(path)
+        job_id = store.enqueue("ADBE")
+        store.save_metrics(job_id, {"resumes": 2, "stopped_at": "experts"})
+        row = store.get_metrics(job_id)
+        assert (row["resumes"], row["stopped_at"]) == (2, "experts")
 
     def test_reopening_an_already_migrated_database_is_a_no_op(self, tmp_path):
         store_mod.Store(tmp_path / "twice.db").enqueue("ADBE")

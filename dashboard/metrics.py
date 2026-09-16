@@ -9,7 +9,10 @@ from . import events, progress
 
 def compute(ticker, job, result_event):
     """The metrics row for one job, from the manifest, the result event and the
-    run folder. Any of the three may be missing."""
+    run folder. Any of the three may be missing.
+
+    `resumes` and `stopped_at` are the harness-tuning pair: how many times the
+    headless session had to be restarted, and the step it never got past."""
     job = job or {}
     result = events.summarize_result(result_event) or {}
     manifest = progress.read_manifest(ticker)
@@ -25,6 +28,8 @@ def compute(ticker, job, result_event):
         "fallbacks": _fallbacks(manifest),
         "gate_passes": progress.gate_passes(folder),
         "verdict": _verdict(folder),
+        "resumes": job.get("resumes") or 0,
+        "stopped_at": None if job.get("kind") == "discover" else progress.stopped_at(manifest),
     }
 
 

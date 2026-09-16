@@ -10,6 +10,7 @@ import os
 import pytest
 
 from dashboard import app as app_mod
+from dashboard import progress
 from dashboard import store as store_mod
 from tests.test_dashboard_auth import PASSWORD, _Client
 
@@ -28,6 +29,25 @@ def open_the_council(root):
     manifest = dict(MANIFEST, steps=dict(MANIFEST["steps"],
                                          experts={"status": "started", "started": 200, "ts": 200}))
     (root / "ADBE" / "manifest.json").write_text(json.dumps(manifest), encoding="utf-8")
+
+
+STOPPED_AT_EXPERTS = {
+    "ticker": "ADBE",
+    "steps": dict({n: {"status": "done"} for n in
+                   ("dossier", "forensic", "condense", "refine", "threats")},
+                  experts={"status": "started", "started": 200, "ts": 200}),
+}
+
+
+def stop_at_the_experts(root):
+    """The KNSL shape: five steps done, the council still out, nothing after."""
+    (root / "ADBE" / "manifest.json").write_text(json.dumps(STOPPED_AT_EXPERTS), encoding="utf-8")
+
+
+def finish_the_pipeline(root):
+    (root / "ADBE" / "manifest.json").write_text(json.dumps(
+        {"ticker": "ADBE", "steps": {n: {"status": "done"} for n in progress.STEP_NAMES}}),
+        encoding="utf-8")
 
 
 @pytest.fixture
@@ -147,7 +167,8 @@ class TestTheJobPage:
         store.finish(job_id, "failed", exit_code=1, error="permission prompt, no tty")
         assert "permission prompt, no tty" in client.get(f"/jobs/{job_id}")[1]
 
-    def test_the_report_is_linked_once_there_is_one(self, client, store, job_id):
+    def test_the_report_is_linked_once_there_is_one(self, client, store, job_id, council_root):
+        finish_the_pipeline(council_root)
         store.finish(job_id, "done", report_url="https://example.test/ADBE.html")
         assert "https://example.test/ADBE.html" in client.get(f"/jobs/{job_id}")[1]
 
@@ -159,6 +180,82 @@ class TestTheJobPage:
         body = client.get(f"/jobs/{job_id}")[1]
         assert "<script>alert(1)</script>" not in body
         assert "&lt;script&gt;" in body
+
+
+class TestContinuingARunThatStoppedShort:
+    """KNSL, 2026-09-16: a job marked done with no report, because the headless
+    process exited 0 while the manifest was still on `experts`."""
+
+    @pytest.fixture
+    def stopped(self, store, council_root):
+        stop_at_the_experts(council_root)
+        job_id = store.enqueue("ADBE")
+        store.mark_running(job_id, "sess-1")
+        store.finish(job_id, "done")
+        return job_id
+
+    def test_the_page_says_where_the_pipeline_stopped_and_offers_to_carry_on(self, client, stopped):
+        body = client.get(f"/jobs/{stopped}")[1]
+        assert "Pipeline stopped at experts." in body
+        assert "Continue run" in body
+        assert f'action="/jobs/{stopped}/resume"' in body
+
+    def test_a_run_that_finished_its_pipeline_is_offered_nothing(
+            self, client, store, council_root, stopped):
+        finish_the_pipeline(council_root)
+        body = client.get(f"/jobs/{stopped}")[1]
+        assert "Continue run" not in body
+        assert "Pipeline stopped" not in body
+
+    def test_a_failed_run_can_be_carried_on_too(self, client, store, stopped):
+        store.finish(stopped, "failed", exit_code=0,
+                     error="pipeline stopped at experts after 4 resumes")
+        assert "Continue run" in client.get(f"/jobs/{stopped}")[1]
+
+    def test_a_run_still_going_is_offered_nothing_because_it_has_not_stopped(
+            self, client, store, council_root):
+        stop_at_the_experts(council_root)
+        job_id = store.enqueue("ADBE")
+        store.mark_running(job_id, "sess-1")
+        assert "Continue run" not in client.get(f"/jobs/{job_id}")[1]
+
+    def test_a_scan_is_never_offered_a_continue(self, client, store):
+        job_id = store.enqueue_discovery("UK consumer")
+        store.mark_running(job_id, "sess-1")
+        store.finish(job_id, "done")
+        assert "Continue run" not in client.get(f"/jobs/{job_id}")[1]
+
+    def test_a_run_that_stopped_short_is_not_given_a_report_to_link(self, client, store, stopped):
+        store.finish(stopped, "done", report_url="https://example.test/ADBE.html")
+        body = client.get(f"/jobs/{stopped}")[1]
+        assert "https://example.test/ADBE.html" not in body
+        assert "Verdict &rarr;" not in body and "/verdict\"><b>Verdict" not in body
+
+    def test_pressing_continue_puts_the_job_back_on_the_queue(self, client, store, stopped):
+        status, _ = client.post(f"/jobs/{stopped}/resume", {})
+        assert (status, client.location) == (303, f"/jobs/{stopped}")
+        job = store.get_job(stopped)
+        assert (job["state"], job["resume_requested"]) == ("queued", 1)
+
+    def test_the_header_says_how_many_times_the_run_was_resumed(self, client, store, stopped):
+        store.record_resume(stopped)
+        store.record_resume(stopped)
+        assert "resumed 2" in client.get(f"/jobs/{stopped}")[1]
+
+    def test_a_run_that_was_never_resumed_says_nothing_about_resumes(self, client, stopped):
+        assert "resumed" not in client.get(f"/jobs/{stopped}")[1]
+
+    def test_the_runs_table_says_where_a_run_that_stopped_short_got_to(
+            self, client, store, stopped):
+        assert "stopped at experts" in client.get("/")[1]
+
+    def test_the_runs_table_still_shows_the_verdict_of_a_finished_run(
+            self, client, store, council_root, stopped):
+        finish_the_pipeline(council_root)
+        store.save_metrics(stopped, {"verdict": "WAIT"})
+        body = client.get("/")[1]
+        assert "stopped at" not in body
+        assert "<span class=d-wait>WAIT</span>" in body
 
 
 class TestPolling:
@@ -223,6 +320,13 @@ class TestMetricsPages:
         assert status == 200
         assert rows[0]["ticker"] == "ADBE"
         assert rows[0]["fallbacks"][0]["key"] == "lynch"
+
+    def test_the_metrics_page_counts_resumes_and_names_the_step_a_run_died_on(self, client, store):
+        job_id = store.enqueue("KNSL")
+        store.save_metrics(job_id, {"resumes": 2, "stopped_at": "experts"})
+        body = client.get("/metrics")[1]
+        assert "<th>Resumes" in body and "<th>Stopped" in body
+        assert "experts" in body
 
     def test_an_unmeasured_install_still_renders_the_page(self, client):
         assert "No runs measured yet" in client.get("/metrics")[1]

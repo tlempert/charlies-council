@@ -297,6 +297,9 @@ def _run_progress(store, job):
     if job["kind"] == "discover":
         return ""
     if job["state"] not in ("running", "queued"):
+        stopped = stopped_step(job)
+        if job["state"] == "done" and stopped:
+            return f"stopped at {e(stopped)}"
         return verdict((store.get_metrics(job["id"]) or {}).get("verdict"))
     manifest = progress.read_manifest(job["ticker"])
     segments = "".join(f"<i class={_BAR_CLASS.get(s['status'], 'pending')}></i>"
@@ -428,18 +431,36 @@ EXPERT_SHORT = {"jeff_bezos": "Bezos", "warren_buffett": "Buffett", "michael_bur
                 "historian": "Historian", "anthropologist": "Anthro", "lynch": "Lynch"}
 
 
+def stopped_step(job):
+    """Where an analysis that is over got to, if its pipeline never finished.
+
+    An exit code says the process ended; the manifest says whether the pipeline
+    did. A run that stopped short has no report to show and can be carried on."""
+    if job["kind"] == "discover" or job["state"] not in ("done", "failed") or not job["session_id"]:
+        return None
+    return progress.stopped_at(progress.read_manifest(job["ticker"]))
+
+
 def job_page(store, job):
     discover = job["kind"] == "discover"
     snapshot = None if discover else progress.snapshot(job["ticker"])
     body = _discovery_body(store, job) if discover else _pipeline_body(snapshot)
+    stopped = stopped_step(job)
 
     label = f"Find candidates: {job['ticker']}" if discover else job["ticker"]
     head = (f"<h1>{e(label)} <span class=muted>{e(job['state'])}</span></h1>"
             f"<p class=muted>elapsed <span id=elapsed>{_ago(elapsed_of(job))}</span> · ")
     if not discover:
         head += f"fallbacks <span id=fallbacks>{_fallback_count(snapshot['workers'])}</span> · "
-    head += f"session {e(job['session_id'] or '—')}</p>"
-    if job["report_url"]:
+    head += f"session {e(job['session_id'] or '—')}"
+    if job["resumes"]:
+        head += f" · resumed {e(job['resumes'])}×"
+    head += "</p>"
+    if stopped:
+        head += (f"<p class=muted>Pipeline stopped at {e(stopped)}.</p>"
+                 f'<form method="post" action="/jobs/{e(job["id"])}/resume" style="margin:.5rem 0">'
+                 "<button>Continue run</button></form>")
+    elif job["report_url"]:
         head += f'<p><a href="{e(job["report_url"])}"><b>Report →</b></a></p>'
     elif job["state"] == "done" and not discover:
         head += f'<p><a href="/jobs/{e(job["id"])}/verdict"><b>Verdict →</b></a></p>'
@@ -547,8 +568,10 @@ def metrics_page(store):
         f"<td>{e(m['verdict'] or '—')}</td><td>{_ago(m['wall_seconds'])}</td>"
         f"<td>{'' if m['cost_usd'] is None else '$%.2f' % m['cost_usd']}</td>"
         f"<td>{e(m['num_turns'] or '—')}</td><td>{len(m['fallbacks'] or [])}</td>"
-        f"<td>{e(m['gate_passes'] or 0)}</td></tr>" for m in store.all_metrics())
-    table = ("<table><tr><th>Ticker<th>Verdict<th>Wall<th>Cost<th>Turns<th>Fallbacks<th>Gate</tr>"
+        f"<td>{e(m['gate_passes'] or 0)}</td><td>{e(m['resumes'] or 0)}</td>"
+        f"<td>{e(m['stopped_at'] or '—')}</td></tr>" for m in store.all_metrics())
+    table = ("<table><tr><th>Ticker<th>Verdict<th>Wall<th>Cost<th>Turns<th>Fallbacks<th>Gate"
+             "<th>Resumes<th>Stopped</tr>"
              + rows + "</table>") if rows else "<p class=muted>No runs measured yet.</p>"
     return page("Council — metrics",
                 "<h1>Metrics</h1>" + table +
@@ -712,6 +735,8 @@ class _Handler(BaseHTTPRequestHandler):
             return self._send(404, page("Not found", "<h1>No such job</h1>"))
         if tail == "cancel":
             self.store.request_cancel(job_id)
+        elif tail == "resume":
+            self.store.requeue_for_resume(job_id)
         elif tail == "questions":
             question = (form.get("question") or "").strip()
             if question:

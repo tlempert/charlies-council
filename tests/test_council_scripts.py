@@ -418,6 +418,25 @@ class TestTheSkillMarksEveryStepTwice:
         assert "step {TICKER} <step-name> started" in text
 
 
+class TestTheCodexBatchRunsInTheForeground:
+    """KNSL 2026-09-16: the batch went out as a background Bash task, the
+    orchestrator wrote "Waiting on the Codex batch." and ended its turn, and the
+    headless session ended there with the manifest stuck on `experts`."""
+
+    SKILL = os.path.join(_ROOT, "skills", "analyze-company.md")
+    SENTENCE = ("Run this batch in the foreground with a 600000 ms timeout, not as a background "
+                "task: in a headless run, a turn that ends while a background task is outstanding "
+                "ends the session.")
+
+    def test_the_batch_is_told_to_run_in_the_foreground_exactly_once(self):
+        assert open(self.SKILL, encoding="utf-8").read().count(self.SENTENCE) == 1
+
+    def test_the_instruction_stands_immediately_before_the_batch_it_governs(self):
+        after = open(self.SKILL, encoding="utf-8").read().split(self.SENTENCE, 1)[1]
+        assert after.lstrip().startswith("```bash")
+        assert "for x in bezos:jeff_bezos" in after.split("```", 2)[1]
+
+
 class TestPregateTagConvention:
     """refine-dossier.md prescribes '[SEARCH per Ahrefs]' and '[MEDIA per DOJ
     filings]'; the checker looked for the literal '[SEARCH]' and failed the

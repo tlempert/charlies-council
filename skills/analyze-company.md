@@ -314,6 +314,8 @@ The expert prompts live in `/Users/tallempert/src-tal/investor/skills/experts/`.
 
 Write `expert_tail.txt` first (see below), then launch all six in one call:
 
+Run this batch in the foreground with a 600000 ms timeout, not as a background task: in a headless run, a turn that ends while a background task is outstanding ends the session.
+
 ```bash
 CX=/Applications/ChatGPT.app/Contents/Resources/codex; D=/tmp/silicon_council/{TICKER}; E=/Users/tallempert/src-tal/investor/skills/experts; for x in bezos:jeff_bezos buffett:warren_buffett burry:michael_burry cook:tim_cook jobs:steve_jobs psychologist:psychologist; do f=${x%%:*}; k=${x##*:}; { echo "You are analyzing {TICKER} for the Silicon Council."; echo; cat $E/$f.md; echo; echo "## DOSSIER DATA:"; cat $D/refined_dossier.md; echo; cat $D/expert_tail.txt; } | $CX exec - -m gpt-5.6-sol -c model_reasoning_effort=high --sandbox read-only --skip-git-repo-check --output-last-message $D/$k.md >$D/$k.log 2>&1 & done; wait; wc -c $D/jeff_bezos.md $D/warren_buffett.md $D/michael_burry.md $D/tim_cook.md $D/steve_jobs.md $D/psychologist.md
 ```

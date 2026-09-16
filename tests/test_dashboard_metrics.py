@@ -9,7 +9,7 @@ import json
 
 import pytest
 
-from dashboard import metrics
+from dashboard import metrics, progress
 
 RESULT_EVENT = {
     "type": "result", "is_error": False, "total_cost_usd": 12.5,
@@ -103,6 +103,29 @@ class TestGateAndVerdict:
     def test_a_memo_with_no_verdict_line_yields_no_verdict(self, run_folder):
         (run_folder / "verdict.md").write_text("no conclusion here", encoding="utf-8")
         assert metrics.compute("ADBE", JOB, RESULT_EVENT)["verdict"] is None
+
+
+class TestResumes:
+    """What the harness loop needs to see a headless run that ended early: how
+    many times it had to be restarted, and the step it never got past."""
+
+    def test_the_row_counts_the_resumes_the_job_needed(self, run_folder):
+        assert metrics.compute("ADBE", dict(JOB, resumes=2), RESULT_EVENT)["resumes"] == 2
+
+    def test_a_run_that_was_never_resumed_counts_none(self, run_folder):
+        assert metrics.compute("ADBE", JOB, RESULT_EVENT)["resumes"] == 0
+
+    def test_a_row_says_which_step_the_pipeline_stopped_on(self, run_folder):
+        assert metrics.compute("ADBE", JOB, RESULT_EVENT)["stopped_at"] == "condense"
+
+    def test_a_scan_has_no_pipeline_to_stop_short_of(self, run_folder):
+        scan = {"id": "abc", "ticker": "broad scan", "kind": "discover"}
+        assert metrics.compute("broad scan", scan, RESULT_EVENT)["stopped_at"] is None
+
+    def test_a_finished_pipeline_has_no_stopping_place(self, run_folder):
+        (run_folder / "manifest.json").write_text(json.dumps(
+            {"steps": {n: {"status": "done"} for n in progress.STEP_NAMES}}), encoding="utf-8")
+        assert metrics.compute("ADBE", JOB, RESULT_EVENT)["stopped_at"] is None
 
 
 class TestMissingInputs:

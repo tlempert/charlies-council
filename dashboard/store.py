@@ -33,7 +33,9 @@ CREATE TABLE IF NOT EXISTS jobs (
     exit_code INTEGER,
     error TEXT,
     report_url TEXT,
-    cancel_requested INTEGER NOT NULL DEFAULT 0
+    cancel_requested INTEGER NOT NULL DEFAULT 0,
+    resumes INTEGER NOT NULL DEFAULT 0,
+    resume_requested INTEGER NOT NULL DEFAULT 0
 );
 CREATE TABLE IF NOT EXISTS questions (
     id INTEGER PRIMARY KEY AUTOINCREMENT,
@@ -65,13 +67,25 @@ CREATE TABLE IF NOT EXISTS metrics (
     gate_passes INTEGER,
     verdict TEXT,
     followup_cost_usd REAL,
-    followup_turns INTEGER
+    followup_turns INTEGER,
+    resumes INTEGER,
+    stopped_at TEXT
 );
 """
 
 _METRIC_COLUMNS = ("wall_seconds", "step_seconds", "input_tokens", "output_tokens",
                    "cache_read_tokens", "cost_usd", "num_turns", "fallbacks",
-                   "gate_passes", "verdict", "followup_cost_usd", "followup_turns")
+                   "gate_passes", "verdict", "followup_cost_usd", "followup_turns",
+                   "resumes", "stopped_at")
+
+#: Columns added after the first install, in the order they were added.
+_ADDED_COLUMNS = (
+    ("jobs", "kind", "TEXT NOT NULL DEFAULT 'analysis'"),
+    ("jobs", "resumes", "INTEGER NOT NULL DEFAULT 0"),
+    ("jobs", "resume_requested", "INTEGER NOT NULL DEFAULT 0"),
+    ("metrics", "resumes", "INTEGER"),
+    ("metrics", "stopped_at", "TEXT"),
+)
 
 
 def home():
@@ -97,10 +111,11 @@ class Store:
         self._migrate()
 
     def _migrate(self):
-        """An install that predates discovery jobs has an analysis-only table."""
-        columns = {r["name"] for r in self.db.execute("PRAGMA table_info(jobs)")}
-        if "kind" not in columns:
-            self.db.execute("ALTER TABLE jobs ADD COLUMN kind TEXT NOT NULL DEFAULT 'analysis'")
+        """An install that predates discovery jobs, or resumes, has narrower tables."""
+        for table, column, declaration in _ADDED_COLUMNS:
+            existing = {r["name"] for r in self.db.execute(f"PRAGMA table_info({table})")}
+            if column not in existing:
+                self.db.execute(f"ALTER TABLE {table} ADD COLUMN {column} {declaration}")
 
     # --- jobs -----------------------------------------------------------------
 
@@ -152,8 +167,27 @@ class Store:
             "ORDER BY created_at, rowid LIMIT 1").fetchone())
 
     def mark_running(self, job_id, session_id):
-        self.db.execute("UPDATE jobs SET state = 'running', session_id = ?, started_at = ? WHERE id = ?",
-                        (session_id, time.time(), job_id))
+        """A job being carried on keeps the session it is carrying on from."""
+        self.db.execute(
+            "UPDATE jobs SET state = 'running', started_at = ?, "
+            "session_id = CASE WHEN resume_requested = 1 THEN session_id ELSE ? END WHERE id = ?",
+            (time.time(), session_id, job_id))
+
+    def requeue_for_resume(self, job_id):
+        """Put a run that stopped short back on the queue to carry on where it
+        stopped. Says whether there was anything to carry on."""
+        cur = self.db.execute(
+            "UPDATE jobs SET state = 'queued', resume_requested = 1, finished_at = NULL, "
+            "error = NULL, exit_code = NULL WHERE id = ? AND session_id IS NOT NULL "
+            "AND state IN ('done', 'failed')", (job_id,))
+        return cur.rowcount > 0
+
+    def record_resume(self, job_id):
+        """One more crank of the handle on a run that would not finish."""
+        self.db.execute("UPDATE jobs SET resumes = resumes + 1 WHERE id = ?", (job_id,))
+
+    def clear_resume_request(self, job_id):
+        self.db.execute("UPDATE jobs SET resume_requested = 0 WHERE id = ?", (job_id,))
 
     def finish(self, job_id, state, exit_code=None, error=None, report_url=None):
         self.db.execute(

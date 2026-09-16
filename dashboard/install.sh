@@ -60,8 +60,14 @@ unset PASSWORD
 sed -e "s#@REPO@#$REPO#g" -e "s#@COUNCIL_HOME@#$COUNCIL_HOME#g" "$PLIST_SRC" > "$PLIST_DST"
 echo "wrote $PLIST_DST"
 
+# bootout returns before the job is gone; bootstrapping too soon fails with
+# "Input/output error" and leaves the dashboard down. Wait for the unload.
 launchctl bootout "gui/$UID/$LABEL" 2>/dev/null || true
-launchctl bootstrap "gui/$UID" "$PLIST_DST"
+for _ in 1 2 3 4 5 6 7 8 9 10; do
+  launchctl print "gui/$UID/$LABEL" >/dev/null 2>&1 || break
+  sleep 1
+done
+launchctl bootstrap "gui/$UID" "$PLIST_DST" || { sleep 2; launchctl bootstrap "gui/$UID" "$PLIST_DST"; }
 launchctl kickstart -k "gui/$UID/$LABEL"
 echo "loaded $LABEL — logs: $COUNCIL_HOME/dashboard.log and dashboard.err"
 

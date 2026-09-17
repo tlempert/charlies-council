@@ -2499,6 +2499,36 @@ class TestMemoHtml:
         from modules.tools import save_memo_html
         assert save_memo_html("TEST", "", base_dir=str(tmp_path)) == {}
 
+    CITED = ("# Acme as an investment\n\nRevenue $10B [1; filing], margin 40% [2; calculation].\n\n"
+             "| Unit | Revenue |\n|---|---|\n| Media | $10B [1; filing] |\n\n"
+             "## Sources and scope\n\nA reading of the gated report.\n\n"
+             "1. filing — 10-K segment table\n2. calculation — council arithmetic\n")
+
+    def test_citation_tags_become_footnote_marks_that_jump_to_their_source(self, tmp_path):
+        """ADBE 2026-09-17: every number in the memo page carried a literal
+        `[1; filing]`, in tables too — the spec's tag, never rendered."""
+        from modules.tools import save_memo_html
+        content = open(save_memo_html("TEST", self.CITED, base_dir=str(tmp_path))["memo_html"],
+                       encoding="utf-8").read()
+        assert "[1; filing]" not in content
+        assert 'Revenue $10B<sup class="cite"><a href="#src-1" title="filing">1</a></sup>,' in content
+        assert '<td>$10B<sup class="cite"><a href="#src-1" title="filing">1</a></sup></td>' in content
+        assert '<li id="src-1">filing — 10-K segment table</li>' in content
+        assert '<li id="src-2">calculation — council arithmetic</li>' in content
+
+    def test_dashboard_memo_tab_renders_the_same_footnote_marks(self, tmp_path):
+        from modules.tools import save_to_html
+        result = save_to_html("TEST", "BUY", {"jeff_bezos": "x", "memo": self.CITED}, base_dir=str(tmp_path))
+        tab = open(result["html"], encoding="utf-8").read().split('id="tab-memo"', 1)[1]
+        assert "[1; filing]" not in tab
+        assert '<a href="#src-1" title="filing">1</a>' in tab
+        assert '<li id="src-1">' in tab
+
+    def test_expert_reports_keep_bracketed_text_as_written(self, tmp_path):
+        from modules.tools import save_to_html
+        result = save_to_html("TEST", "BUY", {"jeff_bezos": "Score [1; filing] stays."}, base_dir=str(tmp_path))
+        assert "Score [1; filing] stays." in open(result["html"], encoding="utf-8").read()
+
     def test_dashboard_tab_links_to_the_standalone_page(self, tmp_path):
         from modules.tools import save_to_html
         result = save_to_html("TEST", "BUY", {"jeff_bezos": "x", "memo": self.MEMO}, base_dir=str(tmp_path))

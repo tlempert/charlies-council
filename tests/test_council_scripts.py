@@ -417,6 +417,18 @@ class TestTheSkillMarksEveryStepTwice:
         assert "records itself twice" in text
         assert "step {TICKER} <step-name> started" in text
 
+    def test_assemble_records_done_after_a_cleanup_that_keeps_the_manifest(self):
+        """KNSL 2026-09-17: the assembly block ended by removing the whole tmp dir,
+        manifest included, and `assemble done` was never recorded — so the runner
+        saw every finished run as stopped short and resumed it five times."""
+        text = open(self.SKILL, encoding="utf-8").read()
+        done = "council_manifest.py step {TICKER} assemble done"
+        assert text.count(done) == 1
+        assert "shutil.rmtree(tmp" not in text
+        step8 = text.split("### Step 8: Assemble", 1)[1].split("### Step 8.5", 1)[0]
+        assert 'name == "manifest.json"' in step8
+        assert step8.index("PYEOF") < step8.index(done)
+
 
 class TestTheCodexBatchRunsInTheForeground:
     """KNSL 2026-09-16: the batch went out as a background Bash task, the

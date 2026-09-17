@@ -606,12 +606,23 @@ if memo:
 for k, v in paths.items():
     print(f"{k}: {v}")
 
+# Keep manifest.json — the dashboard runner reads it to know the pipeline
+# reached this step. Everything else in tmp is disposable now it's assembled.
 import shutil
-shutil.rmtree(tmp, ignore_errors=True)
+for name in os.listdir(tmp):
+    if name == "manifest.json":
+        continue
+    path = os.path.join(tmp, name)
+    if os.path.isdir(path):
+        shutil.rmtree(path, ignore_errors=True)
+    else:
+        os.remove(path)
 PYEOF
 ```
 
 Replace `TICKER_HERE` with the actual ticker.
+
+Record the checkpoint: `./venv/bin/python3 scripts/council_manifest.py step {TICKER} assemble done`
 
 ### Step 8.5: Refresh Corpus Index
 

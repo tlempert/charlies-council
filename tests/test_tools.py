@@ -2550,3 +2550,81 @@ class TestMemoHtml:
         assert (repo / "TEST_memo.html").read_text() == "<html>memo</html>"
         assert "TEST" not in (repo / "index.html").read_text()      # the index lists dashboards, not memos
         assert [c[1] for c in calls] == ["add", "commit", "push"]
+
+
+# --- load_key_metrics ---
+# ROG.SW 2026-09-18: Yahoo no longer resolves ROG.SW, so the dossier was rebuilt
+# from RO.SW. build_initial_dossier stamps key_metrics.json with the ticker it
+# was built from and writes it under that ticker's directory, so the assemble
+# step found only the zeroed file the failed ROG.SW build had left behind and
+# published a hero card of $0 / 0.0% / $0.0B / 0.0x.
+
+class TestLoadKeyMetrics:
+    DOSSIER = "--- 📊 FINANCIAL PHYSICS (RO.SW) ---\n| YEAR | ROIC |\n"
+
+    def _job(self, tmp_path, dossier=DOSSIER):
+        job = tmp_path / "ROG.SW"
+        job.mkdir()
+        if dossier:
+            (job / "initial_dossier.txt").write_text(dossier, encoding="utf-8")
+        return job
+
+    def _write(self, path, **metrics):
+        import json
+        path.parent.mkdir(exist_ok=True)
+        path.write_text(json.dumps(metrics))
+
+    def _load(self, job):
+        from modules.tools import load_key_metrics
+        return load_key_metrics(str(job), "ROG.SW")
+
+    def test_keeps_metrics_stamped_with_the_ticker_the_dossier_was_built_from(self, tmp_path):
+        job = self._job(tmp_path)
+        self._write(job / "key_metrics.json", ticker="RO.SW", price=371.6, roic=0.21)
+        assert self._load(job)["price"] == 371.6
+
+    def test_keeps_metrics_stamped_with_the_job_ticker(self, tmp_path):
+        job = self._job(tmp_path, dossier=None)
+        self._write(job / "key_metrics.json", ticker="ROG.SW", price=371.6)
+        assert self._load(job)["price"] == 371.6
+
+    def test_discards_metrics_from_a_different_company(self, tmp_path):
+        job = self._job(tmp_path)
+        self._write(job / "key_metrics.json", ticker="AAPL", price=230.0)
+        assert self._load(job) == {}
+
+    def test_discards_the_zeroed_file_a_failed_build_leaves_behind(self, tmp_path):
+        job = self._job(tmp_path)
+        self._write(job / "key_metrics.json", ticker="ROG.SW", price=0, roic=0, fcf=0)
+        assert self._load(job) == {}
+
+    def test_falls_back_to_the_built_tickers_own_directory(self, tmp_path):
+        job = self._job(tmp_path)
+        self._write(job / "key_metrics.json", ticker="ROG.SW", price=0)
+        self._write(tmp_path / "RO.SW" / "key_metrics.json", ticker="RO.SW", price=371.6)
+        assert self._load(job)["price"] == 371.6
+
+    def test_missing_file_yields_no_metrics(self, tmp_path):
+        assert self._load(self._job(tmp_path)) == {}
+
+
+class TestHeroCardCurrency:
+    """The hero card printed '$' in front of a CHF 371.60 price."""
+
+    def _content(self, tmp_path, key_metrics):
+        from modules.tools import save_to_html
+        verdict = "## EXECUTIVE SUMMARY\n**Decision:** WAIT\n**Buy Zone: $216 – $311**\n"
+        result = save_to_html("ROG.SW", verdict, {"jeff_bezos": "x"}, base_dir=str(tmp_path),
+                              key_metrics=key_metrics)
+        return open(result["html"], encoding="utf-8").read()
+
+    def test_hero_uses_the_dossier_currency_symbol(self, tmp_path):
+        content = self._content(tmp_path, {"price": 371.6, "fcf": 13.07e9, "currency": "CHF"})
+        assert '<div class="metric-value">Fr372</div>' in content
+        assert '<div class="metric-value">Fr13.1B</div>' in content
+        assert "Fr371.60" in content
+        assert "$371" not in content and "$372" not in content
+
+    def test_hero_defaults_to_dollars_without_a_currency(self, tmp_path):
+        content = self._content(tmp_path, {"price": 371.6})
+        assert '<div class="metric-value">$372</div>' in content

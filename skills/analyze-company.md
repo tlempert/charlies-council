@@ -532,7 +532,7 @@ If any files are missing, write them from your context. Then run Python:
 ```bash
 cd /Users/tallempert/src-tal/investor && ./venv/bin/python3 << 'PYEOF'
 import os
-from modules.tools import save_to_markdown, save_to_html
+from modules.tools import save_to_markdown, save_to_html, load_key_metrics
 
 ticker = "TICKER_HERE"
 tmp = f"/tmp/silicon_council/{ticker}"
@@ -568,19 +568,10 @@ if memo:
 
 paths = save_to_markdown(ticker, verdict, reports, simple_report=simple_report)
 
-# Load key metrics for HTML dashboard hero card — with ticker validation
-import json
-key_metrics = {}
-try:
-    km_path = os.path.join(tmp, 'key_metrics.json')
-    if os.path.exists(km_path):
-        with open(km_path) as f:
-            key_metrics = json.load(f)
-        if key_metrics.get('ticker', '').upper() != ticker.upper():
-            print(f"⚠️  STALE key_metrics.json detected: contains {key_metrics.get('ticker')}, expected {ticker}. Discarding.")
-            key_metrics = {}
-except Exception:
-    pass
+# Load key metrics for HTML dashboard hero card. Accepts a file stamped with the
+# job ticker or with the ticker the dossier was built from (ROG.SW built on RO.SW),
+# rejects another company's file and a zeroed file from a build that got no quote.
+key_metrics = load_key_metrics(tmp, ticker)
 
 html_paths = save_to_html(ticker, verdict, reports, simple_report=simple_report,
                           key_metrics=key_metrics)

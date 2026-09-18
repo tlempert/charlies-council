@@ -2852,6 +2852,7 @@ def build_initial_dossier(ticker):
     actual_fcf = _latest_fcf(stock, _fx_rate)
     # Save key_metrics for HTML assembly
     key_metrics['ticker'] = ticker
+    key_metrics['currency'] = 'GBP' if price_curr == 'GBp' else price_curr
     try:
         import json as _json
         import os as _os
@@ -3430,6 +3431,54 @@ def _parse_verdict_highlights(verdict_text):
     return result
 
 
+def _dossier_ticker(dossier_path):
+    """The ticker in the dossier's FINANCIAL PHYSICS header, or None."""
+    try:
+        with open(dossier_path, encoding='utf-8') as f:
+            m = re.search(r'FINANCIAL PHYSICS \(([^)]+)\)', f.read())
+        return m.group(1).strip() if m else None
+    except OSError:
+        return None
+
+
+def load_key_metrics(tmp_dir, ticker):
+    """key_metrics.json for the assemble step, or {} when none can be trusted.
+
+    build_initial_dossier stamps the file with the ticker it was built from
+    and writes it under that ticker's directory. When Yahoo stopped resolving
+    ROG.SW (2026-09-18) the dossier was rebuilt from RO.SW: the good metrics
+    landed in RO.SW/, and the job directory held only the zeroed file the
+    failed ROG.SW build had left behind — which matched the job ticker and
+    put $0 / 0.0% on the published hero card. So a file is accepted when it
+    carries the job ticker or the ticker the dossier header names, the built
+    ticker's own directory is tried as a fallback, and a file with no price
+    (a build that got no quote) is never used.
+    """
+    import json
+    built = _dossier_ticker(os.path.join(tmp_dir, 'initial_dossier.txt'))
+    accepted = {t.upper() for t in (ticker, built) if t}
+    candidates = [os.path.join(tmp_dir, 'key_metrics.json')]
+    if built and built.upper() != ticker.upper():
+        candidates.append(os.path.join(os.path.dirname(tmp_dir), built, 'key_metrics.json'))
+    for km_path in candidates:
+        if not os.path.exists(km_path):
+            continue
+        try:
+            with open(km_path) as f:
+                key_metrics = json.load(f)
+        except (OSError, ValueError):
+            continue
+        stamped = key_metrics.get('ticker', '')
+        if stamped.upper() not in accepted:
+            print(f"⚠️  STALE key_metrics.json detected: contains {stamped}, expected {ticker}. Discarding.")
+            continue
+        if not key_metrics.get('price'):
+            print(f"⚠️  key_metrics.json for {stamped} has no price (build got no quote). Discarding.")
+            continue
+        return key_metrics
+    return {}
+
+
 def save_to_html(ticker, verdict, reports, simple_report=None, base_dir=None,
                  key_metrics=None):
     """Save an interactive HTML dashboard alongside the markdown reports.
@@ -3507,6 +3556,7 @@ def save_to_html(ticker, verdict, reports, simple_report=None, base_dir=None,
 
     # --- Metrics strip ---
     metrics_html = ""
+    c_sym = get_currency_symbol(key_metrics or {})
     if key_metrics:
         boxes = []
         price = key_metrics.get("price")
@@ -3514,12 +3564,12 @@ def save_to_html(ticker, verdict, reports, simple_report=None, base_dir=None,
         fcf = key_metrics.get("fcf")
         pe = key_metrics.get("pe_ratio")
         if price is not None:
-            boxes.append(("Price", f"${price:,.0f}"))
+            boxes.append(("Price", f"{c_sym}{price:,.0f}"))
         if roic is not None:
             boxes.append(("ROIC", f"{roic*100:.1f}%"))
         if fcf is not None:
             fcf_b = fcf / 1e9
-            boxes.append(("FCF", f"${fcf_b:.1f}B"))
+            boxes.append(("FCF", f"{c_sym}{fcf_b:.1f}B"))
         if pe is not None:
             boxes.append(("P/E", f"{pe:.1f}x"))
         for label, value in boxes:
@@ -3542,8 +3592,8 @@ def save_to_html(ticker, verdict, reports, simple_report=None, base_dir=None,
         bz_low_sub = vh.get('buy_zone_low') or bz_high_sub
         if current_price > bz_high_sub and bz_high_sub > 0:
             pct_above = ((current_price - bz_high_sub) / bz_high_sub) * 100
-            badge_subtitle = (f"Currently ${current_price:.2f}, {pct_above:.0f}% above buy trigger "
-                              f"of ${bz_low_sub:.0f}-${bz_high_sub:.0f}")
+            badge_subtitle = (f"Currently {c_sym}{current_price:.2f}, {pct_above:.0f}% above buy trigger "
+                              f"of {c_sym}{bz_low_sub:.0f}-{c_sym}{bz_high_sub:.0f}")
 
     # --- Thesis sentence ---
     thesis_html = ""
@@ -3582,9 +3632,9 @@ def save_to_html(ticker, verdict, reports, simple_report=None, base_dir=None,
 
     buy_zone_text = ""
     if vh.get("buy_zone_low") and vh.get("buy_zone_high"):
-        buy_zone_text = f"Buy Zone: ${_plain(vh['buy_zone_low'])} \u2013 ${_plain(vh['buy_zone_high'])}"
+        buy_zone_text = f"Buy Zone: {c_sym}{_plain(vh['buy_zone_low'])} \u2013 {c_sym}{_plain(vh['buy_zone_high'])}"
     headline_price = _ledger_price(verdict_clean) or (key_metrics or {}).get("price")
-    headline_parts = ([f"${headline_price:,.2f}"] if headline_price else []) + ([buy_zone_text] if buy_zone_text else [])
+    headline_parts = ([f"{c_sym}{headline_price:,.2f}"] if headline_price else []) + ([buy_zone_text] if buy_zone_text else [])
     headline_html = f'<div class="headline">{esc(" · ".join(headline_parts))}</div>' if headline_parts else ""
 
     # --- Conviction and council vote ---
@@ -3616,9 +3666,9 @@ def save_to_html(ticker, verdict, reports, simple_report=None, base_dir=None,
     <div class="gauge-marker gauge-current" style="left:{curr_left:.1f}%"></div>
   </div>
   <div class="gauge-labels">
-    <span style="left:{bz_left:.1f}%">${bz_low:,}<br>BZ Low</span>
-    <span style="left:{curr_left:.1f}%">${price:,.0f}<br>Current</span>
-    <span style="left:{pct(bz_high):.1f}%">${bz_high:,}<br>BZ High</span>
+    <span style="left:{bz_left:.1f}%">{c_sym}{bz_low:,}<br>BZ Low</span>
+    <span style="left:{curr_left:.1f}%">{c_sym}{price:,.0f}<br>Current</span>
+    <span style="left:{pct(bz_high):.1f}%">{c_sym}{bz_high:,}<br>BZ High</span>
   </div>
 </div>'''
 

@@ -237,3 +237,26 @@ class TestEvidenceTiers:
         assert tiers.report([], 3, 30).strip().endswith("CLEAN — no promoted claim found")
         text = tiers.report([{"p": 0.9, "relation": "promoted", "memo": "m", "dossier": "d", "tag_upgrade": True}], 3, 30)
         assert "TAG UPGRADED" in text and text.strip().endswith("verify each before pass 1")
+
+
+# --- jev_contradictions -----------------------------------------------------
+
+contra = _load("jev_contradictions")
+
+KNSL_MEMO = ("The pipeline's 12.2% owner yield is float, not owner cash: TTM operating cash flow is $1.04B against net income near $0.57B. "
+             "Operating cash flow fell 10.1% while revenue rose 16.8%. My interpretation: the soft market shows in cash conversion before the combined ratio — the print to watch next.")
+
+
+class TestContradictions:
+    def test_pairs_share_a_measure_term_and_a_reject_then_use_shape(self):
+        pairs = contra.pairs_for(KNSL_MEMO)
+        assert pairs and all("operating cash flow" in a.lower() and "operating cash flow" in b.lower() for a, b in pairs)
+
+    def test_relies_on_rejected_is_a_finding_only_when_confident(self):
+        sure = _answer(choices={"relation": ("relies_on_rejected", 0.85)})
+        unsure = _answer(choices={"relation": ("relies_on_rejected", 0.5)})
+        assert contra.judge(("a", "b"), sure)
+        assert contra.judge(("a", "b"), unsure) is None
+
+    def test_report_says_consistent_when_nothing_found(self):
+        assert "CONSISTENT" in contra.report([], 3, 30)

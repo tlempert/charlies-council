@@ -260,3 +260,23 @@ class TestContradictions:
 
     def test_report_says_consistent_when_nothing_found(self):
         assert "CONSISTENT" in contra.report([], 3, 30)
+
+    def test_no_pairs_when_no_sentence_rejects_a_measure(self):
+        text = ("Operating cash flow rose 10.1% this quarter on strong renewals across the book. "
+                "Revenue also grew nicely and margins held up well across every segment we track.")
+        assert contra.pairs_for(text) == []
+
+    def test_a_sentence_naming_two_measures_is_paired_once(self):
+        rejects = ("Operating cash flow and free cash flow are not owner cash for this pipeline, "
+                    "so ignore both figures when sizing the position today.")
+        uses = ("Operating cash flow and free cash flow fell sharply last quarter and that is the "
+                "print to watch most closely next.")
+        pairs = contra.pairs_for(f"{rejects} {uses}")
+        assert pairs == [(rejects, uses)]
+
+    def test_check_writes_to_out_name_when_given(self, tmp_path):
+        (tmp_path / "memo.md").write_text("Plain prose with no measures worth pairing at all.")
+        client = NS(system_one=lambda state, q: _answer(choices={"relation": ("unrelated", 0.9)}))
+        contra.check(client, str(tmp_path), memo_name="memo.md", out_name="jev_contradictions.memo.md")
+        assert (tmp_path / "jev_contradictions.memo.md").exists()
+        assert not (tmp_path / "jev_contradictions.md").exists()

@@ -11,6 +11,7 @@ import os
 import subprocess
 import time
 import sys
+from types import SimpleNamespace as NS
 
 import pytest
 
@@ -672,3 +673,17 @@ class TestVerifyVerdict:
     def test_report_ends_with_a_verdict_line(self, tmp_path):
         text = _load("verify_verdict").render([("OK", "geometry", "fine"), ("WARN", "sizing", "x")], {})
         assert text.rstrip().endswith("VERIFY: PASS — 0 FAIL, 1 WARN")
+
+    def test_advisory_checks_write_the_verdict_and_memo_contradiction_reports_to_different_names(self, tmp_path):
+        (tmp_path / "verdict.md").write_text("Plain prose with no measures worth pairing at all.")
+        (tmp_path / "memo.md").write_text("Plain prose with no measures worth pairing at all.")
+        vv = _load("verify_verdict")
+        checks = vv.advisory_checks(str(tmp_path), "memo.md")
+        fake_client = NS(system_one=lambda state, q: None)  # never called: no pairs in either file
+        checks["contradictions"](fake_client)
+        checks["memo_contradictions"](fake_client)
+        assert (tmp_path / "jev_contradictions.md").exists()
+        assert (tmp_path / "jev_contradictions.memo.md").exists()
+
+    def test_main_with_a_trailing_memo_flag_and_no_value_returns_2(self, tmp_path):
+        assert _load("verify_verdict").main(["verify_verdict.py", str(tmp_path), "--memo"]) == 2

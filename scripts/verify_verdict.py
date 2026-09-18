@@ -32,7 +32,7 @@ def advisory_checks(d, memo=None):
     import jev_tiers, jev_contradictions
     checks = {"tiers": lambda c: jev_tiers.check(c, d), "contradictions": lambda c: jev_contradictions.check(c, d)}
     if memo:
-        checks["memo_contradictions"] = lambda c: jev_contradictions.check(c, d, memo)
+        checks["memo_contradictions"] = lambda c: jev_contradictions.check(c, d, memo, out_name="jev_contradictions.memo.md")
     return checks
 
 
@@ -41,7 +41,7 @@ def run_advisory(d, memo=None):
     with ThreadPoolExecutor(max_workers=len(checks) or 1) as ex:
         list(ex.map(lambda item: jev.advisory(item[1]), checks.items()))
     out = {}
-    for name in ("jev_tiers.md", "jev_contradictions.md", "evidence_coverage.md", "argument_conflicts.md"):
+    for name in ("jev_tiers.md", "jev_contradictions.md", "jev_contradictions.memo.md", "evidence_coverage.md", "argument_conflicts.md"):
         p = os.path.join(d, name)
         if os.path.exists(p):
             out[name] = open(p, encoding="utf-8").read()
@@ -64,7 +64,14 @@ def main(argv):
         print(__doc__)
         return 2
     d = argv[1]
-    memo = argv[argv.index("--memo") + 1] if "--memo" in argv else None
+    if "--memo" in argv:
+        i = argv.index("--memo")
+        if i + 1 >= len(argv):
+            print(__doc__)
+            return 2
+        memo = argv[i + 1]
+    else:
+        memo = None
     results = deterministic(d, memo)
     text = render(results, run_advisory(d, memo))
     open(os.path.join(d, "verification.md"), "w", encoding="utf-8").write(text)

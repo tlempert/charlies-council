@@ -23,7 +23,7 @@ MEASURES = ["operating cash flow", "free cash flow", "owner yield", "owner earni
             "book value", "net income", "adjusted eps", "arr", "backlog", "same-store"]
 REJECTS = re.compile(r"\b(not owner cash|is float|reject|discard|not meaningful|misleading|not comparable|distort|inflated|do not use|should not be treated)\b", re.I)
 USES = re.compile(r"\b(fell|rose|grew|declined|watch|signal|shows|confirms|tell|indicates|print)\b", re.I)
-RELIES_MIN, WORKERS = 0.75, 8
+RELIES_MIN, WORKERS, MAX_PAIRS = 0.75, 8, 60
 
 RELATION = {
     "relies_on_rejected": "The second sentence treats as evidence a measure the first sentence has rejected or disqualified for this company",
@@ -40,7 +40,7 @@ def pairs_for(text):
         rej = [s for s in hits if REJECTS.search(s)]
         use = [s for s in hits if USES.search(s) and not REJECTS.search(s)]
         out += [(a, b) for a in rej for b in use if a != b]
-    return out
+    return list(dict.fromkeys(out))[:MAX_PAIRS]
 
 
 def question():
@@ -72,10 +72,10 @@ def report(findings, pairs, tokens):
     return "\n".join(lines) + "\n"
 
 
-def check(client, directory, memo_name="verdict.md"):
+def check(client, directory, memo_name="verdict.md", out_name="jev_contradictions.md"):
     text = open(os.path.join(directory, memo_name), encoding="utf-8").read()
     out = report(*run(text, client.system_one))
-    open(os.path.join(directory, "jev_contradictions.md"), "w", encoding="utf-8").write(out)
+    open(os.path.join(directory, out_name), "w", encoding="utf-8").write(out)
     print(out)
 
 

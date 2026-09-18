@@ -39,3 +39,22 @@ class TestBundle:
         assert sem.emit("FAIL") == "WARN"
         monkeypatch.setenv("SEMANTICS_MODE", "strict")
         assert sem.emit("FAIL") == "FAIL"
+
+
+class TestFormulaCheck:
+    ADBE = ("The council's arithmetic starts with $10.28B of trailing free cash flow but deducts maintenance "
+            "depreciation and $1.94B of stock compensation, producing $7.69B of owner earnings.")
+    RIGHT = ("Owner earnings are operating cash flow of $10.85B less the $1.22B maintenance-capex proxy "
+             "and $1.94B of stock-based compensation, $7.69B.")
+
+    def test_adbe_memo_sentence_is_flagged(self):
+        st = _statuses(sem.formula_check(self.ADBE, LEDGER))
+        assert st["formula:owner earnings:operands"] == "FAIL"
+        assert st["formula:owner earnings:arithmetic"] == "FAIL"
+
+    def test_a_correct_description_passes(self):
+        st = _statuses(sem.formula_check(self.RIGHT, LEDGER))
+        assert "FAIL" not in st.values(), st
+
+    def test_a_sentence_that_only_names_the_metric_is_not_a_description(self):
+        assert sem.formula_check("Owner earnings of $7.69B yield 7.7% at $252.23.", LEDGER) == []

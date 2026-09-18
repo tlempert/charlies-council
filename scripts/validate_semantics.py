@@ -61,5 +61,80 @@ def main(argv):
     return 1 if fails else 0
 
 
+# --- formula prose ------------------------------------------------------------
+# Operand vocabulary per named formula. A sentence "describes" a formula when it
+# names it and a derivation verb. ADBE 2026-09-13 (F37): "starts with $10.28B of
+# trailing free cash flow but deducts maintenance depreciation and $1.94B of
+# stock compensation, producing $7.69B" — wrong base, wrong deduction, and
+# 10.28 − 1.94 ≠ 7.69.
+FORMULAS = {
+    "owner earnings": {
+        "required": [r"operating cash flow|cash from operations|\bOCF\b",
+                     r"maintenance[- ]capex|maintenance capital|capex proxy",
+                     r"stock[- ]based compensation|stock compensation|\bSBC\b"],
+        "forbidden": [(r"free cash flow|\bFCF\b", "base is operating cash flow, not free cash flow"),
+                      (r"maintenance depreciation|deducts? depreciation|less depreciation", "the deduction is maintenance capex (proxied by PP&E depreciation), not depreciation")],
+    },
+    "required eps": {"required": [r"hurdle|required return", r"multiple"], "forbidden": []},
+}
+DERIVES = re.compile(r"\b(starts? with|deduct|subtract|less\b|minus|net of|computed|calculated|arithmetic|derived|producing|equals?)\b", re.I)
+DOLLARS = re.compile(r"\$\s?(\d[\d,]*\.?\d*)\s*([BbMm])?")
+
+
+def _dollars(s):
+    out = []
+    for n, unit in DOLLARS.findall(s):
+        v = float(n.replace(",", ""))
+        out.append(v / 1000 if (unit or "").lower() == "m" else v)
+    return out
+
+
+def _reproduces(figs, tol=0.02):
+    """Some ordering of the figures satisfies first − sum(middle) ≈ last."""
+    if len(figs) < 3:
+        return True
+    from itertools import permutations
+    for p in permutations(figs):
+        base, *ded, res = p
+        if res and abs((base - sum(ded)) / res - 1) <= tol:
+            return True
+    return False
+
+
+def _sentences(text):
+    body = re.sub(r"```.*?```", "", text, flags=re.S)
+    out = []
+    for line in body.splitlines():
+        line = line.strip()
+        if not line or line.startswith("#") or line.startswith("|"):
+            continue
+        out.extend(s.strip() for s in re.split(r"(?<=[.!?])\s+(?=[A-Z\"“(\[])", line) if len(s.strip()) > 30)
+    return out
+
+
+def formula_check(text, ledger):
+    out = []
+    for sent in _sentences(text):
+        low = sent.lower()
+        for name, spec in FORMULAS.items():
+            if name not in low or not DERIVES.search(sent):
+                continue
+            missing = [r for r in spec["required"] if not re.search(r, sent, re.I)]
+            bad = [why for pat, why in spec["forbidden"] if re.search(pat, sent, re.I)]
+            if missing or bad:
+                out.append(("FAIL", f"formula:{name}:operands",
+                            f"{'; '.join(bad) or 'operands missing: ' + ', '.join(missing)} — «{sent[:160]}»"))
+            else:
+                out.append(("OK", f"formula:{name}:operands", sent[:80]))
+            figs = _dollars(sent)
+            if len(figs) >= 3:
+                out.append(("OK" if _reproduces(figs) else "FAIL", f"formula:{name}:arithmetic",
+                            f"figures {figs} {'reproduce' if _reproduces(figs) else 'do not reproduce base − deductions = result'}"))
+    return out
+
+
+CHECKS.append(("formula", formula_check))
+
+
 if __name__ == "__main__":
     sys.exit(main(sys.argv))

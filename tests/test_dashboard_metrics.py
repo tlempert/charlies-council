@@ -94,6 +94,23 @@ class TestGateAndVerdict:
     def test_a_run_that_never_reached_the_gate_scores_zero_passes(self, run_folder):
         assert metrics.compute("ADBE", JOB, RESULT_EVENT)["gate_passes"] == 0
 
+    def test_passes_survive_the_assemble_cleanup_that_deletes_every_file_but_the_manifest(
+            self, run_folder, monkeypatch):
+        """ROG.SW job 44b6ce6af97a: three passes ran, metrics recorded 0, because Step 8
+        empties the run folder before the row is computed."""
+        import importlib.util, os, sys
+        for name in ("reality_check.md", "reality_check_pass2.md", "reality_check_pass3.md"):
+            (run_folder / name).write_text("findings", encoding="utf-8")
+        spec = importlib.util.spec_from_file_location(
+            "council_manifest", os.path.join(os.path.dirname(__file__), "..", "scripts", "council_manifest.py"))
+        cm = importlib.util.module_from_spec(spec)
+        spec.loader.exec_module(cm)
+        monkeypatch.setattr(sys, "argv", ["council_manifest.py", "step", "ADBE", "gate", "done"])
+        assert cm.main(sys.argv) == 0
+        for name in ("reality_check.md", "reality_check_pass2.md", "reality_check_pass3.md"):
+            (run_folder / name).unlink()
+        assert metrics.compute("ADBE", JOB, RESULT_EVENT)["gate_passes"] == 3
+
     def test_the_verdict_is_the_first_verdict_line_of_the_memo(self, run_folder):
         (run_folder / "verdict.md").write_text(
             "# ADBE\n\nSome preamble.\n\n**VERDICT: WAIT** — the ceiling sits below the price.\n"

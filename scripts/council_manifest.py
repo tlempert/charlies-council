@@ -12,6 +12,7 @@ A crash at Step 6 restarts at Step 6, not Step 1, because every step checks
 `step` before doing work. A failed worker is re-dispatched on its own, to the
 next pool in LADDER, instead of the whole batch being re-run.
 """
+import glob
 import json
 import os
 import sys
@@ -74,6 +75,16 @@ def mark_step(m, name, status):
     return s
 
 
+def record_gate_passes(ticker, m):
+    """Keep the highest count of Reality Check files seen so far in the manifest.
+
+    Step 8 empties the run folder before the dashboard computes its metrics row,
+    so the files cannot be counted afterwards (ROG.SW recorded 0 for 3 passes)."""
+    seen = len(glob.glob(os.path.join(ROOT, ticker, "reality_check*.md")))
+    m["gate_passes"] = max(m.get("gate_passes", 0), seen)
+    return m["gate_passes"]
+
+
 def mark_worker(m, key, pool, status, reason=""):
     w = m["workers"].setdefault(key, {})
     w.setdefault("first_pool", pool)               # the pool it was tried on first
@@ -106,6 +117,7 @@ def main(argv):
         return 1
     if cmd == "step":
         mark_step(m, argv[3], argv[4])
+        record_gate_passes(ticker, m)
         save(ticker, m)
     elif cmd == "worker":
         w = mark_worker(m, argv[3], argv[4], argv[5], argv[6] if len(argv) > 6 else "")

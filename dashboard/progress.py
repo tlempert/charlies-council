@@ -118,11 +118,21 @@ def stopped_at(manifest):
 
 
 def gate_passes(folder):
-    """How many Reality Check reviews the run left behind, if any."""
+    """How many Reality Check reviews the run made.
+
+    The manifest's count is written while the files still exist; Step 8 deletes
+    them, so counting files is only the fallback for runs that predate it."""
+    folder = Path(folder)
     try:
-        return len(list(Path(folder).glob("reality_check*.md")))
+        with open(folder / "manifest.json", encoding="utf-8") as f:
+            recorded = json.load(f).get("gate_passes")
+    except (OSError, json.JSONDecodeError, AttributeError):
+        recorded = None
+    try:
+        seen = len(list(folder.glob("reality_check*.md")))
     except OSError:
-        return 0
+        seen = 0
+    return max(recorded or 0, seen)
 
 
 def workers(manifest):

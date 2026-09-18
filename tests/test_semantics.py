@@ -77,3 +77,33 @@ class TestTableLabelCheck:
 
     def test_no_table_no_result(self):
         assert sem.table_label_check("no tables here", LEDGER) == []
+
+
+class TestUnitsAndWeights:
+    KNSL = ("I weight the bull case at 45% and the bear case at 55%.\n\n"
+            "| Five-year outcome | Weight | Terminal price | Annual return |\n|---|---|---|---|\n"
+            "| Bull | 45% | $398 | above |\n| Base | 55% | $332 | below |\n")
+
+    def test_argument_weight_reused_as_scenario_weight_is_flagged(self):
+        st = _statuses(sem.weights_language_check(self.KNSL, LEDGER))
+        assert st["weights:argument_as_probability"] == "FAIL"
+
+    def test_probability_language_on_a_weight_is_flagged(self):
+        st = _statuses(sem.weights_language_check("The 45% weight is the probability the bull case is right.", LEDGER))
+        assert st["weights:probability_language"] == "FAIL"
+
+    def test_distinct_weights_pass(self):
+        text = self.KNSL.replace("| Bull | 45% |", "| Bull | 40% |").replace("| Base | 55% |", "| Base | 60% |")
+        assert "FAIL" not in _statuses(sem.weights_language_check(text, LEDGER)).values()
+
+    def test_cagr_fraction_rendered_as_percent_of_a_percent_is_flagged(self):
+        st = _statuses(sem.units_check("At 15x the required CAGR is 0.0695%.", LEDGER))
+        assert st["units:fraction_as_percent"] == "FAIL"
+
+    def test_ratio_change_in_percent_not_points_is_flagged(self):
+        st = _statuses(sem.units_check("The combined ratio worsened by 4.4% to 79.2%.", LEDGER))
+        assert st["units:ratio_points"] == "FAIL"
+
+    def test_per_share_with_billions_suffix_is_flagged(self):
+        st = _statuses(sem.units_check("Owner EPS of $19.35B supports the ceiling.", LEDGER))
+        assert st["units:per_share_suffix"] == "FAIL"

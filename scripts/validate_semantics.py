@@ -193,5 +193,50 @@ def table_label_check(text, ledger):
 CHECKS.append(("table_label", table_label_check))
 
 
+# --- units -------------------------------------------------------------------
+RATIO_TERMS = r"(combined|loss|expense) ratio"
+PER_SHARE_SUFFIX = re.compile(r"(owner|GAAP|operating) EPS[^.]{0,40}\$\s?\d[\d.,]*\s?[BbMm]\b", re.I)
+
+
+def units_check(text, ledger):
+    out = []
+    rows = (ledger.get("required_growth") or {}).get("rows", [])
+    for row in rows:
+        frac = row.get("cagr")
+        if frac is not None and re.search(rf"(?<![\d.]){frac:.4f}".rstrip("0") + r"\s?%", text):
+            out.append(("FAIL", "units:fraction_as_percent", f"ledger cagr {frac} printed as {frac}% — should be {frac*100:.1f}%"))
+    for sent in _sentences(text):
+        if re.search(RATIO_TERMS, sent, re.I) and re.search(r"(rose|fell|worsened|improved|dropped|increased|decreased) by \d+(\.\d+)?%", sent, re.I):
+            out.append(("FAIL", "units:ratio_points", f"a ratio change is stated in % not points — «{sent[:120]}»"))
+        if PER_SHARE_SUFFIX.search(sent):
+            out.append(("FAIL", "units:per_share_suffix", f"per-share figure carries a B/M suffix — «{sent[:120]}»"))
+    return out or [("OK", "units", "no unit defects found")]
+
+
+# --- weights vs probabilities ------------------------------------------------
+ARG_WEIGHT = re.compile(r"weight (?:the )?bull case at (\d+)\s?%", re.I)
+PROB_LANG = re.compile(r"\b(probabilit|likelihood|chance|odds)\w*", re.I)
+
+
+def weights_language_check(text, ledger):
+    out = []
+    m = ARG_WEIGHT.search(text)
+    if m:
+        arg = float(m.group(1))
+        for headers, rows in _tables(text):
+            w = next((i for i, h in enumerate(headers) if WEIGHT_HDR.search(h)), None)
+            if w is not None and any(_num(r[w]) == arg for r in rows if len(r) > w):
+                out.append(("FAIL", "weights:argument_as_probability",
+                            f"the {arg:g}% bull-argument weight reappears as a scenario weight — an argument weight is not an outcome probability"))
+    for sent in _sentences(text):
+        if re.search(r"\bweight", sent, re.I) and PROB_LANG.search(sent):
+            out.append(("FAIL", "weights:probability_language", f"«{sent[:140]}»"))
+    return out or [("OK", "weights", "argument weights and scenario weights are distinct")]
+
+
+CHECKS.append(("units", units_check))
+CHECKS.append(("weights", weights_language_check))
+
+
 if __name__ == "__main__":
     sys.exit(main(sys.argv))

@@ -441,21 +441,13 @@ The prompt should include all expert ---SUMMARY--- blocks labeled by expert name
 
 "IMPORTANT: Produce your synthesis immediately. Read each expert's ---SUMMARY--- block to run the Moat Tribunal before starting valuation. Emit the ```json model_ledger``` block specified in munger-synthesis.md immediately above the EXECUTIVE SUMMARY — a memo without it is rejected unread. AFTER completing your synthesis, save your FULL output to /tmp/silicon_council/{TICKER}/verdict.md using the Write tool."
 
-Collect the verdict, then run the deterministic pre-gate **before** spending an Opus review pass:
+Collect the verdict, then run the verification bundle **before** spending an Opus review pass:
 
 ```bash
-cd /Users/tallempert/src-tal/investor && ./venv/bin/python3 scripts/pregate_check.py /tmp/silicon_council/{TICKER}
+cd /Users/tallempert/src-tal/investor && ./venv/bin/python3 scripts/verify_verdict.py /tmp/silicon_council/{TICKER}
 ```
 
-It checks that every ledger input is dossier-sourced or declared JUDGMENT, that the verdict agrees with the price-vs-ceiling geometry and the position size, that the council tally matches the summary blocks, and how many trigger prices are the owner-EPS ÷ hurdle echo. **If it prints FAIL, send its output to the Munger agent via SendMessage and have it fix those items first** — do not launch the Reality Check on a memo that fails mechanical checks. (registry F16–F19: seven of ADBE's ten FATAL findings were mechanical.) Re-run the pre-gate on the revision. Pass its full output to the Reality Check as its starting list.
-
-**Then check the prose the pre-gate cannot read.** The pre-gate proves each ledger value has a tag and exists in the dossier; it cannot see a memo sentence state a reported figure as a filed one. Jev reads every memo sentence carrying a tag or a figure against the dossier sentences that share its numbers or words, and answers one question per pair: not the source, same tier, promoted, demoted. Code flags a memo tag ranked above the dossier's on the same pair.
-
-```bash
-cd /Users/tallempert/src-tal/investor && ./venv/bin/python3 scripts/jev_tiers.py /tmp/silicon_council/{TICKER}
-```
-
-It writes `jev_tiers.md` and prints it. `REVIEW` lists the claims stated more firmly than their source, both sentences quoted, sorted by probability — hand it to the Reality Check next to the pre-gate output as the starting list for Check 2. It is a list of pairs to verify, not findings: the reviewer decides. Run it again on every revision, before each gate pass. On ADBE, "[MEDIA] reportedly" becoming "legally required since the consent decree" cost ~$100/share and was found on pass 3; this exists so it is on the table before pass 1. `jev: SKIPPED` → no list this run; say so.
+It runs the pre-gate (ledger sourcing, geometry, tally, required-growth arithmetic, trigger echo), the semantic checks (formula prose, table labels, units, argument weights vs scenario weights, sizing basis — WARN while `SEMANTICS_MODE=warn`), and, concurrently and advisory, the evidence-tier and internal-consistency readers. Everything lands in `verification.md`. **If it prints `VERIFY: FAIL`, send the FAIL lines to the Munger agent via SendMessage and have it fix those items; re-run; at most three rounds.** Pass `verification.md` to the Reality Check as its starting list. (registry F16–F19: seven of ADBE's ten FATAL findings were mechanical; F20: the tier promotion found on pass 3 is now on the table before pass 1.)
 
 ### Step 6: Reality Check GATE (runs ALONE and FIRST — must complete before Step 6b)
 
@@ -543,14 +535,14 @@ Runs once the gate has PASSed and may be launched alongside Step 6b — it needs
 **Codex leg (`CODEX_OK=0`):**
 
 ```bash
-cd /Users/tallempert/src-tal/investor && CX=/Applications/ChatGPT.app/Contents/Resources/codex; D=/tmp/silicon_council/{TICKER}; { cat skills/investor-memo.md; echo; echo "=== INPUT 1: verdict.md ==="; cat $D/verdict.md; echo; echo "=== INPUT 2: refined_dossier.md ==="; cat $D/refined_dossier.md; echo; echo "=== INPUT 3: all_summaries.md ==="; cat $D/all_summaries.md; echo; echo "=== INPUT 4: reality_check.md ==="; cat $D/reality_check.md; } | $CX exec - -m gpt-5.6-sol -c model_reasoning_effort=medium --sandbox read-only --skip-git-repo-check --output-last-message $D/memo.md >$D/memo.log 2>&1; wc -c $D/memo.md; ./venv/bin/python3 scripts/validate_memo.py $D/memo.md $D/verdict.md; echo "MEMO_OK=$?"
+cd /Users/tallempert/src-tal/investor && CX=/Applications/ChatGPT.app/Contents/Resources/codex; D=/tmp/silicon_council/{TICKER}; { cat skills/investor-memo.md; echo; echo "=== INPUT 1: verdict.md ==="; cat $D/verdict.md; echo; echo "=== INPUT 2: refined_dossier.md ==="; cat $D/refined_dossier.md; echo; echo "=== INPUT 3: all_summaries.md ==="; cat $D/all_summaries.md; echo; echo "=== INPUT 4: reality_check.md ==="; cat $D/reality_check.md; } | $CX exec - -m gpt-5.6-sol -c model_reasoning_effort=medium --sandbox read-only --skip-git-repo-check --output-last-message $D/memo.md >$D/memo.log 2>&1; wc -c $D/memo.md; ./venv/bin/python3 scripts/validate_memo.py $D/memo.md $D/verdict.md && ./venv/bin/python3 scripts/verify_verdict.py $D --memo memo.md; echo "MEMO_OK=$?"
 ```
 
 `MEMO_OK=0` → record `step {TICKER} memo done`; Step 9 names Codex (gpt-5.6-sol) as the writer. Otherwise move the draft aside (`mv $D/memo.md $D/memo.codex-rejected.md`), keep the validator's lines for Step 9, and run the Claude leg.
 
 **Claude leg (`CODEX_OK=1`, or the Codex draft failed):** launch one subagent with `model: sonnet`, `run_in_background: true`:
 
-"Read /Users/tallempert/src-tal/investor/skills/investor-memo.md and follow it exactly. Inputs, in this order — read each with the Read tool in full: /tmp/silicon_council/{TICKER}/verdict.md, /tmp/silicon_council/{TICKER}/refined_dossier.md, /tmp/silicon_council/{TICKER}/all_summaries.md, /tmp/silicon_council/{TICKER}/reality_check.md. Write the memo to /tmp/silicon_council/{TICKER}/memo.md with the Write tool. Then run `cd /Users/tallempert/src-tal/investor && ./venv/bin/python3 scripts/validate_memo.py /tmp/silicon_council/{TICKER}/memo.md /tmp/silicon_council/{TICKER}/verdict.md` and fix every line it reports until it exits 0. Do not change any number in the ledger. Report back only the validator's final output and the word count."
+"Read /Users/tallempert/src-tal/investor/skills/investor-memo.md and follow it exactly. Inputs, in this order — read each with the Read tool in full: /tmp/silicon_council/{TICKER}/verdict.md, /tmp/silicon_council/{TICKER}/refined_dossier.md, /tmp/silicon_council/{TICKER}/all_summaries.md, /tmp/silicon_council/{TICKER}/reality_check.md. Write the memo to /tmp/silicon_council/{TICKER}/memo.md with the Write tool. Then run `cd /Users/tallempert/src-tal/investor && ./venv/bin/python3 scripts/validate_memo.py /tmp/silicon_council/{TICKER}/memo.md /tmp/silicon_council/{TICKER}/verdict.md && ./venv/bin/python3 scripts/verify_verdict.py /tmp/silicon_council/{TICKER} --memo memo.md` and fix every line it reports until it exits 0. Do not change any number in the ledger. Report back only the validator's final output and the word count."
 
 When it returns, run the validator once more from this session. `MEMO_OK=0` → `step {TICKER} memo done`. Still failing → `mv $D/memo.md $D/memo.claude-rejected.md`, record `step {TICKER} memo failed`, and continue to Step 8 without a memo: the memo is a deliverable, not a gate, and Step 9 says which leg failed and why. Never patch the memo's numbers by hand from this session — the ledger is the only source of numbers, and a memo the validator rejects is a memo the reader should not get.
 

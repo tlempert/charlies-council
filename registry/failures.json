@@ -1,0 +1,770 @@
+[
+ {
+  "id": "F01",
+  "failure": "accusation without rebuttal",
+  "company": "KSPI",
+  "date": "2026-08-20",
+  "incorrect": "two experts asserted management \"never rebutted\" Culper; it had, same day",
+  "required": "every accusation query paired with a response query; absence stated explicitly",
+  "guard": "Step 2 pairing rule; jev_snippets.py UNPAIRED; test_jev.py::TestSnippetTriage::test_report_names_every_drop_and_an_unpaired_accusation",
+  "test": "tests/test_jev.py::TestSnippetTriage::test_report_names_every_drop_and_an_unpaired_accusation",
+  "coverage": "advisory",
+  "mentions": [
+   {
+    "file": "skills/analyze-company.md",
+    "needle": "On KSPI two experts asserted management \"never rebutted\" the Culper report"
+   }
+  ],
+  "evidence": []
+ },
+ {
+  "id": "F02",
+  "failure": "guidance reported as level",
+  "company": "ADBE",
+  "date": "2026-09-01",
+  "incorrect": "10.2% ARR guide read as neutral; it was a cut",
+  "required": "guidance stated as delta vs prior guide",
+  "guard": "Step 2 query 10; refine rule 3",
+  "test": "",
+  "coverage": "prose",
+  "mentions": [
+   {
+    "file": "skills/analyze-company.md",
+    "needle": "On ADBE the 10.2% ARR guide was a cut, and the dossier carried it as neutral"
+   }
+  ],
+  "evidence": []
+ },
+ {
+  "id": "F03",
+  "failure": "organic vs acquired growth blended",
+  "company": "ADBE",
+  "date": "2026-09-01",
+  "incorrect": "12.5% headline carried; organic ~10.5% never computed",
+  "required": "split stated or flagged \"not separable\"",
+  "guard": "Step 2 query 11; refine rule 2",
+  "test": "",
+  "coverage": "prose",
+  "mentions": [
+   {
+    "file": "skills/analyze-company.md",
+    "needle": "On ADBE, Semrush contributed ~$480M of the $27.10B ARR total, so organic growth was ~10.5%"
+   },
+   {
+    "file": "skills/refine-dossier.md",
+    "needle": "On ADBE, Semrush contributed ~$480M inside the $27.10B ARR total — organic growth was ~10.5%"
+   }
+  ],
+  "evidence": []
+ },
+ {
+  "id": "F04",
+  "failure": "raw dossier read into orchestrator context",
+  "company": "ADBE",
+  "date": "2026-09-01",
+  "incorrect": "124KB read in three pages, re-sent ~30 turns",
+  "required": "files by path; byte counts only",
+  "guard": "Step 1 wording; extract_dossier_blocks.py",
+  "test": "",
+  "coverage": "script",
+  "mentions": [
+   {
+    "file": "skills/analyze-company.md",
+    "needle": "on ADBE it took three paginated reads into the main session"
+   }
+  ],
+  "evidence": []
+ },
+ {
+  "id": "F05",
+  "failure": "steered dossier, referee metric echoed",
+  "company": "ACN",
+  "date": "2026-08-21",
+  "incorrect": "11/12 experts returned the named metric verbatim",
+  "required": "name the question, never the referee",
+  "guard": "Step 3.4; jev_neutrality.py; jev_summaries.py; test_jev.py neutrality + summaries classes",
+  "test": "",
+  "coverage": "advisory",
+  "mentions": [
+   {
+    "file": "skills/analyze-company.md",
+    "needle": "On ACN the dossier said *\"the current data favours the bull\"*"
+   }
+  ],
+  "evidence": []
+ },
+ {
+  "id": "F06",
+  "failure": "metric moves the wrong way",
+  "company": "ACN",
+  "date": "2026-08-21",
+  "incorrect": "revenue/employee rises when low-revenue staff are cut",
+  "required": "—",
+  "guard": "none",
+  "test": "",
+  "coverage": "open",
+  "mentions": [],
+  "evidence": []
+ },
+ {
+  "id": "F07",
+  "failure": "vendor marketing copy as evidence",
+  "company": "KNSL",
+  "date": "2026-09-17",
+  "incorrect": "\"flexible, scalable, highly configurable\" reached 12 experts",
+  "required": "strip adjectives, keep facts",
+  "guard": "jev_neutrality.py",
+  "test": "",
+  "coverage": "advisory",
+  "mentions": [
+   {
+    "file": "skills/analyze-company.md",
+    "needle": "On KNSL it put two threat-register entries at the top of the list (0.84 and 0.80)"
+   }
+  ],
+  "evidence": []
+ },
+ {
+  "id": "F08",
+  "failure": "dividend carry ignored",
+  "company": "KSPI",
+  "date": "",
+  "incorrect": "8.55% forward yield missed by all",
+  "required": "CARRY block copied; yield at holders' cost basis",
+  "guard": "refine CARRY section",
+  "test": "",
+  "coverage": "prose",
+  "mentions": [
+   {
+    "file": "skills/refine-dossier.md",
+    "needle": "On KSPI, twelve experts, the synthesis and the adversarial brief all missed an 8.55% forward yield"
+   }
+  ],
+  "evidence": []
+ },
+ {
+  "id": "F09",
+  "failure": "P/B ÷ ROE as second witness",
+  "company": "KSPI",
+  "date": "",
+  "incorrect": "tautology reached headline",
+  "required": "derive symbolically before \"corroboration\"",
+  "guard": "reality-check Check 0; munger FORBIDDEN section",
+  "test": "",
+  "coverage": "prose",
+  "mentions": [],
+  "evidence": []
+ },
+ {
+  "id": "F10",
+  "failure": "expansion loss read as core decay",
+  "company": "KSPI",
+  "date": "",
+  "incorrect": "margin 46.6→26.6 headline; core 41.2→39",
+  "required": "NORMALIZED ECONOMICS block",
+  "guard": "refine section",
+  "test": "",
+  "coverage": "prose",
+  "mentions": [
+   {
+    "file": "skills/refine-dossier.md",
+    "needle": "On KSPI the headline showed margin falling 46.6% → 26.6%; excluding Türkiye the core fell 41.2%"
+   }
+  ],
+  "evidence": []
+ },
+ {
+  "id": "F11",
+  "failure": "EM valued at US discount rate",
+  "company": "KSPI",
+  "date": "",
+  "incorrect": "DCF/Graham 41–82% above price",
+  "required": "LOCAL COST OF EQUITY stated first",
+  "guard": "refine section",
+  "test": "",
+  "coverage": "prose",
+  "mentions": [
+   {
+    "file": "skills/refine-dossier.md",
+    "needle": "On KSPI the mechanical DCF ($185.06) back-solved to ~7.5% and the Graham Floor"
+   }
+  ],
+  "evidence": []
+ },
+ {
+  "id": "F12",
+  "failure": "undated one-off stripped",
+  "company": "OTIS",
+  "date": "2026-08-21",
+  "incorrect": "$191M 2024 tax benefit stripped from a 2026 TTM",
+  "required": "date every one-off from the filing",
+  "guard": "refine section",
+  "test": "",
+  "coverage": "prose",
+  "mentions": [
+   {
+    "file": "skills/refine-dossier.md",
+    "needle": "This was violated on OTIS (2026-08-21). The dossier instructed all twelve experts"
+   }
+  ],
+  "evidence": []
+ },
+ {
+  "id": "F13",
+  "failure": "counter-evidence dropped",
+  "company": "OTIS",
+  "date": "",
+  "incorrect": "four facts against the featured threat omitted",
+  "required": "\"what argues the other way\" re-read",
+  "guard": "refine section",
+  "test": "",
+  "coverage": "prose",
+  "mentions": [],
+  "evidence": []
+ },
+ {
+  "id": "F14",
+  "failure": "pass-through blocks dropped",
+  "company": "NXPI",
+  "date": "2026-08-21",
+  "incorrect": "Sherlock's Cannibal Check unanswerable; $2.55B buyback finding unreachable",
+  "required": "five blocks verbatim or \"not present\"",
+  "guard": "refine MANDATORY PASS-THROUGH",
+  "test": "",
+  "coverage": "prose",
+  "mentions": [
+   {
+    "file": "skills/refine-dossier.md",
+    "needle": "they were dropped on NXPI (2026-08-21) and it cost real analysis"
+   }
+  ],
+  "evidence": []
+ },
+ {
+  "id": "F15",
+  "failure": "net income 5× wrong (ADR currency)",
+  "company": "PBR",
+  "date": "2026-05",
+  "incorrect": "$3.96B vs $19.6B",
+  "required": "Step 0 NI cross-check",
+  "guard": "refine STEP 0; test_tools.py currency tests",
+  "test": "",
+  "coverage": "script",
+  "mentions": [],
+  "evidence": []
+ },
+ {
+  "id": "F16",
+  "failure": "invented tax rate tagged as filed",
+  "company": "ADBE",
+  "date": "",
+  "incorrect": "~17% decided a franchise gate",
+  "required": "every input sourced or JUDGMENT",
+  "guard": "pregate_check.py; test_council_scripts.py::TestPregate::test_invented_tax_rate_fails_as_unsourced",
+  "test": "tests/test_council_scripts.py::TestPregate::test_invented_tax_rate_fails_as_unsourced",
+  "coverage": "guarded",
+  "mentions": [
+   {
+    "file": "skills/munger-synthesis.md",
+    "needle": "ADBE draft 2: a \"~17% effective tax rate\" that decided a"
+   },
+   {
+    "file": "scripts/pregate_check.py",
+    "needle": "Seven of the ten FATAL findings on ADBE were mechanically detectable"
+   }
+  ],
+  "evidence": []
+ },
+ {
+  "id": "F17",
+  "failure": "buying above own central value",
+  "company": "ADBE",
+  "date": "",
+  "incorrect": "BUY at $292.79, central $282, ceiling $310",
+  "required": "`ceiling ≤ central`, geometry vs verdict",
+  "guard": "TestPregate::test_buying_above_own_central_value_fails",
+  "test": "tests/test_council_scripts.py::TestPregate::test_buying_above_own_central_value_fails",
+  "coverage": "guarded",
+  "mentions": [],
+  "evidence": []
+ },
+ {
+  "id": "F18",
+  "failure": "false \"9 of 12 prescribe a long\"",
+  "company": "ADBE",
+  "date": "",
+  "incorrect": "HOLD caps counted as buys",
+  "required": "BUY ∧ size>0 counted",
+  "guard": "TestPregate::test_buyers_at_price_counts_buy_votes_with_size_not_hold_caps",
+  "test": "tests/test_council_scripts.py::TestPregate::test_buyers_at_price_counts_buy_votes_with_size_not_hold_caps",
+  "coverage": "guarded",
+  "mentions": [],
+  "evidence": []
+ },
+ {
+  "id": "F19",
+  "failure": "E÷r trigger echo + false convergence claim",
+  "company": "ADBE",
+  "date": "",
+  "incorrect": "8 triggers one division; \"eleven of twelve\" false",
+  "required": "echo counted; convergence claim must refute",
+  "guard": "TestPregate::test_trigger_echo_is_flagged_and_a_convergence_claim_on_it_fails; jev_summaries.py",
+  "test": "tests/test_council_scripts.py::TestPregate::test_trigger_echo_is_flagged_and_a_convergence_claim_on_it_fails",
+  "coverage": "guarded",
+  "mentions": [
+   {
+    "file": "skills/analyze-company.md",
+    "needle": "on KNSL the regex found 4 echoes, the classifier 8 of 12, and the lone BUY was the lone non-echo, as on ACN"
+   },
+   {
+    "file": "scripts/jev_summaries.py",
+    "needle": "catches the same reasoning under a different hurdle or base: on KNSL the"
+   }
+  ],
+  "evidence": []
+ },
+ {
+  "id": "F20",
+  "failure": "MEDIA promoted to \"legally required\"",
+  "company": "ADBE",
+  "date": "",
+  "incorrect": "~$100/share denied through a gate",
+  "required": "tier preserved",
+  "guard": "jev_tiers.py; test_jev.py tiers class",
+  "test": "",
+  "coverage": "advisory",
+  "mentions": [
+   {
+    "file": "skills/analyze-company.md",
+    "needle": "On ADBE, \"[MEDIA] reportedly\" becoming \"legally required since the consent decree\" cost ~$100/share"
+   },
+   {
+    "file": "skills/reality-check.md",
+    "needle": "decree\" has been promoted two tiers. On ADBE that promotion denied ~$100/share of"
+   }
+  ],
+  "evidence": []
+ },
+ {
+  "id": "F21",
+  "failure": "reviewer's numbers copied into memo",
+  "company": "ADBE",
+  "date": "",
+  "incorrect": "\"18x–20x band\" adopted verbatim",
+  "required": "reviewer prescribes operations",
+  "guard": "reality-check Check 4; Step 6 strike rule",
+  "test": "",
+  "coverage": "prose",
+  "mentions": [
+   {
+    "file": "skills/analyze-company.md",
+    "needle": "on ADBE let pass 4 cost 157K tokens re-reading a 48KB memo plus three reviews"
+   },
+   {
+    "file": "skills/reality-check.md",
+    "needle": "On ADBE, pass 1 pushed the memo from WAIT to BUY and pass 2 pushed it back; pass 3"
+   }
+  ],
+  "evidence": []
+ },
+ {
+  "id": "F22",
+  "failure": "oscillating gate, four passes",
+  "company": "ADBE",
+  "date": "",
+  "incorrect": "WAIT→BUY→WAIT",
+  "required": "hard cap; attack only what changed",
+  "guard": "Step 6 cap of 3",
+  "test": "",
+  "coverage": "prose",
+  "mentions": [
+   {
+    "file": "skills/analyze-company.md",
+    "needle": "On ADBE it ran four: draft 1 WAIT → pass 1 pushed to BUY → pass 2 pushed back to WAIT"
+   }
+  ],
+  "evidence": []
+ },
+ {
+  "id": "F23",
+  "failure": "replacement argument unreviewed",
+  "company": "GTT.PA",
+  "date": "",
+  "incorrect": "pass 2 found 6 FATAL in the rewrite",
+  "required": "revision verified before publication",
+  "guard": "\"runs at least twice\"",
+  "test": "",
+  "coverage": "prose",
+  "mentions": [
+   {
+    "file": "skills/analyze-company.md",
+    "needle": "On GTT.PA, pass 1 found 3 FATAL findings; Munger's rewrite fixed them and pass 2 found"
+   },
+   {
+    "file": "skills/analyze-company.md",
+    "needle": "on GTT that the Korean antitrust remedy had been in force since Dec-2022"
+   }
+  ],
+  "evidence": []
+ },
+ {
+  "id": "F24",
+  "failure": "\"keep WAIT\" sent to synthesist",
+  "company": "ACN",
+  "date": "",
+  "incorrect": "orchestrator protected a verdict",
+  "required": "never instruct a verdict",
+  "guard": "Step 6(a) wording",
+  "test": "",
+  "coverage": "prose",
+  "mentions": [
+   {
+    "file": "skills/analyze-company.md",
+    "needle": "On ACN the instruction \"keep WAIT\" was issued and the synthesist correctly refused"
+   }
+  ],
+  "evidence": []
+ },
+ {
+  "id": "F25",
+  "failure": "headline rests on refuted argument",
+  "company": "KSPI",
+  "date": "",
+  "incorrect": "refutation buried below",
+  "required": "EDITOR'S CORRECTIONS block",
+  "guard": "Step 6(b)",
+  "test": "",
+  "coverage": "prose",
+  "mentions": [
+   {
+    "file": "skills/analyze-company.md",
+    "needle": "That is what happened on KSPI."
+   }
+  ],
+  "evidence": []
+ },
+ {
+  "id": "F26",
+  "failure": "codex exit code unreliable",
+  "company": "ADBE",
+  "date": "2026-09-05",
+  "incorrect": "0 with empty file, 1 at quota",
+  "required": "key on output, not `$?`",
+  "guard": "codex_preflight.py; validate_worker.sh; TestValidateWorker",
+  "test": "tests/test_council_scripts.py::TestValidateWorker::test_rejects_an_empty_file",
+  "coverage": "guarded",
+  "mentions": [],
+  "evidence": []
+ },
+ {
+  "id": "F27",
+  "failure": "quota-truncated non-empty worker file",
+  "company": "ADBE",
+  "date": "",
+  "incorrect": "would enter tribunal",
+  "required": "summary delimiters + VERDICT required",
+  "guard": "TestValidateWorker::test_rejects_a_quota_truncated_file_that_is_non_empty",
+  "test": "tests/test_council_scripts.py::TestValidateWorker::test_rejects_a_quota_truncated_file_that_is_non_empty",
+  "coverage": "guarded",
+  "mentions": [],
+  "evidence": []
+ },
+ {
+  "id": "F28",
+  "failure": "gate passes recorded as 0",
+  "company": "ROG.SW",
+  "date": "2026-09-18",
+  "incorrect": "Step 8 emptied dir before count",
+  "required": "count kept in manifest",
+  "guard": "record_gate_passes; test_dashboard_metrics.py",
+  "test": "tests/test_dashboard_metrics.py::TestGateAndVerdict::test_passes_survive_the_assemble_cleanup_that_deletes_every_file_but_the_manifest",
+  "coverage": "guarded",
+  "mentions": [],
+  "evidence": []
+ },
+ {
+  "id": "F29",
+  "failure": "partner-mediated risk dropped by relevance",
+  "company": "ROG.SW",
+  "date": "",
+  "incorrect": "Elevidys, tariffs at p≈0.1",
+  "required": "relevance alone never drops",
+  "guard": "test_jev.py::test_relevance_alone_never_drops_a_substantive_finding",
+  "test": "tests/test_jev.py::TestSnippetTriage::test_relevance_alone_never_drops_a_substantive_finding",
+  "coverage": "guarded",
+  "mentions": [
+   {
+    "file": "scripts/jev_snippets.py",
+    "needle": "Relevance alone never drops: on ROG.SW it"
+   }
+  ],
+  "evidence": []
+ },
+ {
+  "id": "F30",
+  "failure": "number-only pairing called \"promoted\"",
+  "company": "KNSL",
+  "date": "",
+  "incorrect": "\"sub-80%\" vs vendor \"80% cycle time\"",
+  "required": "pairs need word overlap",
+  "guard": "jev_tiers.candidates; test_jev.py tiers",
+  "test": "tests/test_jev.py::TestEvidenceTiers::test_a_pair_sharing_one_number_and_no_word_is_never_asked",
+  "coverage": "guarded",
+  "mentions": [],
+  "evidence": []
+ },
+ {
+  "id": "F31",
+  "failure": "unsourced share count printed \"0M\"",
+  "company": "ACN",
+  "date": "",
+  "incorrect": "expert triangulated 668M vs 632.4M",
+  "required": "print `n/a`",
+  "guard": "tools.py forensic block; test_tools.py",
+  "test": "",
+  "coverage": "script",
+  "mentions": [
+   {
+    "file": "modules/tools.py",
+    "needle": "\"0M\" reads as a real zero: on ACN an expert took it at face value"
+   }
+  ],
+  "evidence": []
+ },
+ {
+  "id": "F32",
+  "failure": "pre-tax stress base read as FCF",
+  "company": "ADBE",
+  "date": "",
+  "incorrect": "\"fortress\" on $14.98B vs $10.28B",
+  "required": "actual FCF sets level",
+  "guard": "build_stress_test_table(actual_fcf); test_tools.py",
+  "test": "",
+  "coverage": "script",
+  "mentions": [
+   {
+    "file": "modules/tools.py",
+    "needle": "capex. On ADBE that put the base row at $14.98B against actual FCF of"
+   }
+  ],
+  "evidence": []
+ },
+ {
+  "id": "F33",
+  "failure": "system NPL used over company NPL",
+  "company": "KSPI",
+  "date": "",
+  "incorrect": "3.7% vs 7.0%",
+  "required": "company figure wins",
+  "guard": "stress-table note",
+  "test": "",
+  "coverage": "prose",
+  "mentions": [
+   {
+    "file": "modules/tools.py",
+    "needle": "own — on KSPI the company figure was 7.0% against a system 3.7%."
+   }
+  ],
+  "evidence": []
+ },
+ {
+  "id": "F34",
+  "failure": "SBC not charged in owner earnings",
+  "company": "PTON",
+  "date": "",
+  "incorrect": "14.0% owner yield vs ~5.6%",
+  "required": "OCF − maint. capex − SBC",
+  "guard": "_owner_earnings; test_tools.py",
+  "test": "",
+  "coverage": "script",
+  "mentions": [],
+  "evidence": []
+ },
+ {
+  "id": "F35",
+  "failure": "D&A used as maintenance capex",
+  "company": "NXPI",
+  "date": "",
+  "incorrect": "$272M understated",
+  "required": "PP&E depreciation first",
+  "guard": "_maintenance_capex_proxy; test_tools.py",
+  "test": "",
+  "coverage": "script",
+  "mentions": [],
+  "evidence": []
+ },
+ {
+  "id": "F36",
+  "failure": "verdict declined to print a price",
+  "company": "KSPI",
+  "date": "",
+  "incorrect": "readers could not see council agreed with buyers",
+  "required": "Buy Zone or Trigger Price always",
+  "guard": "munger MANDATORY section; build_corpus_index fallback",
+  "test": "",
+  "coverage": "prose",
+  "mentions": [
+   {
+    "file": "skills/munger-synthesis.md",
+    "needle": "disagreement — on KSPI the trigger of $70–85 contained the entry price of every"
+   }
+  ],
+  "evidence": []
+ },
+ {
+  "id": "F37",
+  "failure": "owner-earnings formula misdescribed",
+  "company": "ADBE",
+  "date": "2026-09-13",
+  "incorrect": "FCF base, \"maintenance depreciation\", arithmetic does not reproduce",
+  "required": "operands as defined; arithmetic reproduces",
+  "guard": "validate_semantics.formula_check",
+  "test": "",
+  "coverage": "new",
+  "mentions": [],
+  "evidence": []
+ },
+ {
+  "id": "F38",
+  "failure": "present values labelled \"terminal price\"",
+  "company": "ADBE",
+  "date": "2026-09-13",
+  "incorrect": "weighted mean = central value",
+  "required": "label matches quantity",
+  "guard": "validate_semantics.table_label_check",
+  "test": "",
+  "coverage": "new",
+  "mentions": [],
+  "evidence": []
+ },
+ {
+  "id": "F39",
+  "failure": "position sized above what evidence supports",
+  "company": "ADBE",
+  "date": "2026-09-13",
+  "incorrect": "4% at Moderate conviction with two unresolved load-bearing inputs",
+  "required": "size bounded by conviction; basis stated",
+  "guard": "ledger sizing_basis + sizing_check",
+  "test": "",
+  "coverage": "new",
+  "mentions": [],
+  "evidence": []
+ },
+ {
+  "id": "F40",
+  "failure": "insurer valued without P/B / operating ROE",
+  "company": "KNSL",
+  "date": "2026-09-17",
+  "incorrect": "memo silent on both",
+  "required": "type-appropriate frame present",
+  "guard": "type rules (shadow)",
+  "test": "",
+  "coverage": "new",
+  "mentions": [],
+  "evidence": []
+ },
+ {
+  "id": "F41",
+  "failure": "material facts silently omitted",
+  "company": "KNSL",
+  "date": "",
+  "incorrect": "broker concentration, latest repurchase",
+  "required": "used or set aside with reason",
+  "guard": "evidence coverage",
+  "test": "",
+  "coverage": "new",
+  "mentions": [],
+  "evidence": []
+ },
+ {
+  "id": "F42",
+  "failure": "moat overclaimed as single-sided",
+  "company": "KNSL",
+  "date": "",
+  "incorrect": "\"entirely broker-side\" vs three experts",
+  "required": "synthesis from full reports; conflicts listed",
+  "guard": "Munger full reads; argument map",
+  "test": "",
+  "coverage": "new",
+  "mentions": [],
+  "evidence": []
+ },
+ {
+  "id": "F43",
+  "failure": "quarterly OCF as signal for insurer",
+  "company": "KNSL",
+  "date": "",
+  "incorrect": "\"print to watch\" after rejecting OCF",
+  "required": "type rules; internal consistency",
+  "guard": "type rules (shadow); jev_contradictions.py",
+  "test": "",
+  "coverage": "new",
+  "mentions": [],
+  "evidence": []
+ },
+ {
+  "id": "F44",
+  "failure": "argument weight presented as probability",
+  "company": "KNSL",
+  "date": "",
+  "incorrect": "45/55 argument weight → scenario Weight column",
+  "required": "weights and probabilities separated",
+  "guard": "weights_language_check",
+  "test": "",
+  "coverage": "new",
+  "mentions": [],
+  "evidence": []
+ },
+ {
+  "id": "F45",
+  "failure": "market cap from single-class price × all-class shares",
+  "company": "GOOG",
+  "date": "",
+  "incorrect": "~30% inflated",
+  "required": "class-aware share count",
+  "guard": "none",
+  "test": "",
+  "coverage": "open",
+  "mentions": [],
+  "evidence": []
+ },
+ {
+  "id": "F46",
+  "failure": "dotted ticker fails Yahoo",
+  "company": "BRK.A",
+  "date": "",
+  "incorrect": "DATA WARNING",
+  "required": "dash form",
+  "guard": "normalize_ticker; test_tools.py",
+  "test": "",
+  "coverage": "script",
+  "mentions": [],
+  "evidence": []
+ },
+ {
+  "id": "F47",
+  "failure": "headless run ends on background task",
+  "company": "ROG.SW",
+  "date": "",
+  "incorrect": "`claude -p` exits with task outstanding",
+  "required": "foreground with timeout; runner resumes",
+  "guard": "Step 4 wording; test_dashboard_runner.py",
+  "test": "tests/test_dashboard_runner.py::TestARunThatStoppedShortOfTheEnd::test_a_run_whose_manifest_stopped_short_is_resumed_until_it_finishes",
+  "coverage": "guarded",
+  "mentions": [],
+  "evidence": []
+ },
+ {
+  "id": "F48",
+  "failure": "Codex model retirement",
+  "company": "",
+  "date": "2026-08-31",
+  "incorrect": "gpt-5.4 rejected",
+  "required": "models pinned in skill",
+  "guard": "Step 2.5 wording",
+  "test": "",
+  "coverage": "prose",
+  "mentions": [],
+  "evidence": []
+ }
+]

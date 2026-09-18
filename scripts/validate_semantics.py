@@ -238,5 +238,32 @@ CHECKS.append(("units", units_check))
 CHECKS.append(("weights", weights_language_check))
 
 
+# --- sizing -------------------------------------------------------------------
+# Policy caps, % of portfolio at the current price. The user's call; change here.
+CONVICTION_CAP = {"High": 5, "Moderate": 3, "Low": 1, "Too Uncertain": 0}
+
+
+def sizing_check(text, ledger):
+    pos = ledger.get("position_pct") or 0
+    if pos <= 0:
+        return [("OK", "sizing", "no position")]
+    basis = ledger.get("sizing_basis")
+    if not isinstance(basis, dict) or "conviction" not in basis:
+        return [("FAIL", "sizing:basis_missing", f"position {pos}% with no ledger sizing_basis {{conviction, unresolved[]}}")]
+    out = []
+    cap = CONVICTION_CAP.get(basis["conviction"])
+    if cap is not None and pos > cap:
+        out.append(("FAIL", "sizing:cap", f"{pos}% exceeds the {basis['conviction']} cap of {cap}%"))
+    m = re.search(r"### Final investment view\s*\n(.*?)(?=^## |\Z)", text, re.S | re.M)
+    view = m.group(1) if m else text
+    unnamed = [u for u in basis.get("unresolved", []) if u.lower() not in view.lower()]
+    if unnamed:
+        out.append(("FAIL", "sizing:unresolved_named", f"final view does not name: {unnamed}"))
+    return out or [("OK", "sizing", f"{pos}% within the {basis['conviction']} cap, unresolved items named")]
+
+
+CHECKS.append(("sizing", sizing_check))
+
+
 if __name__ == "__main__":
     sys.exit(main(sys.argv))

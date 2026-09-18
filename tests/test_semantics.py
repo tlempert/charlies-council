@@ -107,3 +107,24 @@ class TestUnitsAndWeights:
     def test_per_share_with_billions_suffix_is_flagged(self):
         st = _statuses(sem.units_check("Owner EPS of $19.35B supports the ceiling.", LEDGER))
         assert st["units:per_share_suffix"] == "FAIL"
+
+
+class TestSizingCheck:
+    def test_position_without_basis_is_flagged(self):
+        st = _statuses(sem.sizing_check("Final view.", dict(LEDGER)))
+        assert st["sizing:basis_missing"] == "FAIL"
+
+    def test_position_above_conviction_cap_is_flagged(self):
+        led = dict(LEDGER, sizing_basis={"conviction": "Moderate", "unresolved": ["organic ARR growth", "CEO transition"]})
+        st = _statuses(sem.sizing_check("Verdict: BUY — 4% position. Organic ARR growth and the CEO transition remain open.", led))
+        assert st["sizing:cap"] == "FAIL"
+
+    def test_unresolved_items_must_be_named_in_the_final_view(self):
+        led = dict(LEDGER, position_pct=2, sizing_basis={"conviction": "Moderate", "unresolved": ["organic ARR growth"]})
+        st = _statuses(sem.sizing_check("### Final investment view\nVerdict: BUY — 2% position. Fine.\n", led))
+        assert st["sizing:unresolved_named"] == "FAIL"
+
+    def test_a_sized_and_argued_position_passes(self):
+        led = dict(LEDGER, position_pct=2, sizing_basis={"conviction": "Moderate", "unresolved": ["organic ARR growth"]})
+        st = _statuses(sem.sizing_check("### Final investment view\nVerdict: BUY — 2% position, capped while organic ARR growth is unresolved.\n", led))
+        assert "FAIL" not in st.values(), st

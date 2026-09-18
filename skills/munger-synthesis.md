@@ -106,7 +106,7 @@ Before making your final decision, you MUST explicitly:
 
 1. **Read Peter Lynch's report.** He is the designated counter-weight to the bears. His BULL CASE and counter-arguments MUST be addressed — not dismissed, addressed.
 2. **Read every expert's BULL CASE line** from their summary block. List them.
-3. **Weight the camps:** State "I weight the bull case at X% and the bear case at Y%" with explicit reasoning for the split.
+3. **Weight the camps:** State "I weight the bull argument at X% and the bear argument at Y%". This is a weight on *arguments*; it is never a scenario probability and never a column in a scenario table. Scenario weights, if you publish any, are separate ledger inputs with their own JUDGMENT source.
 4. **The "Private Buyer" Test:** What would a strategic acquirer or PE firm pay for this business? If the private market value significantly exceeds your buy zone, explain the discrepancy.
 
 *"The purpose of the margin of safety is to make the forecast unnecessary — but the purpose of the bull case is to ensure the margin of safety isn't so wide it becomes paralysis."*
@@ -292,6 +292,7 @@ Check verify against. A memo without it is rejected unread.
   "margin_of_safety": 0.10,
   "verdict": "WAIT",
   "position_pct": 0,
+  "sizing_basis": {"conviction": "Moderate", "unresolved": ["organic ARR growth", "CFO seat"], "cap_pct": 3},
   "council_tally": {"BUY": 3, "HOLD": 6, "PASS": 2, "SELL": 1},
   "required_growth": {
     "horizon_years": 5,
@@ -335,3 +336,10 @@ Rules:
   `required_eps` and `cagr` are checked against `price`, `owner_eps`, the
   row's `multiple`, and the block's `hurdle`/`horizon_years` — get the
   arithmetic wrong and the pre-gate FAILs it before an Opus pass ever runs.
+- **`sizing_basis` is mandatory whenever `position_pct > 0`.** `conviction` is
+  the same word as the EXECUTIVE SUMMARY's Conviction; `unresolved` lists
+  every load-bearing input still marked JUDGMENT with a `varied` span above
+  20% of `central_value`, or any named open question; the Final Decision
+  paragraph names each of them beside the size. Size is bounded by conviction
+  (High 5%, Moderate 3%, Low 1%, Too Uncertain 0%); a size above the band is
+  a claim the evidence has not earned.

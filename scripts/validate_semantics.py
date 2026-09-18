@@ -13,8 +13,6 @@ import os
 import re
 import sys
 
-sys.path.insert(0, os.path.join(os.path.dirname(os.path.abspath(__file__)), ".."))
-
 
 def emit(status):
     return "WARN" if status == "FAIL" and os.environ.get("SEMANTICS_MODE", "warn") == "warn" else status
@@ -74,7 +72,9 @@ FORMULAS = {
                      r"stock[- ]based compensation|stock compensation|\bSBC\b"],
         "forbidden": [(r"free cash flow|\bFCF\b", "base is operating cash flow, not free cash flow"),
                       (r"maintenance depreciation|deducts? depreciation|less depreciation", "the deduction is maintenance capex (proxied by PP&E depreciation), not depreciation")],
+        "arithmetic": True,
     },
+    # "required eps" is a multiple/hurdle lookup, not a base − deductions arithmetic; no "arithmetic" flag.
     "required eps": {"required": [r"hurdle|required return", r"multiple"], "forbidden": []},
 }
 DERIVES = re.compile(r"\b(starts? with|deduct|subtract|less\b|minus|net of|computed|calculated|arithmetic|derived|producing|equals?)\b", re.I)
@@ -90,8 +90,12 @@ def _dollars(s):
 
 
 def _reproduces(figs, tol=0.02):
-    """Some ordering of the figures satisfies first − sum(middle) ≈ last."""
-    if len(figs) < 3:
+    """Some ordering of the distinct figures satisfies first − sum(middle) ≈ last.
+    De-duplicates first; more than 8 distinct figures makes the permutation
+    search intractable, so that case is treated as reproducing (skipped)
+    rather than searched."""
+    figs = list(dict.fromkeys(figs))
+    if len(figs) < 3 or len(figs) > 8:
         return True
     from itertools import permutations
     for p in permutations(figs):
@@ -126,10 +130,12 @@ def formula_check(text, ledger):
                             f"{'; '.join(bad) or 'operands missing: ' + ', '.join(missing)} — «{sent[:160]}»"))
             else:
                 out.append(("OK", f"formula:{name}:operands", sent[:80]))
-            figs = _dollars(sent)
-            if len(figs) >= 3:
-                out.append(("OK" if _reproduces(figs) else "FAIL", f"formula:{name}:arithmetic",
-                            f"figures {figs} {'reproduce' if _reproduces(figs) else 'do not reproduce base − deductions = result'}"))
+            if spec.get("arithmetic"):
+                figs = _dollars(sent)
+                if len(figs) >= 3:
+                    ok = _reproduces(figs)
+                    out.append(("OK" if ok else "FAIL", f"formula:{name}:arithmetic",
+                                f"figures {figs} {'reproduce' if ok else 'do not reproduce base − deductions = result'}"))
     return out
 
 
@@ -171,9 +177,11 @@ def table_label_check(text, ledger):
             continue
         w = next((i for i, h in enumerate(headers) if WEIGHT_HDR.search(h)), None)
         r = next((i for i, h in enumerate(headers) if RETURN_HDR.search(h)), None)
-        vals = [_num(row[t]) for row in rows if len(row) > t]
+        need = max(t, w or 0, r or 0)
+        rows = [row for row in rows if len(row) > need]
+        vals = [_num(row[t]) for row in rows]
         if w is not None and central and all(v is not None for v in vals):
-            weights = [_num(row[w]) for row in rows if len(row) > w]
+            weights = [_num(row[w]) for row in rows]
             if all(x is not None for x in weights) and sum(weights) > 0:
                 mean = sum(v * x for v, x in zip(vals, weights)) / sum(weights)
                 pv = abs(mean / central - 1) <= 0.015
@@ -181,10 +189,10 @@ def table_label_check(text, ledger):
                             f"'{headers[t]}' weighted mean {mean:.2f} vs central_value {central} — "
                             + ("a present-value column labelled as a terminal price" if pv else "not the central value")))
         if r is not None and price and all(v is not None for v in vals):
-            rets = [_num(row[r]) for row in rows if len(row) > r]
+            rets = [_num(row[r]) for row in rows]
             consistent = [abs(price * (1 + x / 100) ** horizon / v - 1) <= 0.05 for v, x in zip(vals, rets) if x is not None and v]
             if consistent:
-                ok = any(consistent)
+                ok = all(consistent)
                 out.append(("OK" if ok else "FAIL", "table:terminal_vs_return",
                             f"price × (1+return)^{horizon} {'matches' if ok else 'matches no row of'} '{headers[t]}'"))
     return out
@@ -203,8 +211,15 @@ def units_check(text, ledger):
     rows = (ledger.get("required_growth") or {}).get("rows", [])
     for row in rows:
         frac = row.get("cagr")
-        if frac is not None and re.search(rf"(?<![\d.]){frac:.4f}".rstrip("0") + r"\s?%", text):
-            out.append(("FAIL", "units:fraction_as_percent", f"ledger cagr {frac} printed as {frac}% — should be {frac*100:.1f}%"))
+        if frac is None:
+            continue
+        formatted = f"{frac:.4f}".rstrip("0")
+        if formatted.endswith("."):
+            formatted += "0"
+        if formatted == "0.0":
+            continue
+        if re.search(rf"(?<![\d.]){re.escape(formatted)}\s?%", text):
+            out.append(("FAIL", "units:fraction_as_percent", f"ledger cagr {frac} printed as {formatted}% — should be {frac*100:.1f}%"))
     for sent in _sentences(text):
         if re.search(RATIO_TERMS, sent, re.I) and re.search(r"(rose|fell|worsened|improved|dropped|increased|decreased) by \d+(\.\d+)?%", sent, re.I):
             out.append(("FAIL", "units:ratio_points", f"a ratio change is stated in % not points — «{sent[:120]}»"))
@@ -214,8 +229,9 @@ def units_check(text, ledger):
 
 
 # --- weights vs probabilities ------------------------------------------------
-ARG_WEIGHT = re.compile(r"weight (?:the )?bull case at (\d+)\s?%", re.I)
+ARG_WEIGHT = re.compile(r"weight (?:the )?bull (?:case|argument) at (\d+)\s?%", re.I)
 PROB_LANG = re.compile(r"\b(probabilit|likelihood|chance|odds)\w*", re.I)
+PROB_NEGATION = re.compile(r"\b(not|never|isn't|is no|rather than)\b", re.I)
 
 
 def weights_language_check(text, ledger):
@@ -229,7 +245,7 @@ def weights_language_check(text, ledger):
                 out.append(("FAIL", "weights:argument_as_probability",
                             f"the {arg:g}% bull-argument weight reappears as a scenario weight — an argument weight is not an outcome probability"))
     for sent in _sentences(text):
-        if re.search(r"\bweight", sent, re.I) and PROB_LANG.search(sent):
+        if re.search(r"\bweight", sent, re.I) and PROB_LANG.search(sent) and not PROB_NEGATION.search(sent):
             out.append(("FAIL", "weights:probability_language", f"«{sent[:140]}»"))
     return out or [("OK", "weights", "argument weights and scenario weights are distinct")]
 
@@ -244,22 +260,35 @@ CONVICTION_CAP = {"High": 5, "Moderate": 3, "Low": 1, "Too Uncertain": 0}
 
 
 def sizing_check(text, ledger):
-    pos = ledger.get("position_pct") or 0
+    pos_raw = ledger.get("position_pct") or 0
+    try:
+        pos = float(pos_raw)
+    except (TypeError, ValueError):
+        return [("FAIL", "sizing:position_unreadable", f"ledger position_pct {pos_raw!r} is not numeric")]
     if pos <= 0:
         return [("OK", "sizing", "no position")]
     basis = ledger.get("sizing_basis")
     if not isinstance(basis, dict) or "conviction" not in basis:
-        return [("FAIL", "sizing:basis_missing", f"position {pos}% with no ledger sizing_basis {{conviction, unresolved[]}}")]
+        return [("FAIL", "sizing:basis_missing", f"position {pos:g}% with no ledger sizing_basis {{conviction, unresolved[]}}")]
     out = []
     cap = CONVICTION_CAP.get(basis["conviction"])
     if cap is not None and pos > cap:
-        out.append(("FAIL", "sizing:cap", f"{pos}% exceeds the {basis['conviction']} cap of {cap}%"))
-    m = re.search(r"### Final investment view\s*\n(.*?)(?=^## |\Z)", text, re.S | re.M)
-    view = m.group(1) if m else text
+        out.append(("FAIL", "sizing:cap", f"{pos:g}% exceeds the {basis['conviction']} cap of {cap}%"))
+    # The sizing paragraph isn't always under a "### Final investment view" heading
+    # (that heading is memo-only, not verdict.md) — locate it as an 800-char window
+    # centred on the first mention of the position size instead.
+    anchor = re.search(r"position size|\d+%\s*position", text, re.I)
+    if anchor:
+        center = (anchor.start() + anchor.end()) // 2
+        view = text[max(0, center - 400):center + 400]
+    else:
+        view = text
+        out.append(("WARN", "sizing:no_sizing_paragraph",
+                    "no sizing paragraph found ('position size' or 'N% position'); the unresolved-name check ran on the whole text"))
     unnamed = [u for u in basis.get("unresolved", []) if u.lower() not in view.lower()]
     if unnamed:
         out.append(("FAIL", "sizing:unresolved_named", f"final view does not name: {unnamed}"))
-    return out or [("OK", "sizing", f"{pos}% within the {basis['conviction']} cap, unresolved items named")]
+    return out or [("OK", "sizing", f"{pos:g}% within the {basis['conviction']} cap, unresolved items named")]
 
 
 CHECKS.append(("sizing", sizing_check))

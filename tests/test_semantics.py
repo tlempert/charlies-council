@@ -59,6 +59,19 @@ class TestFormulaCheck:
     def test_a_sentence_that_only_names_the_metric_is_not_a_description(self):
         assert sem.formula_check("Owner earnings of $7.69B yield 7.7% at $252.23.", LEDGER) == []
 
+    def test_twelve_distinct_figures_skips_the_arithmetic_search_and_returns_ok(self):
+        dollars = ", ".join(f"${i}.00" for i in range(1, 13))
+        sent = ("Owner earnings arithmetic starts with operating cash flow and deducts maintenance capex "
+                f"and stock-based compensation across many figures: {dollars}.")
+        st = _statuses(sem.formula_check(sent, LEDGER))
+        assert st["formula:owner earnings:arithmetic"] == "OK"
+
+    def test_required_eps_sentence_gets_no_arithmetic_result(self):
+        sent = ("The required EPS hurdle is derived from the required return and the multiple: "
+                "$10.00, $20.00, $30.00.")
+        names = {name for _, name, _ in sem.formula_check(sent, LEDGER)}
+        assert "formula:required eps:arithmetic" not in names
+
 
 class TestTableLabelCheck:
     ADBE_TABLE = ("| Five-year outcome | Weight | Terminal price | Annual return |\n|---|---|---|---|\n"
@@ -77,6 +90,12 @@ class TestTableLabelCheck:
 
     def test_no_table_no_result(self):
         assert sem.table_label_check("no tables here", LEDGER) == []
+
+    def test_terminal_vs_return_requires_every_row_to_reconcile(self):
+        table = ("| Five-year outcome | Weight | Terminal price | Annual return |\n|---|---|---|---|\n"
+                 "| Bear | 30% | $370.00 | 7.98% |\n| Base | 50% | $200.00 | 14.39% |\n")
+        st = _statuses(sem.table_label_check(table, LEDGER))
+        assert st["table:terminal_vs_return"] == "FAIL"
 
 
 class TestUnitsAndWeights:
@@ -108,6 +127,30 @@ class TestUnitsAndWeights:
         st = _statuses(sem.units_check("Owner EPS of $19.35B supports the ceiling.", LEDGER))
         assert st["units:per_share_suffix"] == "FAIL"
 
+    def test_argument_wording_is_also_recognised_as_a_scenario_reuse(self):
+        text = ("I weight the bull argument at 45% and the bear argument at 55%.\n\n"
+                "| Five-year outcome | Weight | Terminal price | Annual return |\n|---|---|---|---|\n"
+                "| Bull | 45% | $398 | above |\n| Base | 55% | $332 | below |\n")
+        st = _statuses(sem.weights_language_check(text, LEDGER))
+        assert st["weights:argument_as_probability"] == "FAIL"
+
+    def test_negated_probability_language_is_not_flagged(self):
+        st = _statuses(sem.weights_language_check("The 45% weight is not a probability.", LEDGER))
+        assert "FAIL" not in st.values(), st
+
+    def test_fraction_as_percent_pattern_does_not_treat_the_decimal_point_as_a_wildcard(self):
+        led = dict(LEDGER, required_growth={"horizon_years": 5, "hurdle": 0.10,
+                                             "rows": [{"multiple": 15, "required_eps": 27.08, "cagr": 0.0695}]})
+        # "0X0695%" must NOT satisfy the check the way an unescaped "0.0695" regex would.
+        st = _statuses(sem.units_check("At 15x the figure is 0X0695%, not the required CAGR.", led))
+        assert st.get("units:fraction_as_percent") != "FAIL"
+
+    def test_a_cagr_that_rounds_to_zero_skips_the_fraction_as_percent_check(self):
+        led = dict(LEDGER, required_growth={"horizon_years": 5, "hurdle": 0.10,
+                                             "rows": [{"multiple": 15, "required_eps": 27.08, "cagr": 0.00001}]})
+        st = _statuses(sem.units_check("The required CAGR is effectively 0.0%.", led))
+        assert st.get("units:fraction_as_percent") != "FAIL"
+
 
 class TestSizingCheck:
     def test_position_without_basis_is_flagged(self):
@@ -128,3 +171,20 @@ class TestSizingCheck:
         led = dict(LEDGER, position_pct=2, sizing_basis={"conviction": "Moderate", "unresolved": ["organic ARR growth"]})
         st = _statuses(sem.sizing_check("### Final investment view\nVerdict: BUY — 2% position, capped while organic ARR growth is unresolved.\n", led))
         assert "FAIL" not in st.values(), st
+
+    def test_unresolved_item_far_from_the_sizing_paragraph_is_still_reported_missing(self):
+        led = dict(LEDGER, position_pct=2, sizing_basis={"conviction": "Moderate", "unresolved": ["organic ARR growth"]})
+        text = ("x" * 1000 + " Organic ARR growth remains unresolved. " + "y" * 1000
+                + " Verdict: BUY — 2% position.\n")
+        st = _statuses(sem.sizing_check(text, led))
+        assert st["sizing:unresolved_named"] == "FAIL"
+
+    def test_no_sizing_paragraph_found_emits_a_warning(self):
+        led = dict(LEDGER, position_pct=2, sizing_basis={"conviction": "Moderate", "unresolved": []})
+        st = _statuses(sem.sizing_check("No sizing language appears anywhere in this text.", led))
+        assert st["sizing:no_sizing_paragraph"] == "WARN"
+
+    def test_non_numeric_position_pct_is_flagged(self):
+        led = dict(LEDGER, position_pct="a lot")
+        st = _statuses(sem.sizing_check("Verdict: BUY.", led))
+        assert st["sizing:position_unreadable"] == "FAIL"

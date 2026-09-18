@@ -6,11 +6,8 @@
 Reads verdict.md (its ```json model_ledger``` block), all_summaries.md and
 refined_dossier.md. Prints one line per check and exits 1 on any FAIL.
 
-Seven of the ten FATAL findings on ADBE were mechanically detectable:
-the E÷r trigger-price echo, a false "all triggers in $180–250" claim, buying
-above the memo's own central value, a false 9-of-12 position count, a
-circular share-count corroboration, an invented tax rate and an unsourced
-growth cut. Each cost an Opus pass of 8–17 minutes. This catches them first.
+(registry F16: an invented tax rate was one of several FATAL findings caught
+mechanically, each saving an 8-17 minute Opus pass.) This catches them first.
 """
 import json
 import os

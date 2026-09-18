@@ -416,7 +416,7 @@ If any block is missing here, the validation loop above was skipped — go back 
 cd /Users/tallempert/src-tal/investor && ./venv/bin/python3 scripts/jev_summaries.py /tmp/silicon_council/{TICKER}/all_summaries.md
 ```
 
-It writes `jev_independence.md` and prints it. The pre-gate's regex catches the literal owner-EPS ÷ hurdle figure; this catches the same reasoning under another hurdle or base — on KNSL the regex found 4 echoes, the classifier 8 of 12, and the lone BUY was the lone non-echo, as on ACN. A `WARN` does not change any verdict; it tells Munger how many independent reads the tally contains and tells the gate where to look. Experts it lists under "Read by hand" have a trigger line the classifier could not place — read those two blocks yourself. `jev: SKIPPED` → no audit this run; say so.
+It writes `jev_independence.md` and prints it. The pre-gate's regex catches the literal owner-EPS ÷ hurdle figure; this catches the same reasoning under another hurdle or base (registry F19: cross-hurdle echoes need catching too). A `WARN` does not change any verdict; it tells Munger how many independent reads the tally contains and tells the gate where to look. Experts it lists under "Read by hand" have a trigger line the classifier could not place — read those two blocks yourself. `jev: SKIPPED` → no audit this run; say so.
 
 ### Step 5: Munger Synthesis (Opus 4.7)
 
@@ -447,7 +447,7 @@ Collect the verdict, then run the deterministic pre-gate **before** spending an 
 cd /Users/tallempert/src-tal/investor && ./venv/bin/python3 scripts/pregate_check.py /tmp/silicon_council/{TICKER}
 ```
 
-It checks that every ledger input is dossier-sourced or declared JUDGMENT, that the verdict agrees with the price-vs-ceiling geometry and the position size, that the council tally matches the summary blocks, and how many trigger prices are the owner-EPS ÷ hurdle echo. **If it prints FAIL, send its output to the Munger agent via SendMessage and have it fix those items first** — do not launch the Reality Check on a memo that fails mechanical checks. Seven of ADBE's ten FATAL findings were in this class, and each cost an 8–17 minute Opus pass to find by hand. Re-run the pre-gate on the revision. Pass its full output to the Reality Check as its starting list.
+It checks that every ledger input is dossier-sourced or declared JUDGMENT, that the verdict agrees with the price-vs-ceiling geometry and the position size, that the council tally matches the summary blocks, and how many trigger prices are the owner-EPS ÷ hurdle echo. **If it prints FAIL, send its output to the Munger agent via SendMessage and have it fix those items first** — do not launch the Reality Check on a memo that fails mechanical checks. (registry F16–F19: seven of ADBE's ten FATAL findings were mechanical.) Re-run the pre-gate on the revision. Pass its full output to the Reality Check as its starting list.
 
 **Then check the prose the pre-gate cannot read.** The pre-gate proves each ledger value has a tag and exists in the dossier; it cannot see a memo sentence state a reported figure as a filed one. Jev reads every memo sentence carrying a tag or a figure against the dossier sentences that share its numbers or words, and answers one question per pair: not the source, same tier, promoted, demoted. Code flags a memo tag ranked above the dossier's on the same pair.
 

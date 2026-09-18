@@ -8,8 +8,8 @@ KEY METRIC family; code counts distinct witnesses and writes
 jev_independence.md beside the input for Munger and the Reality Check.
 
 pregate_check.py's regex catches the literal owner-EPS ÷ hurdle figure. This
-catches the same reasoning under a different hurdle or base: on KNSL the
-regex found 4 echoes, the classifier 8 of 12. ACN's lesson was that a
+catches the same reasoning under a different hurdle or base (registry F19:
+cross-hurdle echoes need catching too). ACN's lesson was that a
 majority built on one referee metric carries almost no information.
 """
 import os

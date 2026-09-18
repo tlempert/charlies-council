@@ -311,8 +311,7 @@ Rules:
 - **`source` carries a dossier tag** (`[SEC]`, `[CALC]`, `[MEDIA]`, `[SEARCH]`)
   and the value must appear in the refined dossier — or it is marked `JUDGMENT`
   and defended in the prose. A tagged value that appears nowhere in the dossier
-  is an invented number (ADBE draft 2: a "~17% effective tax rate" that decided a
-  franchise-premium gate and existed nowhere in the file).
+  is an invented number (registry F16: an invented tax rate decided a franchise gate).
 - **A value you compute yourself** (GAAP EPS = TTM net income ÷ shares, an implied multiple, a yield) is tagged `DERIVED:` followed by the formula with each operand's own tag, e.g. `DERIVED: $7.23B TTM net income [CALC] / 397.5M shares [SEC]`. It is not checked for presence in the dossier; the formula is the audit, and a `DERIVED` with no formula fails.
 - **`shares_source` and `owner_eps_source` are checked under the same rule as
   an input.** Every per-share figure divides by `shares_m` and every

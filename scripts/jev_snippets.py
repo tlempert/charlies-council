@@ -12,8 +12,8 @@ Writes two files next to the input:
                       and every accusation that has no paired response
 
 A drop needs the category "off-topic", and either confidence ≥ 0.9 on it or
-"bears on the company" below 0.3. Relevance alone never drops: on ROG.SW it
-scored an ownership article at 0.29. Nothing is dropped silently: the .jev.md
+"bears on the company" below 0.3. (registry F29: relevance alone never drops
+a substantive finding.) Nothing is dropped silently: the .jev.md
 names each one with its probabilities.
 """
 import os

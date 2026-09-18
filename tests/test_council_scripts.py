@@ -687,3 +687,8 @@ class TestVerifyVerdict:
 
     def test_main_with_a_trailing_memo_flag_and_no_value_returns_2(self, tmp_path):
         assert _load("verify_verdict").main(["verify_verdict.py", str(tmp_path), "--memo"]) == 2
+
+    def test_a_memo_warn_line_matches_the_skills_grep_pattern(self):
+        import re
+        text = _load("verify_verdict").render([("WARN", "memo:sizing", "x")], {})
+        assert re.search(r"^- (FAIL|WARN) .memo:", text, re.M)

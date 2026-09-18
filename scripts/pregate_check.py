@@ -6,8 +6,11 @@
 Reads verdict.md (its ```json model_ledger``` block), all_summaries.md and
 refined_dossier.md. Prints one line per check and exits 1 on any FAIL.
 
-(registry F16: an invented tax rate was one of several FATAL findings caught
-mechanically, each saving an 8-17 minute Opus pass.) This catches them first.
+Seven mechanical finding classes, each an 8-17 minute Opus pass to find by
+hand: the E÷r trigger-price echo; a false "all triggers in $180-250" claim;
+buying above the memo's own central value; a false 9-of-12 position count; a
+circular share-count corroboration; an invented tax rate (registry F16); and
+an unsourced growth cut. This catches them first.
 """
 import json
 import os

@@ -58,3 +58,22 @@ class TestFormulaCheck:
 
     def test_a_sentence_that_only_names_the_metric_is_not_a_description(self):
         assert sem.formula_check("Owner earnings of $7.69B yield 7.7% at $252.23.", LEDGER) == []
+
+
+class TestTableLabelCheck:
+    ADBE_TABLE = ("| Five-year outcome | Weight | Terminal price | Annual return |\n|---|---|---|---|\n"
+                  "| Bear | 30% | $240.64 | 7.98% |\n| Base | 50% | $321.08 | 14.39% |\n| Bull | 20% | $411.20 | 20.19% |\n")
+    TRUE_TERMINAL = ("| Five-year outcome | Weight | Terminal price | Annual return |\n|---|---|---|---|\n"
+                     "| Bear | 30% | $370.00 | 7.98% |\n| Base | 50% | $494.00 | 14.39% |\n| Bull | 20% | $633.00 | 20.19% |\n")
+
+    def test_present_values_labelled_terminal_are_flagged(self):
+        st = _statuses(sem.table_label_check(self.ADBE_TABLE, LEDGER))
+        assert st["table:terminal_is_pv"] == "FAIL"
+
+    def test_a_real_terminal_column_passes(self):
+        st = _statuses(sem.table_label_check(self.TRUE_TERMINAL, LEDGER))
+        assert st.get("table:terminal_is_pv") == "OK"
+        assert st.get("table:terminal_vs_return") == "OK"
+
+    def test_no_table_no_result(self):
+        assert sem.table_label_check("no tables here", LEDGER) == []

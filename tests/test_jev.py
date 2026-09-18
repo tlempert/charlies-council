@@ -1,0 +1,239 @@
+"""Jev advisory checks: snippet triage, council independence, dossier neutrality.
+
+The model is faked: these tests pin the code's decisions — what gets
+dropped, what counts as an echo, what counts as steering — not Jev's.
+"""
+import importlib.util
+import os
+from types import SimpleNamespace as NS
+
+_SCRIPTS = os.path.join(os.path.abspath(os.path.join(os.path.dirname(__file__), "..")), "scripts")
+
+
+def _load(name):
+    spec = importlib.util.spec_from_file_location(name, os.path.join(_SCRIPTS, f"{name}.py"))
+    mod = importlib.util.module_from_spec(spec)
+    spec.loader.exec_module(mod)
+    return mod
+
+
+def _answer(nouls=None, choices=None):
+    return NS(
+        nouls={k: NS(noul=v) for k, v in (nouls or {}).items()},
+        choices={k: NS(choice=c, confidence=p, probabilities={c: p}) for k, (c, p) in (choices or {}).items()},
+        usage=NS(input_tokens=10), model="jev-fake",
+    )
+
+
+def _fake_ask(answers):
+    """answers: list, one per call, in order."""
+    it = iter(answers)
+    return lambda state, questions: next(it)
+
+
+# --- jev_snippets ------------------------------------------------------------
+
+snippets = _load("jev_snippets")
+
+RAW = ("SOURCE: Kinsale posts higher profit (https://x/1)\nCONTENT: Net income rose 20% to $120M.\n\n"
+       "THREAT: Staff directory\nCONTENT: Employees at Kinsale Capital: 700.\n\n")
+
+
+class TestSnippetTriage:
+    def test_parses_both_source_and_threat_records(self):
+        recs = snippets.parse(RAW)
+        assert [r["kind"] for r in recs] == ["SOURCE", "THREAT"]
+        assert recs[0]["title"] == "Kinsale posts higher profit"
+
+    def test_strips_the_url_from_a_source_title(self):
+        assert snippets.parse("SOURCE: Title here (https://a.b/c?d=1)\nCONTENT: x\n\n")[0]["title"] == "Title here"
+
+    def test_relevance_alone_never_drops_a_substantive_finding(self):
+        # ROG.SW: Elevidys deaths and pharma tariffs scored p(about)≈0.1 because they reach Roche via a partner and a policy
+        a = _answer({"about_company": 0.1, "has_figure": 0.9}, {"category": ("red_flag", 0.9), "status": ("enacted", 1), "role": ("neither", 1)})
+        assert not snippets.judge({"title": "t"}, a)["drop"]
+
+    def test_low_relevance_drops_only_when_also_off_topic(self):
+        a = _answer({"about_company": 0.2, "has_figure": 0.1}, {"category": ("off_topic", 0.5), "status": ("not_applicable", 1), "role": ("neither", 1)})
+        assert snippets.judge({"title": "t"}, a)["drop"]
+
+    def test_drops_off_topic_only_when_confident(self):
+        sure = _answer({"about_company": 0.9, "has_figure": 0.1}, {"category": ("off_topic", 0.95), "status": ("not_applicable", 1), "role": ("neither", 1)})
+        unsure = _answer({"about_company": 0.9, "has_figure": 0.1}, {"category": ("off_topic", 0.8), "status": ("not_applicable", 1), "role": ("neither", 1)})
+        assert snippets.judge({"title": "t"}, sure)["drop"]
+        assert not snippets.judge({"title": "t"}, unsure)["drop"]
+
+    def test_report_names_every_drop_and_an_unpaired_accusation(self):
+        rows = [
+            {"title": "Bear Cave", "about": 0.9, "category": "red_flag", "cat_conf": 1, "status": "enacted", "role": "accusation", "figure": 1, "drop": False},
+            {"title": "Directory", "about": 0.9, "category": "off_topic", "cat_conf": 0.8, "status": "n/a", "role": "neither", "figure": 0, "drop": True},
+        ]
+        text = snippets.report("KNSL", rows, 20, "jev-fake")
+        assert "- Directory — about=0.9, off_topic@0.8" in text
+        assert "UNPAIRED" in text
+
+    def test_run_keeps_input_order_and_sums_tokens(self):
+        recs = snippets.parse(RAW)
+        keep = _answer({"about_company": 0.95, "has_figure": 0.9}, {"category": ("accounting", 0.9), "status": ("enacted", 1), "role": ("neither", 1)})
+        drop = _answer({"about_company": 0.9, "has_figure": 0.1}, {"category": ("off_topic", 0.9), "status": ("not_applicable", 1), "role": ("neither", 1)})
+        rows, tokens, model = snippets.run("KNSL", "Kinsale", recs, _fake_ask([keep, drop]))
+        assert [r["drop"] for r in rows] == [False, True]
+        assert tokens == 20 and model == "jev-fake"
+
+
+# --- jev_summaries -----------------------------------------------------------
+
+summaries = _load("jev_summaries")
+
+BLOCKS = "".join(
+    f"=== EXPERT: {k} ===\n---SUMMARY---\nVERDICT: HOLD\nKEY METRIC: x\nTRIGGER PRICE: $200 @ 9% — {basis}\n---END SUMMARY---\n\n"
+    for k, basis in [("a", "no-growth yield"), ("b", "no-growth yield"), ("c", "scenario grid")]
+)
+
+
+class TestIndependenceAudit:
+    def test_reads_the_fields_of_every_block(self):
+        b = summaries.blocks(BLOCKS)
+        assert [x["expert"] for x in b] == ["a", "b", "c"]
+        assert b[2]["trigger"].endswith("scenario grid")
+
+    def test_warns_when_one_basis_carries_most_of_the_council(self):
+        rows = [{"basis": "zero_growth_yield", "metric": f"m{i}"} for i in range(8)] + [{"basis": "scenario_grid_or_dcf", "metric": "g"} for _ in range(4)]
+        head, _, _ = summaries.verdict(rows)
+        assert head.startswith("WARN") and "zero_growth_yield ×8" in head
+
+    def test_passes_a_council_with_spread_bases(self):
+        rows = [{"basis": b, "metric": m} for b, m in zip("abcdef", "uvwxyz")] * 2
+        assert summaries.verdict(rows)[0].startswith("OK")
+
+    def test_report_lists_low_confidence_experts_for_hand_reading(self):
+        rows = [{"expert": "cook", "verdict": "HOLD", "basis": "zero_growth_yield", "basis_conf": 0.48, "metric": "growth", "metric_conf": 1.0}]
+        assert "Read by hand (basis confidence < 0.6): cook" in summaries.report(rows)
+
+
+# --- jev_neutrality ----------------------------------------------------------
+
+neutrality = _load("jev_neutrality")
+
+DOSSIER = ("## DATA QUALITY SCORECARD\n\n" + "The pipeline's owner-yield figure is operating cash flow, not owner cash; treat it as unreliable. " * 3 + "\n\n"
+           "## BUSINESS FACTS\n\n" + "Kinsale writes E&S casualty through wholesale brokers; the 2025 combined ratio was 76%. " * 3 + "\n\n"
+           "--- MOAT THREAT SEARCH ---\n\n" + "The DigitalEdge platform is flexible, scalable and highly configurable. " * 3 + "\n")
+
+
+class TestNeutrality:
+    def test_skips_warning_sections_by_title(self):
+        calls = []
+
+        def ask(state, qs):
+            calls.append(state.get("section_title"))
+            return _answer({"editorial": 0.1, "steers": 0.1})
+
+        neutrality.run(DOSSIER, ask)
+        assert "## DATA QUALITY SCORECARD" not in calls
+        assert "## BUSINESS FACTS" in calls
+
+    def test_reports_editorialising_sections_and_steering_paragraphs(self):
+        answers = [
+            _answer({"editorial": 0.1}), _answer({"steers": 0.2}),     # business facts
+            _answer({"editorial": 0.95}), _answer({"steers": 0.8}),    # threat entry with vendor copy
+        ]
+        read, steering, tokens = neutrality.run(DOSSIER, _fake_ask(answers))
+        text = neutrality.report(read, steering, tokens)
+        assert "- 0.95 — --- MOAT THREAT SEARCH ---" in text
+        assert "0.8 [--- MOAT THREAT SEARCH ---]" in text
+        assert text.strip().endswith("STEERING: 1 section(s), 1 paragraph(s) — strip or justify each")
+
+    def test_prints_neutral_when_nothing_editorialises(self):
+        assert neutrality.report([("## X", 0.1)], [], 5).strip().endswith("NEUTRAL")
+
+    def test_a_weak_signal_is_not_reported(self):
+        assert "Editorialising sections (p ≥ 0.75): 0" in neutrality.report([("## X", 0.72)], [], 5)
+
+
+# --- modules/jev advisory boundary ------------------------------------------
+
+class TestAdvisoryBoundary:
+    def test_skips_with_exit_zero_when_there_is_no_key(self, monkeypatch, capsys):
+        from modules import jev
+        monkeypatch.delenv("TYPESAFE_API_KEY", raising=False)
+        assert jev.advisory(lambda c: 1 / 0) == 0
+        assert "SKIPPED" in capsys.readouterr().out
+
+    def test_a_failing_check_prints_why_and_still_exits_zero(self, monkeypatch, capsys):
+        from modules import jev
+        monkeypatch.setenv("TYPESAFE_API_KEY", "apikey_fake")
+        monkeypatch.setattr(jev, "client", lambda: object())
+
+        def check(c):
+            raise RuntimeError("429 rate limited")
+
+        assert jev.advisory(check) == 0
+        assert "FAILED (RuntimeError: 429 rate limited)" in capsys.readouterr().out
+
+
+# --- jev_tiers ---------------------------------------------------------------
+
+tiers = _load("jev_tiers")
+
+MEMO_T = ("# Verdict\n\n```json model_ledger\n{\"price\": 362.48}\n```\n\n"
+        "The record shows that soft-priced vintages release little or nothing [SEC]. "
+        "Baron added at $300-310, inside my zone [CALC]. A sentence with no tag and no figure here.\n")
+DOSSIER_T = ("## RESERVES\n\n[SEC] One construction-liability line of the AY2018-19 vintage went adverse in Q2, net $1.9M against $20.6M gross favorable.\n"
+           "[MEDIA per GuruFocus] Baron reported an add at $300-310 on 2026-05-31; the price is inferred from the CEO's 2026-05-05 sale.\n"
+           "| Q2-2026 | combined ratio 75.5% |\n")
+
+
+def _rel(choice, p):
+    return NS(choices={"relation": NS(choice=choice, confidence=p, probabilities={choice: p})}, usage=NS(input_tokens=10), model="jev-fake")
+
+
+class TestEvidenceTiers:
+    def test_claims_skip_the_ledger_block_and_untagged_unfigured_prose(self):
+        c = tiers.claims(MEMO_T)
+        assert len(c) == 2 and all("362.48" not in s for s in c)
+
+    def test_a_table_row_is_one_dossier_unit(self):
+        assert "| Q2-2026 | combined ratio 75.5% |" in tiers.sentences(DOSSIER_T)
+
+    def test_pairing_prefers_shared_numbers_over_shared_words(self):
+        pool = tiers.sentences(DOSSIER_T)
+        top = tiers.candidates("Baron added at $300-310, inside my zone [CALC].", pool)[0]
+        assert "GuruFocus" in top
+
+    def test_tag_upgrade_is_decided_by_code(self):
+        assert tiers.tag_upgraded("x [SEC]", "y [MEDIA per Z]")
+        assert not tiers.tag_upgraded("x [MEDIA]", "y [SEC]")
+        assert not tiers.tag_upgraded("x", "y [SEC]")
+
+    def test_reports_a_confident_promotion_and_a_tag_upgrade_even_when_same_tier(self):
+        def ask(state, q):
+            if "soft-priced" in state["memo_sentence"]:
+                return _rel("promoted", 0.9)
+            if "Baron" in state["memo_sentence"] and "GuruFocus" in state["dossier_sentence"]:
+                return _rel("same_tier", 0.8)
+            return _rel("not_the_source", 0.9)
+
+        findings, pairs, tokens = tiers.run(MEMO_T, DOSSIER_T, ask)
+        assert pairs >= 2 and tokens == 10 * pairs
+        assert [f["relation"] for f in findings] == ["promoted", "same_tier"]
+        assert findings[1]["tag_upgrade"]      # [CALC] in memo over [MEDIA] in dossier, flagged by code
+
+    def test_a_tag_upgrade_on_a_pair_that_is_not_the_source_is_ignored(self):
+        findings, _, _ = tiers.run("Baron added at $300-310 [SEC].", "[MEDIA] Baron added at $300-310.", lambda s, q: _rel("not_the_source", 0.9))
+        assert findings == []
+
+    def test_a_pair_sharing_one_number_and_no_word_is_never_asked(self):
+        pool = ["Digitized underwriting can cut cycle times by up to 80%."]
+        assert tiers.candidates("The sub-80% the bull case requires is the actual result.", pool) == []
+
+    def test_certainty_language_counts_as_a_claim_without_a_tag_or_figure(self):
+        assert tiers.claims("The record therefore already shows what soft-priced vintages do: they release little or nothing.") != []
+
+    def test_a_weak_promotion_is_not_reported(self):
+        findings, _, _ = tiers.run("Growth was 20% [SEC].", "[SEC] Growth was 20% in FY25.", lambda s, q: _rel("promoted", 0.6))
+        assert findings == []
+
+    def test_report_ends_clean_or_review(self):
+        assert tiers.report([], 3, 30).strip().endswith("CLEAN — no promoted claim found")
+        text = tiers.report([{"p": 0.9, "relation": "promoted", "memo": "m", "dossier": "d", "tag_upgrade": True}], 3, 30)
+        assert "TAG UPGRADED" in text and text.strip().endswith("verify each before pass 1")

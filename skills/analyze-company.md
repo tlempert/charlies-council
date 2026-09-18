@@ -110,6 +110,16 @@ with open('/tmp/silicon_council/{TICKER}/raw_forensic.txt', 'w') as f:
 
 Only the byte count returns to your context. Do NOT `cat` this file.
 
+### Step 2.2: Jev Snippet Triage
+
+Before the condense, classify every snippet with TypeSafe Jev — a System One model that answers fixed-choice questions with calibrated probabilities and writes no prose. One call per snippet: is it about this company, which finding class, enacted or speculative, accusation or response, does it carry a citable figure. Code decides what to drop, and only on a confident answer.
+
+```bash
+cd /Users/tallempert/src-tal/investor && ./venv/bin/python3 scripts/jev_snippets.py {TICKER} "{COMPANY NAME}" /tmp/silicon_council/{TICKER}/raw_forensic.txt
+```
+
+It writes `raw_forensic.kept.txt` (the snippets to condense) and `raw_forensic.jev.md` (every drop with its probabilities), and prints the drops and the rebuttal pairing. **If it prints `UNPAIRED`, an accusation reached the dossier with no response found: run the two rebuttal queries from Step 2 for that allegation before continuing.** If it prints `jev: SKIPPED`, say so to the user and continue on the raw file — the check is advisory and the pipeline never waits on it.
+
 ### Step 2.4: Codex Preflight (once per run)
 
 Decide once, up front, whether the Codex leg is viable. `codex exec`'s exit code does not settle it — it has returned 0 with an empty output file, and 1 at a usage limit — so this asks for one word and checks that a word came back:
@@ -140,7 +150,7 @@ Rules:
 - Attribute each claim to its source article title. Drop any claim with no identifiable source.
 - Where results conflict, report BOTH sides. Do not resolve the conflict.
 - No investment opinion, no recommendation, no severity ranking. Facts and attributions only.
-- Target 800-1200 words."; echo; cat $D/raw_forensic.txt; } | $CX exec - -m gpt-5.6-luna -c model_reasoning_effort=low --sandbox read-only --skip-git-repo-check --output-last-message $D/forensic_brief.md >$D/forensic_brief.log 2>&1; wc -c $D/forensic_brief.md
+- Target 800-1200 words."; echo; cat $D/raw_forensic.kept.txt 2>/dev/null || cat $D/raw_forensic.txt; } | $CX exec - -m gpt-5.6-luna -c model_reasoning_effort=low --sandbox read-only --skip-git-repo-check --output-last-message $D/forensic_brief.md >$D/forensic_brief.log 2>&1; wc -c $D/forensic_brief.md
 ```
 
 **Fallback:** if `$CX` is missing or `forensic_brief.md` is empty (check the byte count, not the exit code), skip this step and let Step 3 read `raw_forensic.txt` directly. Tell the user the Codex leg was skipped — never continue silently with a missing brief.
@@ -186,6 +196,14 @@ Delete or rewrite:
 Keep, and strengthen: unresolved conflicts stated as conflicts with both sides sourced; data-quality defects; the list of what would change the verdict. Those inform without steering.
 
 **Test before proceeding:** could a reader tell from the dossier alone which way you expect the council to vote? If yes, keep cutting. Twelve experts reading one steered dossier are one opinion with twelve signatures.
+
+**Then ask a reader that did not write it.** Jev reads every section and paragraph and answers two questions the writer cannot answer about its own text: does the wording argue beyond its sourced facts, and does the paragraph tell the reader what to conclude. Warning sections (data integrity, data quality, pipeline defects, what is unresolved) are skipped by title — a warning is not a steer.
+
+```bash
+cd /Users/tallempert/src-tal/investor && ./venv/bin/python3 scripts/jev_neutrality.py /tmp/silicon_council/{TICKER}/refined_dossier.md
+```
+
+Strip or rewrite each section and paragraph it lists, then re-run. Proceed when it prints `NEUTRAL`, or when every remaining item is one you can justify in a sentence (a threat entry that quotes a vendor's own words, say — then strip the adjectives and keep the facts). On KNSL it put two threat-register entries at the top of the list (0.84 and 0.80): both were a vendor's own marketing copy — "flexible, scalable, highly configurable" — that had reached twelve experts as evidence. `jev: SKIPPED` means no second reader this run; say so and rely on the self-check above.
 
 ### Step 3.5: Moat Threat Search
 
@@ -262,7 +280,11 @@ with open('/tmp/silicon_council/{TICKER}/raw_moat_threats.txt', 'w') as f:
 " && wc -c /tmp/silicon_council/{TICKER}/raw_moat_threats.txt
 ```
 
-Only the byte count returns to your context. Do NOT `cat` this file.
+Only the byte count returns to your context. Do NOT `cat` this file. Then triage it exactly as in Step 2.2:
+
+```bash
+cd /Users/tallempert/src-tal/investor && ./venv/bin/python3 scripts/jev_snippets.py {TICKER} "{COMPANY NAME}" /tmp/silicon_council/{TICKER}/raw_moat_threats.txt
+```
 
 **3.5e — Condense the threat dump into a register (Codex):**
 
@@ -276,7 +298,7 @@ Rules:
 - For each entry give: THREAT (one line) / EVIDENCE (facts, numbers, dates, verbatim) / SOURCE (article title) / STATUS (enacted, proposed, speculative, or rumoured).
 - Preserve every number and date exactly. Never infer, round, or extrapolate.
 - Do NOT rank threats by severity and do NOT assess the moat. You are registering, not judging.
-- Drop entries with no identifiable source. Target 600-1000 words."; echo; cat $D/raw_moat_threats.txt; } | $CX exec - -m gpt-5.6-luna -c model_reasoning_effort=low --sandbox read-only --skip-git-repo-check --output-last-message $D/threat_register.md >$D/threat_register.log 2>&1; wc -c $D/threat_register.md
+- Drop entries with no identifiable source. Target 600-1000 words."; echo; cat $D/raw_moat_threats.kept.txt 2>/dev/null || cat $D/raw_moat_threats.txt; } | $CX exec - -m gpt-5.6-luna -c model_reasoning_effort=low --sandbox read-only --skip-git-repo-check --output-last-message $D/threat_register.md >$D/threat_register.log 2>&1; wc -c $D/threat_register.md
 ```
 
 **Fallback:** if `$CX` is missing or `threat_register.md` is empty (check the byte count, not the exit code), use `raw_moat_threats.txt` in place of the register below and tell the user the Codex leg was skipped.
@@ -388,6 +410,14 @@ D=/tmp/silicon_council/{TICKER}; for k in jeff_bezos warren_buffett michael_burr
 
 If any block is missing here, the validation loop above was skipped — go back and run it. Do not proceed to Step 5 with 11 experts: a silently dropped verdict corrupts the Moat Tribunal. Then write the collected blocks to one file, `$D/all_summaries.md`, labelled `=== EXPERT: <key> ===` — the pre-gate and the Reality Check read it.
 
+**Then count the witnesses.** Twelve verdicts are twelve opinions only if they were reached twelve ways. Jev classifies each block's trigger-price basis and KEY METRIC family; code counts how many distinct bases the council actually used:
+
+```bash
+cd /Users/tallempert/src-tal/investor && ./venv/bin/python3 scripts/jev_summaries.py /tmp/silicon_council/{TICKER}/all_summaries.md
+```
+
+It writes `jev_independence.md` and prints it. The pre-gate's regex catches the literal owner-EPS ÷ hurdle figure; this catches the same reasoning under another hurdle or base — on KNSL the regex found 4 echoes, the classifier 8 of 12, and the lone BUY was the lone non-echo, as on ACN. A `WARN` does not change any verdict; it tells Munger how many independent reads the tally contains and tells the gate where to look. Experts it lists under "Read by hand" have a trigger line the classifier could not place — read those two blocks yourself. `jev: SKIPPED` → no audit this run; say so.
+
 ### Step 5: Munger Synthesis (Opus 4.7)
 
 Record the checkpoint: `./venv/bin/python3 scripts/council_manifest.py step {TICKER} synthesis started`
@@ -395,6 +425,7 @@ Record the checkpoint: `./venv/bin/python3 scripts/council_manifest.py step {TIC
 Read `/Users/tallempert/src-tal/investor/skills/munger-synthesis.md`. Launch a **single subagent using the latest Opus model (Opus 4.7, `model: "opus"` via the Agent tool)** with `run_in_background: true`:
 - The full dossier (not just refined — Munger needs the raw numbers)
 - All 12 expert ---SUMMARY--- blocks (from Step 4 agent outputs)
+- `jev_independence.md` if it exists — the count of distinct trigger bases behind the tally. A vote is not corroboration when eight experts ran one division; weigh the tally by how many ways it was reached, not by its size
 - The Munger synthesis instructions
 - Today's date and the ticker
 - **If `/tmp/vic_scan/{TICKER}/pitch.md` exists**, that file too (see below)
@@ -418,11 +449,19 @@ cd /Users/tallempert/src-tal/investor && ./venv/bin/python3 scripts/pregate_chec
 
 It checks that every ledger input is dossier-sourced or declared JUDGMENT, that the verdict agrees with the price-vs-ceiling geometry and the position size, that the council tally matches the summary blocks, and how many trigger prices are the owner-EPS ÷ hurdle echo. **If it prints FAIL, send its output to the Munger agent via SendMessage and have it fix those items first** — do not launch the Reality Check on a memo that fails mechanical checks. Seven of ADBE's ten FATAL findings were in this class, and each cost an 8–17 minute Opus pass to find by hand. Re-run the pre-gate on the revision. Pass its full output to the Reality Check as its starting list.
 
+**Then check the prose the pre-gate cannot read.** The pre-gate proves each ledger value has a tag and exists in the dossier; it cannot see a memo sentence state a reported figure as a filed one. Jev reads every memo sentence carrying a tag or a figure against the dossier sentences that share its numbers or words, and answers one question per pair: not the source, same tier, promoted, demoted. Code flags a memo tag ranked above the dossier's on the same pair.
+
+```bash
+cd /Users/tallempert/src-tal/investor && ./venv/bin/python3 scripts/jev_tiers.py /tmp/silicon_council/{TICKER}
+```
+
+It writes `jev_tiers.md` and prints it. `REVIEW` lists the claims stated more firmly than their source, both sentences quoted, sorted by probability — hand it to the Reality Check next to the pre-gate output as the starting list for Check 2. It is a list of pairs to verify, not findings: the reviewer decides. Run it again on every revision, before each gate pass. On ADBE, "[MEDIA] reportedly" becoming "legally required since the consent decree" cost ~$100/share and was found on pass 3; this exists so it is on the table before pass 1. `jev: SKIPPED` → no list this run; say so.
+
 ### Step 6: Reality Check GATE (runs ALONE and FIRST — must complete before Step 6b)
 
 Record the checkpoint: `./venv/bin/python3 scripts/council_manifest.py step {TICKER} gate started`
 
-Launch the Reality Check subagent (Opus, `model: "opus"`) **by itself** and wait for it before launching anything else. Read `/Users/tallempert/src-tal/investor/skills/reality-check.md`. Pass it the Munger verdict, all 12 expert `---SUMMARY---` blocks, every known data-quality defect, and the strongest available counter-argument to the verdict (e.g. a superinvestor who acted the other way, with their cost basis).
+Launch the Reality Check subagent (Opus, `model: "opus"`) **by itself** and wait for it before launching anything else. Read `/Users/tallempert/src-tal/investor/skills/reality-check.md`. Pass it the Munger verdict, all 12 expert `---SUMMARY---` blocks, `jev_independence.md` and `jev_tiers.md` if they exist (starting lists for Check 0 and Check 2, alongside the pre-gate output), every known data-quality defect, and the strongest available counter-argument to the verdict (e.g. a superinvestor who acted the other way, with their cost basis).
 
 **VIC pitch guard (only when `/tmp/vic_scan/{TICKER}/pitch.md` exists).** Pass the pitch to the Reality Check too, with its job set by which way Munger went:
 
@@ -431,7 +470,7 @@ Launch the Reality Check subagent (Opus, `model: "opus"`) **by itself** and wait
 
 Same evidence tier applies: advocacy, not fact.
 
-**The gate runs until a pass returns PASS, with a hard cap of THREE review passes in total — the initial review plus at most two reviews of revisions.** On ADBE it ran four: draft 1 WAIT → pass 1 pushed to BUY → pass 2 pushed back to WAIT → pass 3 found the return trip had copied the reviewer's own inputs verbatim. Two of those passes were the reviewer authoring the verdict. If pass 3 still returns FATAL, stop revising: publish with the `EDITOR'S CORRECTIONS` block from option (b) below and say so to the user. **Before every pass, re-run the pre-gate on the current draft** and hand the reviewer its output; **for pass 2 and later, hand the reviewer the synthesist's own change summary (§6 correction log) and tell it to attack only what changed** — it should verify prior fixes, not re-argue withdrawn claims, which on ADBE let pass 4 cost 157K tokens re-reading a 48KB memo plus three reviews.
+**The gate runs until a pass returns PASS, with a hard cap of THREE review passes in total — the initial review plus at most two reviews of revisions.** On ADBE it ran four: draft 1 WAIT → pass 1 pushed to BUY → pass 2 pushed back to WAIT → pass 3 found the return trip had copied the reviewer's own inputs verbatim. Two of those passes were the reviewer authoring the verdict. If pass 3 still returns FATAL, stop revising: publish with the `EDITOR'S CORRECTIONS` block from option (b) below and say so to the user. **Before every pass, re-run the pre-gate and `jev_tiers.py` on the current draft** and hand the reviewer both outputs; **for pass 2 and later, hand the reviewer the synthesist's own change summary (§6 correction log) and tell it to attack only what changed** — it should verify prior fixes, not re-argue withdrawn claims, which on ADBE let pass 4 cost 157K tokens re-reading a 48KB memo plus three reviews.
 
 **The reviewer prescribes operations, never values.** reality-check.md now forbids it from naming a multiple, growth rate, ceiling, weight or size; if a review contains a number the memo should adopt, strike it before forwarding. A synthesist that reproduces the reviewer's number has complied, not reasoned.
 

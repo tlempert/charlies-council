@@ -656,3 +656,19 @@ class TestValidateMemo:
         r = subprocess.run([sys.executable, os.path.join(_SCRIPTS, "validate_memo.py"),
                             str(tmp_path / "memo.md"), str(tmp_path / "verdict.md")], capture_output=True, text=True)
         assert r.returncode == 1 and "MEMO: FAIL" in r.stdout
+
+
+# --- verify_verdict.py --------------------------------------------------------
+
+class TestVerifyVerdict:
+    def test_bundle_collects_pregate_and_semantic_results(self, tmp_path):
+        (tmp_path / "verdict.md").write_text(f"Prose.\n```json model_ledger\n{json.dumps(_ledger())}\n```\n")
+        (tmp_path / "all_summaries.md").write_text(SUMMARIES)
+        (tmp_path / "refined_dossier.md").write_text(DOSSIER)
+        results = _load("verify_verdict").deterministic(str(tmp_path))
+        names = {n for _, n, _ in results}
+        assert "geometry" in names and "sizing" in names
+
+    def test_report_ends_with_a_verdict_line(self, tmp_path):
+        text = _load("verify_verdict").render([("OK", "geometry", "fine"), ("WARN", "sizing", "x")], {})
+        assert text.rstrip().endswith("VERIFY: PASS — 0 FAIL, 1 WARN")

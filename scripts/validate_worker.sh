@@ -11,5 +11,6 @@ f="$1"
 grep -q -- '---SUMMARY---'     "$f" || exit 1
 grep -q -- '---END SUMMARY---' "$f" || exit 1
 grep -q '^VERDICT:'            "$f" || exit 1
+grep -q '^POSITION SIZE:'      "$f" || exit 1
 grep -q 'ERROR: Dossier contamination' "$f" && exit 1
 exit 0

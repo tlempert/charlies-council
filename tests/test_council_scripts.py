@@ -57,6 +57,10 @@ class TestValidateWorker:
     def test_rejects_a_summary_with_no_body(self, tmp_path):
         assert _validate(tmp_path, GOOD[:GOOD.index("Analysis")]) == 1
 
+    def test_rejects_a_block_with_no_position_size(self, tmp_path):
+        no_position = GOOD.replace("POSITION SIZE: 2%\n", "")
+        assert _validate(tmp_path, no_position) == 1
+
     def test_rejects_a_missing_path(self):
         assert subprocess.run([os.path.join(_SCRIPTS, "validate_worker.sh"), "/nonexistent"]).returncode == 1
 

@@ -677,7 +677,12 @@
   "guard": "evidence coverage",
   "test": "",
   "coverage": "new",
-  "mentions": [{"file": "skills/munger-synthesis.md", "needle": "On KNSL price-to-book, operating ROE, broker concentration and the latest repurchase price all reached the experts and none reached the reader"}],
+  "mentions": [
+   {
+    "file": "skills/munger-synthesis.md",
+    "needle": "On KNSL price-to-book, operating ROE, broker concentration and the latest repurchase price all reached the experts and none reached the reader"
+   }
+  ],
   "evidence": []
  },
  {
@@ -690,7 +695,12 @@
   "guard": "Munger full reads; argument map",
   "test": "",
   "coverage": "new",
-  "mentions": [],
+  "mentions": [
+   {
+    "file": "skills/analyze-company.md",
+    "needle": "On KNSL the synthesis called the moat \"entirely broker-side\""
+   }
+  ],
   "evidence": []
  },
  {

@@ -313,6 +313,12 @@ D=/tmp/silicon_council/{TICKER}; { echo; echo "--- MOAT THREAT SEARCH ---"; echo
 
 This ensures all 12 experts see the moat-threat data when they read the dossier.
 
+```bash
+cd /Users/tallempert/src-tal/investor && ./venv/bin/python3 scripts/council_manifest.py evidence {TICKER} && ./venv/bin/python3 scripts/evidence_ledger.py build /tmp/silicon_council/{TICKER}
+```
+
+The hash is the evidence pack every expert and the synthesist read; `evidence_ledger.json` is the list of facts the synthesis must use or set aside. `jev: SKIPPED` → no ledger this run; say so.
+
 ### Step 4: Expert Council (12 Parallel Subagents)
 
 Record the checkpoint: `./venv/bin/python3 scripts/council_manifest.py step {TICKER} experts started`
@@ -335,6 +341,10 @@ The expert prompts live in `/Users/tallempert/src-tal/investor/skills/experts/`.
 | 6 | Psychologist | `psychologist.md` | `psychologist` |
 
 Write `expert_tail.txt` first (see below), then launch all six in one call:
+
+```bash
+cd /Users/tallempert/src-tal/investor && ./venv/bin/python3 scripts/council_manifest.py evidence {TICKER} --check || { echo "refined dossier changed since it was hashed — re-record and restart Step 4"; }
+```
 
 Run this batch in the foreground with a 600000 ms timeout, not as a background task: in a headless run, a turn that ends while a background task is outstanding ends the session.
 
@@ -422,13 +432,18 @@ It writes `jev_independence.md` and prints it. The pre-gate's regex catches the 
 
 Record the checkpoint: `./venv/bin/python3 scripts/council_manifest.py step {TICKER} synthesis started`
 
+```bash
+cd /Users/tallempert/src-tal/investor && ./venv/bin/python3 scripts/council_manifest.py evidence {TICKER} --check || { echo "refined dossier changed since it was hashed — re-record and restart Step 4"; }
+```
+
 Read `/Users/tallempert/src-tal/investor/skills/munger-synthesis.md`. Launch a **single subagent using the latest Opus model (Opus 4.7, `model: "opus"` via the Agent tool)** with `run_in_background: true`:
-- The full dossier (not just refined — Munger needs the raw numbers)
-- All 12 expert ---SUMMARY--- blocks (from Step 4 agent outputs)
-- `jev_independence.md` if it exists — the count of distinct trigger bases behind the tally. A vote is not corroboration when eight experts ran one division; weigh the tally by how many ways it was reached, not by its size
-- The Munger synthesis instructions
-- Today's date and the ticker
-- **If `/tmp/vic_scan/{TICKER}/pitch.md` exists**, that file too (see below)
+- **All twelve expert reports, read in full with the Read tool**, from `/tmp/silicon_council/{TICKER}/{jeff_bezos,warren_buffett,michael_burry,tim_cook,steve_jobs,psychologist,sherlock,futurist,biologist,historian,anthropologist,lynch}.md`. `all_summaries.md` is an index of them, not a substitute: the Moat Tribunal reads the MOAT FLAG lines, the synthesis reads the reports. On KNSL the synthesis called the moat "entirely broker-side" from twelve one-line summaries while three full reports named underwriting culture, data and discipline.
+- The refined dossier and the full raw dossier (Munger needs the raw numbers)
+- `evidence_ledger.json` — every material fact must appear in your prose or under `## Evidence considered and set aside`
+- `jev_independence.md` if it exists
+- `argument_map.md` if it exists (Phase 3) — an index of claims, conflicts and single-witness facts; cite the expert's own file, never the map
+- The Munger synthesis instructions, today's date and the ticker
+- the VIC pitch, if present (unchanged)
 
 **VIC pitch guard (only when the file exists).** If `/scan-vic` sourced this ticker it will have left a ValueInvestorsClub write-up at `/tmp/vic_scan/{TICKER}/pitch.md`. Pass it to Munger under this heading, verbatim:
 

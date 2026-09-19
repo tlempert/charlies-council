@@ -48,10 +48,26 @@ def find_result(payload):
 
 
 def summarize_result(event):
-    """The numbers the metrics row needs, with nulls wherever the CLI was quiet."""
+    """The numbers the metrics row needs, with nulls wherever the CLI was quiet.
+
+    `usage` covers only the final resumed segment. `modelUsage` and
+    `total_cost_usd` are cumulative for the whole session, subagents
+    included, so when `modelUsage` is present the token totals are summed
+    across every model in it rather than read from `usage`."""
     if event is None:
         return None
     usage = event.get("usage") or {}
+    model_usage = event.get("modelUsage") or None
+    if model_usage:
+        input_tokens = sum(m.get("inputTokens") or 0 for m in model_usage.values())
+        output_tokens = sum(m.get("outputTokens") or 0 for m in model_usage.values())
+        cache_read_tokens = sum(m.get("cacheReadInputTokens") or 0 for m in model_usage.values())
+        cache_create_tokens = sum(m.get("cacheCreationInputTokens") or 0 for m in model_usage.values())
+    else:
+        input_tokens = usage.get("input_tokens")
+        output_tokens = usage.get("output_tokens")
+        cache_read_tokens = usage.get("cache_read_input_tokens")
+        cache_create_tokens = usage.get("cache_creation_input_tokens")
     return {
         "session_id": event.get("session_id"),
         "is_error": bool(event.get("is_error")),
@@ -60,7 +76,9 @@ def summarize_result(event):
         "cost_usd": event.get("total_cost_usd"),
         "duration_ms": event.get("duration_ms"),
         "num_turns": event.get("num_turns"),
-        "input_tokens": usage.get("input_tokens"),
-        "output_tokens": usage.get("output_tokens"),
-        "cache_read_tokens": usage.get("cache_read_input_tokens"),
+        "input_tokens": input_tokens,
+        "output_tokens": output_tokens,
+        "cache_read_tokens": cache_read_tokens,
+        "cache_create_tokens": cache_create_tokens,
+        "model_usage": model_usage,
     }

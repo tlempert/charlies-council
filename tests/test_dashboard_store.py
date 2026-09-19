@@ -252,6 +252,14 @@ class TestMetrics:
         store.save_metrics(job_id, {"gate_passes": 2})
         assert store.all_metrics()[0]["ticker"] == "ADBE"
 
+    def test_cache_creation_tokens_and_model_usage_round_trip(self, store):
+        job_id = store.enqueue("ADBE")
+        model_usage = {"claude-opus-5": {"inputTokens": 100, "costUSD": 12.5}}
+        store.save_metrics(job_id, {"cache_create_tokens": 55, "model_usage": model_usage})
+        row = store.get_metrics(job_id)
+        assert row["cache_create_tokens"] == 55
+        assert row["model_usage"] == model_usage
+
 
 class TestDiscoveryJobs:
     """A scan for names rides the same queue as an analysis, under its own kind."""

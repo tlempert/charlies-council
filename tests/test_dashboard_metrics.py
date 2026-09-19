@@ -56,6 +56,21 @@ class TestAFullRow:
         assert row["output_tokens"] == 40
         assert row["cache_read_tokens"] == 900
 
+    def test_cache_creation_and_model_usage_are_carried_onto_the_row(self, run_folder):
+        event = dict(RESULT_EVENT, modelUsage={
+            "claude-opus-5": {"inputTokens": 100, "outputTokens": 40,
+                               "cacheReadInputTokens": 900, "cacheCreationInputTokens": 50,
+                               "costUSD": 12.5},
+        })
+        row = metrics.compute("ADBE", JOB, event)
+        assert row["cache_create_tokens"] == 50
+        assert row["model_usage"] == event["modelUsage"]
+
+    def test_a_result_with_no_model_usage_still_produces_a_row(self, run_folder):
+        row = metrics.compute("ADBE", JOB, RESULT_EVENT)
+        assert row["cache_create_tokens"] is None
+        assert row["model_usage"] is None
+
     def test_each_step_is_timed_from_the_end_of_the_one_before_it(self, run_folder):
         step_seconds = metrics.compute("ADBE", JOB, RESULT_EVENT)["step_seconds"]
         assert step_seconds == {"dossier": 60, "forensic": 90, "condense": 10}

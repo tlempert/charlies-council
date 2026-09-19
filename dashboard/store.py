@@ -18,7 +18,7 @@ TICKER_RE = re.compile(r"^[A-Z0-9.\-]{1,10}$")
 BROAD_SCAN = "broad scan"
 THEME_MAX = 40
 
-_JSON_COLUMNS = ("step_seconds", "fallbacks")
+_JSON_COLUMNS = ("step_seconds", "fallbacks", "model_usage")
 
 _SCHEMA = """
 CREATE TABLE IF NOT EXISTS jobs (
@@ -69,14 +69,16 @@ CREATE TABLE IF NOT EXISTS metrics (
     followup_cost_usd REAL,
     followup_turns INTEGER,
     resumes INTEGER,
-    stopped_at TEXT
+    stopped_at TEXT,
+    cache_create_tokens INTEGER,
+    model_usage TEXT
 );
 """
 
 _METRIC_COLUMNS = ("wall_seconds", "step_seconds", "input_tokens", "output_tokens",
                    "cache_read_tokens", "cost_usd", "num_turns", "fallbacks",
                    "gate_passes", "verdict", "followup_cost_usd", "followup_turns",
-                   "resumes", "stopped_at")
+                   "resumes", "stopped_at", "cache_create_tokens", "model_usage")
 
 #: Columns added after the first install, in the order they were added.
 _ADDED_COLUMNS = (
@@ -85,6 +87,8 @@ _ADDED_COLUMNS = (
     ("jobs", "resume_requested", "INTEGER NOT NULL DEFAULT 0"),
     ("metrics", "resumes", "INTEGER"),
     ("metrics", "stopped_at", "TEXT"),
+    ("metrics", "cache_create_tokens", "INTEGER"),
+    ("metrics", "model_usage", "TEXT"),
 )
 
 

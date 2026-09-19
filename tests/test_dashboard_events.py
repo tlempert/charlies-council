@@ -82,6 +82,47 @@ class TestTheResultEvent:
         assert events.summarize_result(None) is None
 
 
+class TestCumulativeModelUsage:
+    """`usage` only covers the final resumed segment; `modelUsage` (and
+    `total_cost_usd`) are cumulative for the whole session, subagents
+    included, so the metrics row must sum across models rather than read
+    the last segment's usage block."""
+
+    MODEL_USAGE_RESULT = {
+        "type": "result", "is_error": False, "session_id": "sess-1",
+        "total_cost_usd": 19.75, "duration_ms": 900_000, "num_turns": 312,
+        "usage": {"input_tokens": 5, "output_tokens": 2,
+                  "cache_read_input_tokens": 10, "cache_creation_input_tokens": 1},
+        "modelUsage": {
+            "claude-opus-5": {"inputTokens": 100, "outputTokens": 40,
+                               "cacheReadInputTokens": 900, "cacheCreationInputTokens": 50,
+                               "costUSD": 12.5},
+            "claude-sonnet-5": {"inputTokens": 30, "outputTokens": 10,
+                                 "cacheReadInputTokens": 200, "cacheCreationInputTokens": 5,
+                                 "costUSD": 7.25},
+        },
+    }
+
+    def test_token_totals_are_summed_across_every_model_in_model_usage(self):
+        s = events.summarize_result(self.MODEL_USAGE_RESULT)
+        assert s["input_tokens"] == 130
+        assert s["output_tokens"] == 50
+        assert s["cache_read_tokens"] == 1100
+        assert s["cache_create_tokens"] == 55
+
+    def test_the_raw_model_usage_dict_is_carried_through(self):
+        s = events.summarize_result(self.MODEL_USAGE_RESULT)
+        assert s["model_usage"] == self.MODEL_USAGE_RESULT["modelUsage"]
+
+    def test_without_model_usage_the_usage_block_is_still_the_fallback(self):
+        s = events.summarize_result(json.loads(RESULT))
+        assert s["input_tokens"] == 100
+        assert s["output_tokens"] == 40
+        assert s["cache_read_tokens"] == 900
+        assert s["cache_create_tokens"] == 50
+        assert s["model_usage"] is None
+
+
 class TestSingleShotJsonOutput:
     """`--output-format json` is what the follow-up worker uses; this CLI
     returns the whole event array there, not a bare result object."""

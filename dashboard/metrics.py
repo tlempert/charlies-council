@@ -23,6 +23,8 @@ def compute(ticker, job, result_event):
         "input_tokens": result.get("input_tokens"),
         "output_tokens": result.get("output_tokens"),
         "cache_read_tokens": result.get("cache_read_tokens"),
+        "cache_create_tokens": result.get("cache_create_tokens"),
+        "model_usage": result.get("model_usage"),
         "cost_usd": result.get("cost_usd"),
         "num_turns": result.get("num_turns"),
         "fallbacks": _fallbacks(manifest),

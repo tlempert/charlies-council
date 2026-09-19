@@ -76,8 +76,67 @@ def build(client, d):
     print(f"evidence ledger: {len(fs)} facts, {sum(x['material'] for x in fs)} material")
 
 
+SET_ASIDE = "## Evidence considered and set aside"
+SET_ASIDE_LINE = re.compile(r"^\s*[-*]\s*(E\d{3})\s*[—:-]\s*(.*)$", re.M)
+
+
+def _set_aside(text):
+    i = text.find(SET_ASIDE)
+    if i < 0:
+        return {}
+    block = re.split(r"^## ", text[i + len(SET_ASIDE):], maxsplit=1, flags=re.M)[0]
+    return {m.group(1): m.group(2).strip() for m in SET_ASIDE_LINE.finditer(block)}
+
+
+def _fmt(v):
+    # Controller ruling: the integer form ("4") only when v is integral, so a
+    # fractional value like 4.06 is never matched by a bare "4" in the target.
+    if not isinstance(v, float):
+        return [str(v)]
+    forms = [f"{v:.2f}", f"{v:.1f}"]
+    if v.is_integer():
+        forms.append(f"{v:,.0f}")
+    return forms
+
+
+def coverage(fs, targets):
+    joined = "\n".join(targets)
+    aside = {}
+    for t in targets:
+        aside.update(_set_aside(t))
+    used, missing = [], []
+    for f in fs:
+        if not f.get("material"):
+            continue
+        if any(_appears(s, joined) for v in f["numbers"] for s in _fmt(v)):
+            used.append(f["id"])
+        elif f["id"] in aside:
+            continue
+        else:
+            missing.append(f)
+    return {"used": used, "set_aside": {k: v for k, v in aside.items() if any(x["id"] == k for x in fs)}, "missing": missing}
+
+
+def coverage_report(cov):
+    lines = ["# Evidence coverage", "", f"used {len(cov['used'])}, set aside {len(cov['set_aside'])}, missing {len(cov['missing'])}", ""]
+    lines += [f"- {f['id']} [{f.get('tag')}] {f['text'][:200]}" for f in cov["missing"]]
+    lines += ["", "COVERAGE: OK" if not cov["missing"] else f"COVERAGE: MISSING {len(cov['missing'])}"]
+    return "\n".join(lines) + "\n"
+
+
+def coverage_cli(d, names):
+    fs = json.load(open(os.path.join(d, "evidence_ledger.json"), encoding="utf-8"))
+    targets = [open(os.path.join(d, n), encoding="utf-8").read() for n in names if os.path.exists(os.path.join(d, n))]
+    text = coverage_report(coverage(fs, targets))
+    open(os.path.join(d, "evidence_coverage.md"), "w", encoding="utf-8").write(text)
+    print(text)
+    return 1 if "MISSING" in text and os.environ.get("COVERAGE_MODE", "warn") == "strict" else 0
+
+
 if __name__ == "__main__":
     if len(sys.argv) >= 3 and sys.argv[1] == "build":
         sys.exit(jev.advisory(lambda c: build(c, sys.argv[2])))
+    if len(sys.argv) >= 3 and sys.argv[1] == "coverage":
+        sys.exit(coverage_cli(sys.argv[2], sys.argv[3:] or ["verdict.md"]))
     print(__doc__)
     sys.exit(2)

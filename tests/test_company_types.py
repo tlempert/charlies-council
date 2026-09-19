@@ -27,3 +27,26 @@ class TestCombine:
         assert ct.combine({"insurer_pc": 0.6, "holding_conglomerate": 0.5}, {})["mixed"]
         out = ct.combine({"operating_product": 0.4, "distributor_wholesale": 0.3}, {})
         assert out["unknown"] and out["primary"] == "operating_product"
+
+
+class TestClassify:
+    def test_probabilities_become_labels_and_the_file_is_written(self, tmp_path, monkeypatch):
+        import importlib.util, json, os
+        from types import SimpleNamespace as NS
+        spec = importlib.util.spec_from_file_location("classify_company", os.path.join(os.path.dirname(__file__), "..", "scripts", "classify_company.py"))
+        cc = importlib.util.module_from_spec(spec); spec.loader.exec_module(cc)
+        (tmp_path / "initial_dossier.txt").write_text("INDUSTRY: Insurance - Property & Casualty\n--- SECTION A: BUSINESS ---\nKinsale writes E&S insurance through wholesale brokers.\n")
+        monkeypatch.setattr(cc, "sic_for", lambda ticker: "6331")
+        monkeypatch.setattr(cc, "xbrl_for", lambda d: {})
+        calls = iter([
+            NS(choices={"model": NS(choice="insurer_pc", confidence=0.85, probabilities={"insurer_pc": 0.85, "operating_product": 0.4})}, nouls={}, usage=NS(input_tokens=1), model="f"),
+            NS(choices={"regime": NS(choice="cyclical_timing", confidence=0.7, probabilities={"cyclical_timing": 0.7})}, nouls={}, usage=NS(input_tokens=1), model="f"),
+            NS(choices={"jurisdiction": NS(choice="developed", confidence=0.95, probabilities={"developed": 0.95})}, nouls={}, usage=NS(input_tokens=1), model="f"),
+            NS(choices={"capital": NS(choice="float_funded", confidence=0.9, probabilities={"float_funded": 0.9})}, nouls={}, usage=NS(input_tokens=1), model="f"),
+        ])
+        client = NS(system_one=lambda state, questions: next(calls))
+        cc.classify(client, str(tmp_path), "KNSL")
+        out = json.load(open(tmp_path / "company_type.json"))
+        assert out["primary"] == "insurer_pc" and out["labels"][0]["p"] == 0.9
+        assert out["regime"]["label"] == "cyclical_timing" and out["jurisdiction"] == "developed" and out["capital"] == "float_funded"
+        assert "SIC 6331" in out["labels"][0]["evidence"]

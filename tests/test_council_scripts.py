@@ -820,3 +820,19 @@ class TestVerifyVerdict:
             {"kind": "fact_conflict", "p": 0.8, "a": {"expert": "lynch", "text": "x"}, "b": {"expert": "warren_buffett", "text": "y"}}]}))
         results = _load("verify_verdict").deterministic(str(tmp_path))
         assert ("WARN", "argument_conflicts", "1 fact conflict(s) between experts not named in the verdict: lynch vs warren_buffett") in results
+
+    def test_lowercase_jobs_does_not_count_as_the_expert_named(self, tmp_path):
+        (tmp_path / "verdict.md").write_text(f"Buffett approved. 200 jobs were cut across the division.\n```json model_ledger\n{json.dumps(_ledger())}\n```\n")
+        (tmp_path / "all_summaries.md").write_text(SUMMARIES)
+        (tmp_path / "refined_dossier.md").write_text(DOSSIER)
+        (tmp_path / "argument_map.json").write_text(json.dumps({"claims": [], "dependencies": {}, "contradictions": [
+            {"kind": "fact_conflict", "p": 0.8, "a": {"expert": "steve_jobs", "text": "x"}, "b": {"expert": "warren_buffett", "text": "y"}}]}))
+        results = _load("verify_verdict").deterministic(str(tmp_path))
+        assert ("WARN", "argument_conflicts", "1 fact conflict(s) between experts not named in the verdict: steve_jobs vs warren_buffett") in results
+
+    def test_missing_verdict_file_does_not_raise_when_checking_argument_conflicts(self, tmp_path):
+        (tmp_path / "all_summaries.md").write_text(SUMMARIES)
+        (tmp_path / "refined_dossier.md").write_text(DOSSIER)
+        (tmp_path / "argument_map.json").write_text(json.dumps({"claims": [], "dependencies": {}, "contradictions": []}))
+        results = _load("verify_verdict").deterministic(str(tmp_path))
+        assert ("OK", "argument_conflicts", "0 fact conflict(s), all experts named") in results

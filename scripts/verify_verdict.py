@@ -10,6 +10,7 @@ reviewer's starting list and the gate policy's input — and exits 1 on FAIL.
 """
 import json
 import os
+import re
 import sys
 from concurrent.futures import ThreadPoolExecutor
 
@@ -28,13 +29,18 @@ def deterministic(d, memo=None):
     results.append(evidence_ledger.coverage_check(d, memo))
     amp = os.path.join(d, "argument_map.json")
     if os.path.exists(amp):
-        verdict = open(os.path.join(d, "verdict.md"), encoding="utf-8").read().lower()
+        verdict = pregate_check.read(d, "verdict.md")
         conflicts = [c for c in json.load(open(amp, encoding="utf-8")).get("contradictions", []) if c["kind"] == "fact_conflict"]
-        unnamed = [c for c in conflicts if not (c["a"]["expert"].split("_")[-1] in verdict and c["b"]["expert"].split("_")[-1] in verdict)]
+        unnamed = [c for c in conflicts if not (_named(c["a"]["expert"], verdict) and _named(c["b"]["expert"], verdict))]
         results.append(("WARN" if unnamed else "OK", "argument_conflicts",
                         f"{len(unnamed)} fact conflict(s) between experts not named in the verdict: " + "; ".join(f"{c['a']['expert']} vs {c['b']['expert']}" for c in unnamed)
                         if unnamed else f"{len(conflicts)} fact conflict(s), all experts named"))
     return results
+
+
+def _named(expert, text):
+    pat, flags = pregate_check.EXPERT_NAME_PATTERNS[expert]
+    return bool(re.search(pat, text, flags))
 
 
 def advisory_checks(d, memo=None):

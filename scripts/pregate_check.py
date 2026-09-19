@@ -19,6 +19,12 @@ import sys
 
 TAG_RE = re.compile(r"\[(SEC|CALC|MEDIA|SEARCH)\b|JUDGMENT|DERIVED")   # accepts "[SEARCH per Finsee]" as the dossier writes it
 VERDICTS = ("BUY", "WAIT", "HOLD", "PASS", "SELL", "TOO UNCERTAIN")
+# Jobs and Cook are also common English words ("added 200 jobs", "will cook up"); match
+# those two case-sensitively so ordinary prose doesn't falsely engage the expert.
+EXPERT_NAME_PATTERNS = {"jeff_bezos": (r"bezos", re.I), "warren_buffett": (r"buffett", re.I), "michael_burry": (r"burry", re.I),
+                         "tim_cook": (r"\bCook\b", 0), "steve_jobs": (r"\bJobs\b", 0), "psychologist": (r"psychologist", re.I),
+                         "sherlock": (r"sherlock", re.I), "futurist": (r"futurist", re.I), "biologist": (r"biologist", re.I),
+                         "historian": (r"historian", re.I), "anthropologist": (r"anthropologist", re.I), "lynch": (r"lynch", re.I)}
 
 
 def read(d, name):
@@ -239,13 +245,7 @@ def run_checks(d):
 
     # 8. every expert engaged by name in the prose (KNSL 2026-09-17: three reports on the moat's other sides went unread)
     prose = re.sub(r"```.*?```", "", verdict, flags=re.S)
-    # Jobs and Cook are also common English words ("added 200 jobs", "will cook up"); match
-    # those two case-sensitively so ordinary prose doesn't falsely engage the expert.
-    names = {"jeff_bezos": (r"bezos", re.I), "warren_buffett": (r"buffett", re.I), "michael_burry": (r"burry", re.I),
-             "tim_cook": (r"\bCook\b", 0), "steve_jobs": (r"\bJobs\b", 0), "psychologist": (r"psychologist", re.I),
-             "sherlock": (r"sherlock", re.I), "futurist": (r"futurist", re.I), "biologist": (r"biologist", re.I),
-             "historian": (r"historian", re.I), "anthropologist": (r"anthropologist", re.I), "lynch": (r"lynch", re.I)}
-    silent = [k for k, (pat, flags) in names.items() if not re.search(pat, prose, flags)]
+    silent = [k for k, (pat, flags) in EXPERT_NAME_PATTERNS.items() if not re.search(pat, prose, flags)]
     add("WARN" if silent else "OK", "expert_engagement", f"never named in the prose: {silent}" if silent else "all 12 experts engaged")
     return results
 

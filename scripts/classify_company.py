@@ -177,10 +177,14 @@ def _propose_gold_label(out):
     """Grows taxonomy/gold_labels.json with this run's finding, as a
     *proposed* label — never on an unresolved (`unknown`) classification, and
     `ct.propose` itself refuses to touch a ticker that's already there,
-    confirmed or not."""
-    if out["unknown"]:
+    confirmed or not. Defensive about `out`'s shape: a cache hit reads
+    whatever an earlier run wrote to company_type.json, which — in tests,
+    or a stale/partial file — may be missing keys; treat that as unknown
+    rather than raising.
+    """
+    if out.get("unknown", True) or not out.get("ticker") or not out.get("primary"):
         return
-    also = [l["label"] for l in out["labels"] if l["label"] != out["primary"] and l["p"] >= ct.MIXED_MIN]
+    also = [l["label"] for l in out.get("labels", []) if l["label"] != out["primary"] and l.get("p", 0) >= ct.MIXED_MIN]
     gold = ct.load_gold(GOLD_PATH)
     source = f"run {datetime.now(timezone.utc).date().isoformat()}"
     if ct.propose(gold, out["ticker"], out["primary"], also or None, source):
@@ -197,6 +201,12 @@ def _run(client, ticker, d):
     xbrl_path = os.path.join(d, "xbrl.json")
     inputs = [dossier_path] + ([xbrl_path] if os.path.exists(xbrl_path) else [])
     if jev.cached(out_path, *inputs, extra=ticker):
+        # A cache hit still means this ticker was classified — read back
+        # what an earlier run wrote and backfill it into gold, so a ticker
+        # analyzed before propose/confirm existed isn't left out forever.
+        with open(out_path, encoding="utf-8") as f:
+            out = json.load(f)
+        _propose_gold_label(out)
         return
     classify(client, d, ticker)
     jev.stamp(out_path, *inputs, extra=ticker)

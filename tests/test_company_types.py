@@ -446,6 +446,25 @@ class TestCacheKey:
         cc._run(None, "KNSL", str(tmp_path))
         assert runs == ["KNSL"]
 
+    def test_a_cached_run_still_backfills_the_gold_proposal(self, tmp_path, monkeypatch):
+        cc = _load_classify_company()
+        gold_path = tmp_path / "gold.json"
+        gold_path.write_text(json.dumps({"schema": 2, "generated": "2026-09-19"}))
+        monkeypatch.setattr(cc, "GOLD_PATH", str(gold_path))
+        (tmp_path / "initial_dossier.txt").write_text("INDUSTRY: Insurance\n", encoding="utf-8")
+        out = {"ticker": "KNSL", "primary": "insurer_pc", "labels": [{"label": "insurer_pc", "p": 0.9, "evidence": []}],
+               "mixed": False, "unknown": False}
+        out_path = os.path.join(str(tmp_path), "company_type.json")
+        with open(out_path, "w", encoding="utf-8") as f:
+            json.dump(out, f)
+        cc.jev.stamp(out_path, os.path.join(str(tmp_path), "initial_dossier.txt"), extra="KNSL")
+        touched = []
+        cc.classify = lambda client, d, ticker: touched.append(ticker)
+        cc._run(None, "KNSL", str(tmp_path))
+        assert touched == []                          # confirms this was a cache hit, not a fresh classify
+        gold = ct.load_gold(str(gold_path))
+        assert gold["KNSL"]["primary"] == "insurer_pc" and gold["KNSL"]["status"] == "proposed"
+
     def test_classify_proposes_the_gold_label_when_something_new(self, tmp_path, monkeypatch):
         cc = _load_classify_company()
         gold_path = tmp_path / "gold.json"
@@ -545,6 +564,16 @@ class TestGoldCli:
         assert "KNSL" in out and "insurer_pc" in out
         gold = ct.load_gold(str(gold_path))
         assert gold["KNSL"]["status"] == "proposed" and gold["KNSL"]["source"] == "run 2026-09-20"
+
+    def test_propose_cli_requires_source_and_writes_nothing_without_it(self, tmp_path, capsys):
+        cs = _load("classify_corpus")
+        gold_path = tmp_path / "gold.json"
+        gold_path.write_text(json.dumps({"schema": 2, "generated": "2026-09-19"}))
+        rc = cs._cli(["propose", "KNSL", "insurer_pc"], gold_path=str(gold_path))
+        assert rc == 2
+        assert "usage" in capsys.readouterr().out.lower()
+        gold = ct.load_gold(str(gold_path))
+        assert "KNSL" not in gold
 
     def test_propose_cli_does_not_overwrite_a_confirmed_row(self, tmp_path):
         cs = _load("classify_corpus")

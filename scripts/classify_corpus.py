@@ -239,6 +239,9 @@ def _cli(argv, gold_path=None):
         return 0
     if cmd == "propose":
         source, args = _pop_flag(args, "--source", None)
+        if source is None:
+            print("usage: classify_corpus.py propose TICKER PRIMARY [ALSO,...] --source SOURCE")
+            return 2
         ticker, primary = args[0], args[1]
         also = args[2].split(",") if len(args) > 2 else None
         added = ct.propose(gold, ticker, primary, also, source)

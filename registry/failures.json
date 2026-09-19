@@ -677,7 +677,7 @@
   "guard": "evidence coverage",
   "test": "",
   "coverage": "new",
-  "mentions": [],
+  "mentions": [{"file": "skills/munger-synthesis.md", "needle": "On KNSL price-to-book, operating ROE, broker concentration and the latest repurchase price all reached the experts and none reached the reader"}],
   "evidence": []
  },
  {

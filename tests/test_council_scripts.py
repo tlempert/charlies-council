@@ -692,3 +692,11 @@ class TestVerifyVerdict:
         import re
         text = _load("verify_verdict").render([("WARN", "memo:sizing", "x")], {})
         assert re.search(r"^- (FAIL|WARN) .memo:", text, re.M)
+
+    def test_bundle_reports_evidence_coverage_when_a_ledger_exists(self, tmp_path):
+        (tmp_path / "verdict.md").write_text(f"Prose.\n```json model_ledger\n{json.dumps(_ledger())}\n```\n")
+        (tmp_path / "all_summaries.md").write_text(SUMMARIES)
+        (tmp_path / "refined_dossier.md").write_text(DOSSIER)
+        (tmp_path / "evidence_ledger.json").write_text(json.dumps([{"id": "E001", "material": True, "numbers": [99.5], "text": "[SEC] x 99.5"}]))
+        results = _load("verify_verdict").deterministic(str(tmp_path))
+        assert ("WARN", "evidence_coverage", "1 material fact(s) neither used nor set aside: E001") in results

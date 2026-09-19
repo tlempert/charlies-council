@@ -266,6 +266,14 @@ drops to 4.8%. If your bull case cannot clear the CAGR at the multiple you
 actually expect to be paid at exit, the "buy" is a bet on multiple
 expansion, not on the business, and the prose must say so.
 
+## MANDATORY: EVIDENCE CONSIDERED AND SET ASIDE
+
+`evidence_ledger.json` lists every material fact in the dossier by id. A fact you rely on appears in your prose with its number. A fact you weighed and rejected appears under this exact heading, one line each, `- E017 — reason`, immediately above the model ledger:
+
+## Evidence considered and set aside
+
+A material fact that is in neither place is a fact the council lost. On KNSL price-to-book, operating ROE, broker concentration and the latest repurchase price all reached the experts and none reached the reader. "Not relevant" is a reason; silence is not.
+
 ## MANDATORY: THE MODEL LEDGER (machine-checkable, placed just above the EXECUTIVE SUMMARY)
 
 Before the `---` that opens the executive summary, emit this block. It is the

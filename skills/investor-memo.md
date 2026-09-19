@@ -11,6 +11,7 @@ You are writing an investor memo on the company named in the inputs, for an inte
 - **No expert names.** Write "the council", "one member of the council", "the council's dissent", "the red team". The reader is buying a conclusion, not a cast.
 - **Length:** aim for 1,200–1,350 words of reading; 1,500 is a hard ceiling and the validator rejects a longer draft, so leave yourself the margin — drafts asked for 1,500 have come in at 1,560. Citation tags and the *Sources and scope* list are not counted; everything else is. Nineteen headings in 1,500 words means every sentence earns its place: tables carry the numbers, bullets are one line each, no paragraph runs past four sentences, and the corrections section is a table. Prose is for reasoning the reader cannot get from a table. Sub-headings are `###`.
 - **Cite a table once.** Put the tag in the column header or the table's footnote, not in every cell; a cell carries its own tag only when its source differs from the column's.
+- **No material fact is lost.** `verify_verdict.py --memo memo.md` checks that every material fact in the evidence ledger appears in the verdict or the memo, or is listed as set aside in the verdict. If the verdict set a fact aside and you disagree, keep it set aside — you restate the verdict, you do not re-open it — and put the question in the five questions.
 
 ## Inputs, in the order they are given to you
 

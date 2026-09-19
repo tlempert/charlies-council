@@ -174,10 +174,15 @@ def classify(client, d, ticker):
 def _run(client, ticker, d):
     dossier_path = os.path.join(d, "initial_dossier.txt")
     out_path = os.path.join(d, "company_type.json")
-    if jev.cached(out_path, dossier_path, extra=ticker):
+    # The XBRL facts are a classification input (deterministic_evidence reads
+    # them), so a run that gained an xbrl.json must re-classify rather than
+    # serve the dossier-only answer from cache.
+    xbrl_path = os.path.join(d, "xbrl.json")
+    inputs = [dossier_path] + ([xbrl_path] if os.path.exists(xbrl_path) else [])
+    if jev.cached(out_path, *inputs, extra=ticker):
         return
     classify(client, d, ticker)
-    jev.stamp(out_path, dossier_path, extra=ticker)
+    jev.stamp(out_path, *inputs, extra=ticker)
 
 
 def _default_run_dir(ticker):

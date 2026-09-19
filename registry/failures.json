@@ -379,8 +379,8 @@
   "incorrect": "WAIT→BUY→WAIT",
   "required": "hard cap; attack only what changed",
   "guard": "Step 6 gate policy: two premium passes cap (gate_policy.decide)",
-  "test": "",
-  "coverage": "prose",
+  "test": "tests/test_gate_policy.py::TestDecide::test_second_pass_is_the_last",
+  "coverage": "guarded",
   "mentions": [
    {
     "file": "skills/analyze-company.md",
@@ -397,8 +397,8 @@
   "incorrect": "pass 2 found 6 FATAL in the rewrite",
   "required": "revision verified before publication",
   "guard": "verification of the revision (verify_verdict + jev_findings + gate_policy.decide)",
-  "test": "",
-  "coverage": "prose",
+  "test": "tests/test_gate_policy.py::TestDecide::test_unaddressed_fatal_triggers_pass_2",
+  "coverage": "guarded",
   "mentions": [
    {
     "file": "skills/analyze-company.md",
@@ -407,6 +407,10 @@
    {
     "file": "skills/analyze-company.md",
     "needle": "on GTT that the Korean antitrust remedy had been in force since Dec-2022"
+   },
+   {
+    "file": "skills/analyze-company.md",
+    "needle": "on ACN, pass 1 found 2 FATAL plus a Check 0 violation, and the corrected memo changed verdict from WAIT/0% to BUY/2%"
    }
   ],
   "evidence": []

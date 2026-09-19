@@ -42,6 +42,11 @@ class TestPasswordHashing:
     def test_each_install_gets_its_own_cookie_secret(self):
         assert app_mod.make_config(PASSWORD)["cookie_secret"] != app_mod.make_config(PASSWORD)["cookie_secret"]
 
+    def test_a_fresh_install_declares_explainers_off(self):
+        """The runner reads config['explainers'] to decide the --explainers
+        flag; a template that omits the key leaves the setting undiscoverable."""
+        assert app_mod.make_config(PASSWORD)["explainers"] is False
+
 
 class TestCookie:
     def test_a_freshly_signed_cookie_verifies(self, config):

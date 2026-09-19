@@ -39,7 +39,8 @@ def make_config(password, port=DEFAULT_PORT):
     """A fresh install's config.json: no plaintext, a per-install cookie secret."""
     salt = secrets.token_hex(16)
     return {"salt": salt, "password_hash": hash_password(password, salt),
-            "cookie_secret": secrets.token_hex(32), "port": port}
+            "cookie_secret": secrets.token_hex(32), "port": port,
+            "explainers": False}
 
 
 def check_password(config, password):

@@ -39,7 +39,12 @@ def deterministic(d, memo=None):
 
 
 def _named(expert, text):
-    pat, flags = pregate_check.EXPERT_NAME_PATTERNS[expert]
+    """An expert with no name pattern (a key the argument map invented) counts
+    as not named, rather than taking the whole bundle down with a KeyError."""
+    entry = pregate_check.EXPERT_NAME_PATTERNS.get(expert)
+    if not entry:
+        return False
+    pat, flags = entry
     return bool(re.search(pat, text, flags))
 
 
@@ -75,6 +80,21 @@ def render(results, advisory_texts):
     return "\n".join(lines) + "\n"
 
 
+def summary(text):
+    """The part of verification.md worth printing: the `## Deterministic`
+    section and the closing VERIFY: line. The advisory sections stay in the
+    file — on a live run they are thousands of tokens of Jev prose that the
+    caller re-reads on every later turn."""
+    lines = text.splitlines()
+    out, keeping = [], False
+    for line in lines:
+        if line.startswith("## "):
+            keeping = line.strip() == "## Deterministic"
+        if keeping or line.startswith("VERIFY:"):
+            out.append(line)
+    return "\n".join(out) + "\n"
+
+
 def main(argv):
     if len(argv) < 2:
         print(__doc__)
@@ -91,7 +111,7 @@ def main(argv):
     results = deterministic(d, memo)
     text = render(results, run_advisory(d, memo))
     open(os.path.join(d, "verification.md"), "w", encoding="utf-8").write(text)
-    print(text)
+    print(summary(text))
     return 1 if any(s == "FAIL" for s, _, _ in results) else 0
 
 

@@ -294,3 +294,39 @@ class TestOfflineHelpers:
         excerpt = cc.item1_excerpt(text)
         assert len(excerpt) == 6000
         assert excerpt == ("\n" + body)[:6000]
+
+
+class TestCacheKey:
+    """The XBRL facts are a classification input, so a run that gained an
+    xbrl.json must re-classify rather than serve the dossier-only answer."""
+
+    def _prepare(self, tmp_path):
+        cc = _load_classify_company()
+        (tmp_path / "initial_dossier.txt").write_text("INDUSTRY: Insurance\n", encoding="utf-8")
+        runs = []
+        cc.classify = lambda client, d, ticker: (runs.append(ticker),
+                                                 open(os.path.join(d, "company_type.json"), "w").write("{}"))
+        return cc, runs
+
+    def test_a_changed_xbrl_file_invalidates_the_cached_classification(self, tmp_path):
+        cc, runs = self._prepare(tmp_path)
+        (tmp_path / "xbrl.json").write_text('{"Revenues": 1}', encoding="utf-8")
+        cc._run(None, "KNSL", str(tmp_path))
+        cc._run(None, "KNSL", str(tmp_path))
+        assert runs == ["KNSL"]                       # second call is a cache hit
+        (tmp_path / "xbrl.json").write_text('{"Revenues": 2}', encoding="utf-8")
+        cc._run(None, "KNSL", str(tmp_path))
+        assert runs == ["KNSL", "KNSL"]
+
+    def test_an_xbrl_file_appearing_after_a_cached_run_invalidates_it(self, tmp_path):
+        cc, runs = self._prepare(tmp_path)
+        cc._run(None, "KNSL", str(tmp_path))
+        (tmp_path / "xbrl.json").write_text('{"Revenues": 1}', encoding="utf-8")
+        cc._run(None, "KNSL", str(tmp_path))
+        assert runs == ["KNSL", "KNSL"]
+
+    def test_without_an_xbrl_file_the_dossier_alone_still_caches(self, tmp_path):
+        cc, runs = self._prepare(tmp_path)
+        cc._run(None, "KNSL", str(tmp_path))
+        cc._run(None, "KNSL", str(tmp_path))
+        assert runs == ["KNSL"]

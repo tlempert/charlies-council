@@ -9,6 +9,7 @@ workers succeeded, and where a failed worker goes next.
     council_manifest.py status TICKER
     council_manifest.py evidence TICKER [--check]             # record/verify refined_dossier.md's hash
     council_manifest.py counter TICKER NAME VALUE             # set an integer counter, e.g. verify_fail_rounds
+    council_manifest.py note    TICKER KEY VALUE              # keep a string the run folder will not survive
 
 A crash at Step 6 restarts at Step 6, not Step 1, because every step checks
 `step` before doing work. A failed worker is re-dispatched on its own, to the
@@ -86,10 +87,24 @@ def record_gate_passes(ticker, m):
     """Keep the highest count of Reality Check files seen so far in the manifest.
 
     Step 8 empties the run folder before the dashboard computes its metrics row,
-    so the files cannot be counted afterwards (ROG.SW recorded 0 for 3 passes)."""
+    so the files cannot be counted afterwards (ROG.SW recorded 0 for 3 passes).
+
+    Counting files alone undercounts: pass 2 appends `### Pass 2` to the same
+    reality_check.md rather than writing a second file, so the recorded steps
+    (premium_passes) are the other floor."""
     seen = len(glob.glob(os.path.join(ROOT, ticker, "reality_check*.md")))
-    m["gate_passes"] = max(m.get("gate_passes", 0), seen)
+    m["gate_passes"] = max(m.get("gate_passes", 0), seen, m.get("premium_passes", 0))
     return m["gate_passes"]
+
+
+def note(m, key, value):
+    """Store a short string under m["notes"][key].
+
+    Step 8 empties the run folder, so evidence that lives only in a file there
+    (company_type.json, verification.md) is gone by the time Step 9 reports —
+    the manifest outlives the folder."""
+    m.setdefault("notes", {})[key] = value
+    return m["notes"][key]
 
 
 def mark_worker(m, key, pool, status, reason=""):
@@ -173,6 +188,12 @@ def main(argv):
                 return 1
     elif cmd == "counter":
         m[argv[3]] = int(argv[4])
+        save(ticker, m)
+    elif cmd == "note":
+        if len(argv) < 5:
+            print(__doc__)
+            return 2
+        note(m, argv[3], argv[4])
         save(ticker, m)
     elif cmd == "status":
         print(json.dumps(m, indent=1))

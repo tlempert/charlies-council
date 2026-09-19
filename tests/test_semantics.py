@@ -233,3 +233,36 @@ class TestRunChecksTypeWiring:
         (tmp_path / "company_type.json").write_text(json.dumps({"primary": "insurer_pc", "labels": [{"label": "insurer_pc"}]}))
         results = sem.run_checks(str(tmp_path))
         assert isinstance(results, list) and not any(n.startswith("type:") for _, n, _ in results)
+
+
+class TestTheStandaloneCli:
+    """The CLI is run from an arbitrary cwd, so `modules.company_types` has to
+    be importable from the script's own location, not from the caller's."""
+
+    def _run(self, tmp_path, env_extra=None):
+        import subprocess
+        import sys
+        env = dict(os.environ, **(env_extra or {}))
+        env.pop("PYTHONPATH", None)
+        return subprocess.run([sys.executable, os.path.join(_SCRIPTS, "validate_semantics.py"), str(tmp_path)],
+                              capture_output=True, text=True, cwd=str(tmp_path), env=env)
+
+    def _fixture(self, tmp_path):
+        (tmp_path / "verdict.md").write_text(
+            "Prose with no valuation frame at all.\n```json model_ledger\n" + json.dumps(LEDGER) + "\n```\n",
+            encoding="utf-8")
+        (tmp_path / "company_type.json").write_text(
+            json.dumps({"primary": "insurer_pc", "labels": [{"label": "insurer_pc", "p": 0.97}]}), encoding="utf-8")
+
+    def test_a_company_type_file_makes_the_cli_print_a_type_line_and_exit_clean(self, tmp_path):
+        self._fixture(tmp_path)
+        result = self._run(tmp_path)
+        assert result.returncode == 0, result.stderr
+        assert "type:insurer_pc" in result.stdout
+        assert "SEMANTICS: PASS" in result.stdout
+
+    def test_strict_mode_turns_the_same_type_row_into_a_failing_exit(self, tmp_path):
+        self._fixture(tmp_path)
+        result = self._run(tmp_path, {"TYPE_RULES_MODE": "strict"})
+        assert result.returncode == 1, result.stdout
+        assert "FAIL type:insurer_pc" in result.stdout

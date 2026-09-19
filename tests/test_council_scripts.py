@@ -864,3 +864,197 @@ class TestVerifyVerdict:
         (tmp_path / "argument_map.json").write_text(json.dumps({"claims": [], "dependencies": {}, "contradictions": []}))
         results = _load("verify_verdict").deterministic(str(tmp_path))
         assert ("OK", "argument_conflicts", "0 fact conflict(s), all experts named") in results
+
+
+class TestGatePassesCountsAppendedPasses:
+    """Pass 2 appends `### Pass 2` to the same reality_check.md, so counting
+    files alone recorded 1 for a two-pass run. The recorded steps are the
+    other floor."""
+
+    def test_two_recorded_passes_beat_a_single_reality_check_file(self, manifest, tmp_path):
+        m = manifest.init("ADBE")
+        (tmp_path / "ADBE").mkdir(exist_ok=True)
+        (tmp_path / "ADBE" / "reality_check.md").write_text("pass 1\n### Pass 2\npass 2", encoding="utf-8")
+        manifest.mark_step(m, "gate_pass1", "done")
+        manifest.mark_step(m, "gate_pass2", "done")
+        assert manifest.record_gate_passes("ADBE", m) == 2
+
+    def test_a_single_pass_still_counts_one(self, manifest, tmp_path):
+        m = manifest.init("ADBE")
+        (tmp_path / "ADBE").mkdir(exist_ok=True)
+        (tmp_path / "ADBE" / "reality_check.md").write_text("pass 1", encoding="utf-8")
+        manifest.mark_step(m, "gate_pass1", "done")
+        assert manifest.record_gate_passes("ADBE", m) == 1
+
+    def test_a_higher_file_count_still_wins(self, manifest, tmp_path):
+        m = manifest.init("ADBE")
+        (tmp_path / "ADBE").mkdir(exist_ok=True)
+        for n in ("reality_check.md", "reality_check.pass2.md", "reality_check.pass3.md"):
+            (tmp_path / "ADBE" / n).write_text("x", encoding="utf-8")
+        manifest.mark_step(m, "gate_pass1", "done")
+        assert manifest.record_gate_passes("ADBE", m) == 3
+
+
+class TestManifestNotes:
+    """Step 8 empties the run folder, so Step 9 reads the shadow evidence out
+    of the manifest instead of company_type.json and verification.md."""
+
+    def test_a_note_survives_a_round_trip_to_disk(self, manifest):
+        m = manifest.init("KNSL")
+        manifest.note(m, "company_type", "insurer_pc 0.97")
+        manifest.save("KNSL", m)
+        assert manifest.load("KNSL")["notes"]["company_type"] == "insurer_pc 0.97"
+
+    def test_a_second_note_joins_the_first_rather_than_replacing_it(self, manifest):
+        m = manifest.init("KNSL")
+        manifest.note(m, "company_type", "insurer_pc 0.97")
+        manifest.note(m, "type_warns", "3")
+        assert m["notes"] == {"company_type": "insurer_pc 0.97", "type_warns": "3"}
+
+    def test_the_cli_stores_a_note_that_status_reports(self, tmp_path):
+        env = dict(os.environ, COUNCIL_ROOT=str(tmp_path))
+        script = os.path.join(_SCRIPTS, "council_manifest.py")
+        subprocess.run([sys.executable, script, "init", "KNSL"], env=env, check=True)
+        subprocess.run([sys.executable, script, "note", "KNSL", "company_type", "insurer_pc 0.97"],
+                       env=env, check=True)
+        out = subprocess.run([sys.executable, script, "status", "KNSL"], env=env,
+                             capture_output=True, text=True).stdout
+        assert json.loads(out)["notes"]["company_type"] == "insurer_pc 0.97"
+
+    def test_a_note_without_a_value_prints_usage_instead_of_raising(self, tmp_path):
+        env = dict(os.environ, COUNCIL_ROOT=str(tmp_path))
+        script = os.path.join(_SCRIPTS, "council_manifest.py")
+        subprocess.run([sys.executable, script, "init", "KNSL"], env=env, check=True)
+        result = subprocess.run([sys.executable, script, "note", "KNSL", "company_type"],
+                                env=env, capture_output=True, text=True)
+        assert result.returncode == 2
+
+
+class TestVerifyVerdictConsoleSummary:
+    """verification.md keeps the advisory Jev sections; stdout does not — on a
+    live run they are thousands of tokens the caller then carries all turn."""
+
+    def test_only_the_deterministic_rows_and_the_verify_line_are_printed(self):
+        vv = _load("verify_verdict")
+        text = vv.render([("WARN", "sizing", "x")], {"jev_tiers.md": "long advisory prose about tiers"})
+        out = vv.summary(text)
+        assert "- WARN `sizing`: x" in out
+        assert "VERIFY: PASS — 0 FAIL, 1 WARN" in out
+        assert "long advisory prose about tiers" not in out
+        assert "## jev_tiers.md" not in out
+
+    def test_the_file_still_carries_the_advisory_sections(self, tmp_path):
+        vv = _load("verify_verdict")
+        text = vv.render([("OK", "geometry", "fine")], {"jev_tiers.md": "long advisory prose about tiers"})
+        assert "long advisory prose about tiers" in text
+
+    def test_a_memo_warn_line_survives_the_summary_for_the_skills_grep(self):
+        import re
+        vv = _load("verify_verdict")
+        out = vv.summary(vv.render([("WARN", "memo:sizing", "x")], {"jev_tiers.md": "prose"}))
+        assert re.search(r"^- (FAIL|WARN) .memo:", out, re.M)
+
+
+class TestArgumentConflictsWithAnUnknownExpert:
+    def test_an_expert_with_no_name_pattern_counts_as_unnamed_rather_than_raising(self, tmp_path):
+        (tmp_path / "verdict.md").write_text(f"Prose.\n```json model_ledger\n{json.dumps(_ledger())}\n```\n")
+        (tmp_path / "all_summaries.md").write_text(SUMMARIES)
+        (tmp_path / "refined_dossier.md").write_text(DOSSIER)
+        (tmp_path / "argument_map.json").write_text(json.dumps({"claims": [], "dependencies": {}, "contradictions": [
+            {"kind": "fact_conflict", "p": 0.8, "a": {"expert": "the_quant", "text": "x"},
+             "b": {"expert": "warren_buffett", "text": "y"}}]}))
+        results = _load("verify_verdict").deterministic(str(tmp_path))
+        assert ("WARN", "argument_conflicts",
+                "1 fact conflict(s) between experts not named in the verdict: the_quant vs warren_buffett") in results
+
+
+class TestTheGateStrikesValuesBeforeItBranches:
+    """The striking used to live in the revision, so an immediate PASS handed
+    the memo writer a review still carrying the reviewer's own numbers (ADBE
+    pass 3 found its "18x-20x band" copied in verbatim)."""
+
+    SKILL = os.path.join(_ROOT, "skills", "analyze-company.md")
+
+    @property
+    def step6(self):
+        text = open(self.SKILL, encoding="utf-8").read()
+        return text.split("### Step 6: Reality Check GATE", 1)[1].split("### Step 7:", 1)[0]
+
+    def test_jev_findings_runs_in_item_1_before_either_branch(self):
+        item1 = self.step6.split("\n2. **PASS", 1)[0]
+        assert "gate_policy.py findings $D/reality_check.md" in item1
+        assert "jev_findings.py $D" in item1
+        assert item1.index("gate_policy.py findings") < item1.index("jev_findings.py $D")
+
+    def test_item_1_says_what_to_do_about_a_parse_mismatch(self):
+        item1 = self.step6.split("\n2. **PASS", 1)[0]
+        assert "PARSE MISMATCH" in item1 and "fix `findings.json` to match" in item1
+
+    def test_the_revision_forwards_the_findings_file_not_the_review_by_eye(self):
+        item3 = self.step6.split("\n3. **REJECT", 1)[1].split("\n4. **Verify", 1)[0]
+        assert "from `findings.json`" in item3
+        assert "by eye" in item3 and "never re-typed by eye" in item3
+
+    def test_item_4_still_reruns_jev_findings_after_the_revision(self):
+        item4 = self.step6.split("\n4. **Verify", 1)[1].split("\n5. **`PASS_BY_VERIFICATION`", 1)[0]
+        assert "jev_findings.py $D" in item4
+        assert "cache key includes `verdict.md`" in item4
+
+    def test_the_verification_append_is_a_command_not_an_instruction(self):
+        item5 = self.step6.split("\n5. **`PASS_BY_VERIFICATION`", 1)[1]
+        assert '### Verification of the revision"; cat $D/findings.md' in item5
+        assert "grep -E '^(VERIFY:|- (FAIL|WARN))' $D/verification.md" in item5
+        assert ">> $D/reality_check.md" in item5
+
+
+class TestGateDoneIsRecordedOnEveryEndingBranch:
+    """`decide` can still call for pass 2, so recording `gate done` next to it
+    marked a gate finished that had not finished."""
+
+    SKILL = os.path.join(_ROOT, "skills", "analyze-company.md")
+
+    @property
+    def step6(self):
+        text = open(self.SKILL, encoding="utf-8").read()
+        return text.split("### Step 6: Reality Check GATE", 1)[1].split("### Step 7:", 1)[0]
+
+    def test_item_4_does_not_record_the_gate_as_done(self):
+        item4 = self.step6.split("\n4. **Verify", 1)[1].split("\n5. **`PASS_BY_VERIFICATION`", 1)[0]
+        assert "gate done" in item4 and "Do **not** record `gate done` here" in item4
+        assert "Record `step {TICKER} gate done`" not in item4
+
+    def test_the_immediate_pass_and_both_late_branches_each_record_it(self):
+        item2 = self.step6.split("\n2. **PASS", 1)[1].split("\n3. **REJECT", 1)[0]
+        item5 = self.step6.split("\n5. **`PASS_BY_VERIFICATION`", 1)[1]
+        assert "step {TICKER} gate done" in item2
+        assert item5.count("step {TICKER} gate done") == 3      # PASS_BY_VERIFICATION, pass 2, corrections
+
+
+class TestTheShadowEvidenceOutlivesTheRunFolder:
+    """Step 8 empties /tmp/silicon_council/{TICKER}, so Step 9 reporting out of
+    company_type.json and verification.md reported nothing at all."""
+
+    SKILL = os.path.join(_ROOT, "skills", "analyze-company.md")
+
+    def test_step_1_notes_the_company_type_after_classifying(self):
+        text = open(self.SKILL, encoding="utf-8").read()
+        step1 = text.split("### Step 1: Build Dossier", 1)[1].split("### Step 2:", 1)[0]
+        assert "classify_company.py {TICKER}" in step1
+        assert "council_manifest.py note {TICKER} company_type" in step1
+        assert step1.index("classify_company.py {TICKER}") < step1.index("note {TICKER} company_type")
+
+    def test_step_7_notes_the_type_warning_count_from_the_memo_bundle(self):
+        text = open(self.SKILL, encoding="utf-8").read()
+        step7 = text.split("### Step 7: Investor Memo", 1)[1].split("### Step 7b:", 1)[0]
+        assert "council_manifest.py note {TICKER} type_warns" in step7
+        assert "grep -c '^- WARN .type:'" in step7
+        # `grep -c || echo 0` prints "0\n0" on a zero match, because grep -c prints
+        # its own 0 and still exits 1; the count has to come through a variable.
+        assert '"${N:-0}"' in step7 and "|| echo 0" not in step7
+
+    def test_step_9_reads_both_notes_from_the_manifest_not_the_deleted_files(self):
+        text = open(self.SKILL, encoding="utf-8").read()
+        step9 = text.split("### Step 9: Report to User", 1)[1]
+        assert "council_manifest.py status {TICKER}" in step9
+        assert "notes.company_type" in step9 and "notes.type_warns" in step9
+        assert "`company_type.json`'s `primary`" not in step9

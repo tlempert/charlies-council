@@ -13,6 +13,10 @@ import os
 import re
 import sys
 
+# The CLI is run from anywhere ("validate_semantics.py /tmp/silicon_council/T"),
+# so the repo root has to be on the path for `modules.company_types` to import.
+sys.path.insert(0, os.path.join(os.path.dirname(os.path.abspath(__file__)), ".."))
+
 
 def emit(status):
     return "WARN" if status == "FAIL" and os.environ.get("SEMANTICS_MODE", "warn") == "warn" else status

@@ -1,5 +1,6 @@
 """Every historical warning in the workflow is registered, and no warning
 disappears from a skill until its registry entry names a passing test."""
+import glob
 import json
 import os
 import re
@@ -8,10 +9,13 @@ import sys
 
 ROOT = os.path.abspath(os.path.join(os.path.dirname(__file__), ".."))
 REG = os.path.join(ROOT, "registry", "failures.json")
+# The twelve expert briefs are scanned too: a company warning that migrates into
+# one of them must still carry a registry entry. No hits today, by design.
 SCANNED = ["skills/analyze-company.md", "skills/munger-synthesis.md", "skills/reality-check.md",
            "skills/refine-dossier.md", "skills/investor-memo.md", "modules/tools.py",
            "scripts/pregate_check.py", "scripts/jev_snippets.py", "scripts/jev_summaries.py",
-           "scripts/jev_tiers.py", "scripts/jev_neutrality.py"]
+           "scripts/jev_tiers.py", "scripts/jev_neutrality.py"] + sorted(
+    os.path.relpath(p, ROOT) for p in glob.glob(os.path.join(ROOT, "skills", "experts", "*.md")))
 WARNING = re.compile(r"\b[Oo]n (ADBE|KSPI|ACN|GTT\.PA|GTT|KNSL|ROG\.SW|OTIS|NXPI|PBR|PTON|ECHO)\b")
 COVERAGE = {"guarded", "script", "advisory", "prose", "new", "open"}
 

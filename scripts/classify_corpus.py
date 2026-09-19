@@ -185,5 +185,45 @@ def _main(client):
     print(report.splitlines()[-1])
 
 
+def _pop_flag(args, flag, default=None):
+    """Extracts `--flag VALUE` from an argv-style list, returning (value,
+    remaining_args). Absent flag returns `default` untouched."""
+    if flag in args:
+        i = args.index(flag)
+        return args[i + 1], args[:i] + args[i + 2:]
+    return default, args
+
+
+def _cli(argv, gold_path=None):
+    """`confirm`/`propose` subcommands — offline, no Jev client, no corpus
+    scan. `gold_path` is a test seam; the real CLI always uses GOLD_PATH
+    (optionally overridden by a --gold-path flag, for the subprocess path)."""
+    cmd, args = argv[0], list(argv[1:])
+    path, args = _pop_flag(args, "--gold-path", gold_path or GOLD_PATH)
+    gold = ct.load_gold(path)
+    if cmd == "confirm":
+        by, args = _pop_flag(args, "--by", "user")
+        ticker, primary = args[0], args[1]
+        also = args[2].split(",") if len(args) > 2 else None
+        entry = ct.confirm(gold, ticker, primary, also, by)
+        ct.save_gold(path, gold)
+        print(json.dumps({ticker: entry}, indent=2))
+        return 0
+    if cmd == "propose":
+        source, args = _pop_flag(args, "--source", None)
+        ticker, primary = args[0], args[1]
+        also = args[2].split(",") if len(args) > 2 else None
+        added = ct.propose(gold, ticker, primary, also, source)
+        if added:
+            ct.save_gold(path, gold)
+        print(json.dumps({ticker: gold[ticker]}, indent=2))
+        return 0
+    print("usage: classify_corpus.py {confirm|propose} TICKER PRIMARY [ALSO,...] [--by NAME|--source SOURCE]")
+    return 1
+
+
 if __name__ == "__main__":
-    sys.exit(jev.advisory(_main))
+    if len(sys.argv) > 1 and sys.argv[1] in ("confirm", "propose"):
+        sys.exit(_cli(sys.argv[1:]))
+    else:
+        sys.exit(jev.advisory(_main))

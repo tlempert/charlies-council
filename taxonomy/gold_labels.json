@@ -1,71 +1,345 @@
 {
-  "status": "proposed — confirm with the user",
+  "schema": 2,
   "generated": "2026-09-19",
-  "RMV.L": {"primary": "exchange_marketplace"},
-  "7974.T": {"primary": "operating_product"},
-  "AAPL": {"primary": "operating_product"},
-  "ACN": {"primary": "operating_product"},
-  "ADBE": {"primary": "software_subscription"},
-  "ADM.L": {"primary": "insurer_pc"},
-  "AEM": {"primary": "resource_commodity"},
-  "AKRBP.OL": {"primary": "resource_commodity"},
-  "AMZN": {"primary": "operating_product"},
-  "ANAB": {"primary": "biotech_pharma_binary"},
-  "ARE.TO": {"primary": "operating_product"},
-  "BABA": {"primary": "operating_product"},
-  "BBWI": {"primary": "operating_product"},
-  "BEPC": {"primary": "regulated_utility_infra"},
-  "BIDU": {"primary": "operating_product"},
-  "BRK-A": {"primary": "holding_conglomerate", "also": ["insurer_pc"]},
-  "BRK-B": {"primary": "holding_conglomerate", "also": ["insurer_pc"]},
-  "BRO": {"primary": "insurance_broker"},
-  "CB": {"primary": "insurer_pc"},
-  "CHG.DE": {"primary": "operating_product"},
-  "CPRT": {"primary": "operating_product"},
-  "CRWV": {"primary": "operating_product"},
-  "CSU.TO": {"primary": "software_subscription"},
-  "DEO": {"primary": "consumer_brand"},
-  "DNP.WA": {"primary": "operating_product"},
-  "ECHO": {"primary": "operating_product"},
-  "FAST": {"primary": "distributor_wholesale"},
-  "FFH.TO": {"primary": "insurer_pc"},
-  "FISV": {"primary": "operating_product"},
-  "FLO": {"primary": "operating_product"},
-  "GOOG": {"primary": "operating_product"},
-  "GRG.L": {"primary": "operating_product"},
-  "GTT.PA": {"primary": "operating_product"},
-  "HSY": {"primary": "consumer_brand"},
-  "INTC": {"primary": "operating_product"},
-  "KNSL": {"primary": "insurer_pc"},
-  "KSPI": {"primary": "lender_bank"},
-  "LULU": {"primary": "consumer_brand"},
-  "MC.PA": {"primary": "consumer_brand"},
-  "MELI": {"primary": "exchange_marketplace"},
-  "META": {"primary": "operating_product"},
-  "MGRC": {"primary": "operating_product"},
-  "MKL": {"primary": "insurer_pc"},
-  "MSFT": {"primary": "software_subscription"},
-  "NBIS": {"primary": "operating_product"},
-  "NKE": {"primary": "consumer_brand"},
-  "NOMD": {"primary": "operating_product"},
-  "NOW": {"primary": "software_subscription"},
-  "NVDA": {"primary": "operating_product"},
-  "NVR": {"primary": "homebuilder_cyclical"},
-  "NXPI": {"primary": "operating_product"},
-  "OTIS": {"primary": "operating_product"},
-  "PBR": {"primary": "resource_commodity"},
-  "PLTR": {"primary": "software_subscription"},
-  "POOL": {"primary": "distributor_wholesale"},
-  "PTON": {"primary": "operating_product"},
-  "PYPL": {"primary": "operating_product"},
-  "RACE": {"primary": "consumer_brand"},
-  "ROG.SW": {"primary": "biotech_pharma_binary"},
-  "TCEHY": {"primary": "operating_product"},
-  "TCNNF": {"primary": "operating_product"},
-  "TRLV": {"primary": "operating_product"},
-  "UNH": {"primary": "operating_product"},
-  "VEEV": {"primary": "software_subscription"},
-  "WDFC": {"primary": "operating_product"},
-  "WRB": {"primary": "insurer_pc"},
-  "ZTS": {"primary": "operating_product"}
+  "7974.T": {
+    "primary": "operating_product",
+    "status": "proposed",
+    "source": "seed 2026-09-19"
+  },
+  "AAPL": {
+    "primary": "operating_product",
+    "status": "proposed",
+    "source": "seed 2026-09-19"
+  },
+  "ACN": {
+    "primary": "operating_product",
+    "status": "proposed",
+    "source": "seed 2026-09-19"
+  },
+  "ADBE": {
+    "primary": "software_subscription",
+    "status": "proposed",
+    "source": "seed 2026-09-19"
+  },
+  "ADM.L": {
+    "primary": "insurer_pc",
+    "status": "proposed",
+    "source": "seed 2026-09-19"
+  },
+  "AEM": {
+    "primary": "resource_commodity",
+    "status": "proposed",
+    "source": "seed 2026-09-19"
+  },
+  "AKRBP.OL": {
+    "primary": "resource_commodity",
+    "status": "proposed",
+    "source": "seed 2026-09-19"
+  },
+  "AMZN": {
+    "primary": "operating_product",
+    "status": "proposed",
+    "source": "seed 2026-09-19"
+  },
+  "ANAB": {
+    "primary": "biotech_pharma_binary",
+    "status": "proposed",
+    "source": "seed 2026-09-19"
+  },
+  "ARE.TO": {
+    "primary": "operating_product",
+    "status": "proposed",
+    "source": "seed 2026-09-19"
+  },
+  "BABA": {
+    "primary": "operating_product",
+    "status": "proposed",
+    "source": "seed 2026-09-19"
+  },
+  "BBWI": {
+    "primary": "operating_product",
+    "status": "proposed",
+    "source": "seed 2026-09-19"
+  },
+  "BEPC": {
+    "primary": "regulated_utility_infra",
+    "status": "proposed",
+    "source": "seed 2026-09-19"
+  },
+  "BIDU": {
+    "primary": "operating_product",
+    "status": "proposed",
+    "source": "seed 2026-09-19"
+  },
+  "BRK-A": {
+    "primary": "holding_conglomerate",
+    "also": [
+      "insurer_pc"
+    ],
+    "status": "proposed",
+    "source": "seed 2026-09-19"
+  },
+  "BRK-B": {
+    "primary": "holding_conglomerate",
+    "also": [
+      "insurer_pc"
+    ],
+    "status": "proposed",
+    "source": "seed 2026-09-19"
+  },
+  "BRO": {
+    "primary": "insurance_broker",
+    "status": "proposed",
+    "source": "seed 2026-09-19"
+  },
+  "CB": {
+    "primary": "insurer_pc",
+    "status": "proposed",
+    "source": "seed 2026-09-19"
+  },
+  "CHG.DE": {
+    "primary": "operating_product",
+    "status": "proposed",
+    "source": "seed 2026-09-19"
+  },
+  "CPRT": {
+    "primary": "operating_product",
+    "status": "proposed",
+    "source": "seed 2026-09-19"
+  },
+  "CRWV": {
+    "primary": "operating_product",
+    "status": "proposed",
+    "source": "seed 2026-09-19"
+  },
+  "CSU.TO": {
+    "primary": "software_subscription",
+    "status": "proposed",
+    "source": "seed 2026-09-19"
+  },
+  "DEO": {
+    "primary": "consumer_brand",
+    "status": "proposed",
+    "source": "seed 2026-09-19"
+  },
+  "DNP.WA": {
+    "primary": "operating_product",
+    "status": "proposed",
+    "source": "seed 2026-09-19"
+  },
+  "ECHO": {
+    "primary": "operating_product",
+    "status": "proposed",
+    "source": "seed 2026-09-19"
+  },
+  "FAST": {
+    "primary": "distributor_wholesale",
+    "status": "proposed",
+    "source": "seed 2026-09-19"
+  },
+  "FFH.TO": {
+    "primary": "insurer_pc",
+    "status": "proposed",
+    "source": "seed 2026-09-19"
+  },
+  "FISV": {
+    "primary": "operating_product",
+    "status": "proposed",
+    "source": "seed 2026-09-19"
+  },
+  "FLO": {
+    "primary": "operating_product",
+    "status": "proposed",
+    "source": "seed 2026-09-19"
+  },
+  "GOOG": {
+    "primary": "operating_product",
+    "status": "proposed",
+    "source": "seed 2026-09-19"
+  },
+  "GRG.L": {
+    "primary": "operating_product",
+    "status": "proposed",
+    "source": "seed 2026-09-19"
+  },
+  "GTT.PA": {
+    "primary": "operating_product",
+    "status": "proposed",
+    "source": "seed 2026-09-19"
+  },
+  "HSY": {
+    "primary": "consumer_brand",
+    "status": "proposed",
+    "source": "seed 2026-09-19"
+  },
+  "INTC": {
+    "primary": "operating_product",
+    "status": "proposed",
+    "source": "seed 2026-09-19"
+  },
+  "KNSL": {
+    "primary": "insurer_pc",
+    "status": "proposed",
+    "source": "seed 2026-09-19"
+  },
+  "KSPI": {
+    "primary": "lender_bank",
+    "status": "proposed",
+    "source": "seed 2026-09-19"
+  },
+  "LULU": {
+    "primary": "consumer_brand",
+    "status": "proposed",
+    "source": "seed 2026-09-19"
+  },
+  "MC.PA": {
+    "primary": "consumer_brand",
+    "status": "proposed",
+    "source": "seed 2026-09-19"
+  },
+  "MELI": {
+    "primary": "exchange_marketplace",
+    "status": "proposed",
+    "source": "seed 2026-09-19"
+  },
+  "META": {
+    "primary": "operating_product",
+    "status": "proposed",
+    "source": "seed 2026-09-19"
+  },
+  "MGRC": {
+    "primary": "operating_product",
+    "status": "proposed",
+    "source": "seed 2026-09-19"
+  },
+  "MKL": {
+    "primary": "insurer_pc",
+    "status": "proposed",
+    "source": "seed 2026-09-19"
+  },
+  "MSFT": {
+    "primary": "software_subscription",
+    "status": "proposed",
+    "source": "seed 2026-09-19"
+  },
+  "NBIS": {
+    "primary": "operating_product",
+    "status": "proposed",
+    "source": "seed 2026-09-19"
+  },
+  "NKE": {
+    "primary": "consumer_brand",
+    "status": "proposed",
+    "source": "seed 2026-09-19"
+  },
+  "NOMD": {
+    "primary": "operating_product",
+    "status": "proposed",
+    "source": "seed 2026-09-19"
+  },
+  "NOW": {
+    "primary": "software_subscription",
+    "status": "proposed",
+    "source": "seed 2026-09-19"
+  },
+  "NVDA": {
+    "primary": "operating_product",
+    "status": "proposed",
+    "source": "seed 2026-09-19"
+  },
+  "NVR": {
+    "primary": "homebuilder_cyclical",
+    "status": "proposed",
+    "source": "seed 2026-09-19"
+  },
+  "NXPI": {
+    "primary": "operating_product",
+    "status": "proposed",
+    "source": "seed 2026-09-19"
+  },
+  "OTIS": {
+    "primary": "operating_product",
+    "status": "proposed",
+    "source": "seed 2026-09-19"
+  },
+  "PBR": {
+    "primary": "resource_commodity",
+    "status": "proposed",
+    "source": "seed 2026-09-19"
+  },
+  "PLTR": {
+    "primary": "software_subscription",
+    "status": "proposed",
+    "source": "seed 2026-09-19"
+  },
+  "POOL": {
+    "primary": "distributor_wholesale",
+    "status": "proposed",
+    "source": "seed 2026-09-19"
+  },
+  "PTON": {
+    "primary": "operating_product",
+    "status": "proposed",
+    "source": "seed 2026-09-19"
+  },
+  "PYPL": {
+    "primary": "operating_product",
+    "status": "proposed",
+    "source": "seed 2026-09-19"
+  },
+  "RACE": {
+    "primary": "consumer_brand",
+    "status": "proposed",
+    "source": "seed 2026-09-19"
+  },
+  "RMV.L": {
+    "primary": "exchange_marketplace",
+    "status": "proposed",
+    "source": "seed 2026-09-19"
+  },
+  "ROG.SW": {
+    "primary": "biotech_pharma_binary",
+    "status": "proposed",
+    "source": "seed 2026-09-19"
+  },
+  "TCEHY": {
+    "primary": "operating_product",
+    "status": "proposed",
+    "source": "seed 2026-09-19"
+  },
+  "TCNNF": {
+    "primary": "operating_product",
+    "status": "proposed",
+    "source": "seed 2026-09-19"
+  },
+  "TRLV": {
+    "primary": "operating_product",
+    "status": "proposed",
+    "source": "seed 2026-09-19"
+  },
+  "UNH": {
+    "primary": "operating_product",
+    "status": "proposed",
+    "source": "seed 2026-09-19"
+  },
+  "VEEV": {
+    "primary": "software_subscription",
+    "status": "proposed",
+    "source": "seed 2026-09-19"
+  },
+  "WDFC": {
+    "primary": "operating_product",
+    "status": "proposed",
+    "source": "seed 2026-09-19"
+  },
+  "WRB": {
+    "primary": "insurer_pc",
+    "status": "proposed",
+    "source": "seed 2026-09-19"
+  },
+  "ZTS": {
+    "primary": "operating_product",
+    "status": "proposed",
+    "source": "seed 2026-09-19"
+  }
 }

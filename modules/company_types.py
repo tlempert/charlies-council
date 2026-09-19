@@ -5,7 +5,12 @@ the type-metric check in validate_semantics reads it in WARN mode; nothing in
 production branches on it until the corpus and live shadow gates are met.
 Deterministic facts (SIC, XBRL) outrank the text classifier.
 """
+import json
+from datetime import date
+
 MIXED_MIN, KNOWN_MIN, FACT_P, CONFLICT_CAP = 0.35, 0.5, 0.9, 0.5
+
+_GOLD_TOP_LEVEL = ("schema", "generated")
 
 LABELS = {
     "operating_product": {"frame": "ROIC/FCF/owner earnings", "required": [], "forbidden": []},
@@ -100,3 +105,48 @@ def combine(jev_probs, evidence):
     primary = labels[0]["label"] if labels else "operating_product"
     return {"primary": primary if labels and labels[0]["p"] >= KNOWN_MIN else "operating_product",
             "labels": labels, "mixed": len(labels) >= 2, "unknown": not labels or labels[0]["p"] < KNOWN_MIN}
+
+
+def load_gold(path):
+    """The gold-labels file as a plain dict: two top-level keys (`schema`,
+    `generated`) plus one entry per ticker."""
+    with open(path, encoding="utf-8") as f:
+        return json.load(f)
+
+
+def save_gold(path, data):
+    """Writes `data` back with the top-level keys first (in `_GOLD_TOP_LEVEL`
+    order) and every ticker entry sorted alphabetically after them, 2-space
+    indent, trailing newline — so diffs stay small and reviewable."""
+    top = {k: data[k] for k in _GOLD_TOP_LEVEL if k in data}
+    tickers = {k: v for k, v in data.items() if k not in _GOLD_TOP_LEVEL}
+    out = dict(top)
+    for k in sorted(tickers):
+        out[k] = tickers[k]
+    with open(path, "w", encoding="utf-8") as f:
+        json.dump(out, f, indent=2)
+        f.write("\n")
+
+
+def propose(data, ticker, primary, also=None, source=None):
+    """Adds `ticker` as a proposed label when it is not already present —
+    whether the existing row is itself a proposal or already confirmed, a
+    propose call never touches it. Returns True when the ticker was added."""
+    if ticker in data:
+        return False
+    entry = {"primary": primary, "status": "proposed", "source": source}
+    if also:
+        entry["also"] = also
+    data[ticker] = entry
+    return True
+
+
+def confirm(data, ticker, primary, also=None, by="user"):
+    """Sets `ticker` to confirmed with today's date, overwriting any existing
+    proposal (or creating the row if it wasn't there). Returns the new entry."""
+    entry = {"primary": primary, "status": "confirmed", "source": "user",
+             "confirmed_by": by, "date": date.today().isoformat()}
+    if also:
+        entry["also"] = also
+    data[ticker] = entry
+    return entry

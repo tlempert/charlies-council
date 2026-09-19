@@ -57,6 +57,80 @@ class TestEvidence:
         assert ev == {"asset_manager": ["SIC 6022"]}
 
 
+class TestGoldLabels:
+    def test_load_gold_reads_the_json_file(self, tmp_path):
+        p = tmp_path / "gold.json"
+        p.write_text(json.dumps({"schema": 2, "generated": "2026-09-19", "AAPL": {"primary": "operating_product"}}))
+        data = ct.load_gold(str(p))
+        assert data["AAPL"] == {"primary": "operating_product"}
+        assert data["schema"] == 2
+
+    def test_save_gold_sorts_tickers_and_keeps_top_level_keys_first(self, tmp_path):
+        p = tmp_path / "gold.json"
+        data = {"schema": 2, "generated": "2026-09-19", "ZTS": {"primary": "operating_product"}, "AAPL": {"primary": "operating_product"}}
+        ct.save_gold(str(p), data)
+        text = p.read_text()
+        assert text.endswith("\n") and not text.endswith("\n\n")
+        assert text.index('"AAPL"') < text.index('"ZTS"')
+        assert text.index('"generated"') < text.index('"AAPL"')
+        assert json.loads(text) == data
+
+    def test_propose_adds_a_new_ticker(self):
+        data = {"schema": 2, "generated": "2026-09-19"}
+        added = ct.propose(data, "KNSL", "insurer_pc", None, "run 2026-09-20")
+        assert added is True
+        assert data["KNSL"] == {"primary": "insurer_pc", "status": "proposed", "source": "run 2026-09-20"}
+
+    def test_propose_includes_also_when_given(self):
+        data = {}
+        ct.propose(data, "BRK-A", "holding_conglomerate", ["insurer_pc"], "run 2026-09-20")
+        assert data["BRK-A"]["also"] == ["insurer_pc"]
+
+    def test_propose_does_not_overwrite_an_existing_proposal(self):
+        data = {"KNSL": {"primary": "insurer_pc", "status": "proposed", "source": "seed 2026-09-19"}}
+        added = ct.propose(data, "KNSL", "operating_product", None, "run 2026-09-20")
+        assert added is False
+        assert data["KNSL"]["primary"] == "insurer_pc"
+
+    def test_propose_never_overwrites_a_confirmed_row(self):
+        data = {"KNSL": {"primary": "insurer_pc", "status": "confirmed", "source": "user",
+                          "confirmed_by": "tal", "date": "2026-09-18"}}
+        added = ct.propose(data, "KNSL", "operating_product", None, "run 2026-09-20")
+        assert added is False
+        assert data["KNSL"]["status"] == "confirmed" and data["KNSL"]["primary"] == "insurer_pc"
+
+    def test_confirm_sets_confirmed_status_with_todays_date(self, monkeypatch):
+        import datetime as real_datetime
+
+        class FakeDate(real_datetime.date):
+            @classmethod
+            def today(cls):
+                return real_datetime.date(2026, 9, 19)
+        monkeypatch.setattr(ct, "date", FakeDate)
+        data = {}
+        entry = ct.confirm(data, "KNSL", "insurer_pc", None, "tal")
+        assert entry == data["KNSL"]
+        assert entry["status"] == "confirmed"
+        assert entry["confirmed_by"] == "tal"
+        assert entry["date"] == "2026-09-19"
+        assert entry["primary"] == "insurer_pc"
+
+    def test_confirm_overwrites_an_existing_proposal(self):
+        data = {"KNSL": {"primary": "operating_product", "status": "proposed", "source": "run 2026-09-01"}}
+        ct.confirm(data, "KNSL", "insurer_pc", None, "tal")
+        assert data["KNSL"]["primary"] == "insurer_pc" and data["KNSL"]["status"] == "confirmed"
+
+    def test_confirm_creates_a_ticker_that_did_not_exist(self):
+        data = {}
+        ct.confirm(data, "NEWCO", "operating_product", None, "tal")
+        assert data["NEWCO"]["status"] == "confirmed"
+
+    def test_confirm_default_by_is_user(self):
+        data = {}
+        entry = ct.confirm(data, "KNSL", "insurer_pc", None)
+        assert entry["confirmed_by"] == "user"
+
+
 class TestCombine:
     def test_a_fact_backed_label_is_never_below_0_9(self):
         out = ct.combine({"software_subscription": 0.8, "insurer_pc": 0.3}, {"insurer_pc": ["SIC 6331"]})
@@ -330,3 +404,67 @@ class TestCacheKey:
         cc._run(None, "KNSL", str(tmp_path))
         cc._run(None, "KNSL", str(tmp_path))
         assert runs == ["KNSL"]
+
+
+class TestGoldCli:
+    def test_confirm_cli_writes_and_prints_the_entry(self, tmp_path, capsys):
+        cs = _load("classify_corpus")
+        gold_path = tmp_path / "gold.json"
+        gold_path.write_text(json.dumps({"schema": 2, "generated": "2026-09-19"}))
+        rc = cs._cli(["confirm", "KNSL", "insurer_pc"], gold_path=str(gold_path))
+        assert rc == 0
+        out = capsys.readouterr().out
+        assert "KNSL" in out and "insurer_pc" in out
+        gold = ct.load_gold(str(gold_path))
+        assert gold["KNSL"]["status"] == "confirmed" and gold["KNSL"]["confirmed_by"] == "user"
+
+    def test_confirm_cli_honors_by_flag(self, tmp_path):
+        cs = _load("classify_corpus")
+        gold_path = tmp_path / "gold.json"
+        gold_path.write_text(json.dumps({"schema": 2, "generated": "2026-09-19"}))
+        cs._cli(["confirm", "KNSL", "insurer_pc", "--by", "tal"], gold_path=str(gold_path))
+        gold = ct.load_gold(str(gold_path))
+        assert gold["KNSL"]["confirmed_by"] == "tal"
+
+    def test_confirm_cli_accepts_also_labels(self, tmp_path):
+        cs = _load("classify_corpus")
+        gold_path = tmp_path / "gold.json"
+        gold_path.write_text(json.dumps({"schema": 2, "generated": "2026-09-19"}))
+        cs._cli(["confirm", "BRK-A", "holding_conglomerate", "insurer_pc,asset_manager"], gold_path=str(gold_path))
+        gold = ct.load_gold(str(gold_path))
+        assert gold["BRK-A"]["also"] == ["insurer_pc", "asset_manager"]
+
+    def test_propose_cli_writes_and_prints_the_entry(self, tmp_path, capsys):
+        cs = _load("classify_corpus")
+        gold_path = tmp_path / "gold.json"
+        gold_path.write_text(json.dumps({"schema": 2, "generated": "2026-09-19"}))
+        rc = cs._cli(["propose", "KNSL", "insurer_pc", "--source", "run 2026-09-20"], gold_path=str(gold_path))
+        assert rc == 0
+        out = capsys.readouterr().out
+        assert "KNSL" in out and "insurer_pc" in out
+        gold = ct.load_gold(str(gold_path))
+        assert gold["KNSL"]["status"] == "proposed" and gold["KNSL"]["source"] == "run 2026-09-20"
+
+    def test_propose_cli_does_not_overwrite_a_confirmed_row(self, tmp_path):
+        cs = _load("classify_corpus")
+        gold_path = tmp_path / "gold.json"
+        gold_path.write_text(json.dumps({"schema": 2, "generated": "2026-09-19",
+                                          "KNSL": {"primary": "insurer_pc", "status": "confirmed",
+                                                    "source": "user", "confirmed_by": "tal", "date": "2026-09-18"}}))
+        cs._cli(["propose", "KNSL", "operating_product", "--source", "run 2026-09-20"], gold_path=str(gold_path))
+        gold = ct.load_gold(str(gold_path))
+        assert gold["KNSL"]["status"] == "confirmed" and gold["KNSL"]["primary"] == "insurer_pc"
+
+    def test_confirm_via_subprocess_cli(self, tmp_path):
+        cs = _load("classify_corpus")
+        gold_path = tmp_path / "gold.json"
+        gold_path.write_text(json.dumps({"schema": 2, "generated": "2026-09-19"}))
+        import subprocess
+        result = subprocess.run(
+            [sys.executable, cs.__file__ if hasattr(cs, "__file__") else os.path.join(_SCRIPTS_DIR, "classify_corpus.py"),
+             "confirm", "KNSL", "insurer_pc", "--by", "tal", "--gold-path", str(gold_path)],
+            capture_output=True, text=True, cwd=os.path.join(os.path.dirname(__file__), ".."))
+        assert result.returncode == 0, result.stderr
+        assert "KNSL" in result.stdout
+        gold = ct.load_gold(str(gold_path))
+        assert gold["KNSL"]["confirmed_by"] == "tal"

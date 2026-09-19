@@ -15,7 +15,7 @@ from concurrent.futures import ThreadPoolExecutor
 HERE = os.path.dirname(os.path.abspath(__file__))
 sys.path.insert(0, HERE)
 sys.path.insert(0, os.path.join(HERE, ".."))
-import pregate_check, validate_semantics  # noqa: E402
+import evidence_ledger, pregate_check, validate_semantics  # noqa: E402
 from modules import jev  # noqa: E402
 
 
@@ -24,17 +24,7 @@ def deterministic(d, memo=None):
     results += validate_semantics.run_checks(d)
     if memo:
         results += [(s, f"memo:{n}", det) for s, n, det in validate_semantics.run_checks(d, memo)]
-    ledger_path = os.path.join(d, "evidence_ledger.json")
-    if os.path.exists(ledger_path):
-        import evidence_ledger, json
-        fs = json.load(open(ledger_path, encoding="utf-8"))
-        targets = [open(os.path.join(d, n), encoding="utf-8").read() for n in ("verdict.md", memo) if n and os.path.exists(os.path.join(d, n))]
-        cov = evidence_ledger.coverage(fs, targets)
-        open(os.path.join(d, "evidence_coverage.md"), "w", encoding="utf-8").write(evidence_ledger.coverage_report(cov))
-        ids = [f["id"] for f in cov["missing"]]
-        status = ("FAIL" if os.environ.get("COVERAGE_MODE", "warn") == "strict" else "WARN") if ids else "OK"
-        results.append((status, "evidence_coverage",
-                        f"{len(ids)} material fact(s) neither used nor set aside: {', '.join(ids)}" if ids else f"{len(cov['used'])} used, {len(cov['set_aside'])} set aside"))
+    results.append(evidence_ledger.coverage_check(d, memo))
     return results
 
 

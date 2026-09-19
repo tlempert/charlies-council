@@ -25,7 +25,7 @@ HERE = os.path.dirname(os.path.abspath(__file__))
 sys.path.insert(0, HERE)
 sys.path.insert(0, os.path.join(HERE, ".."))
 from modules import jev  # noqa: E402
-from jev_tiers import TAG, numbers, sentences  # noqa: E402
+from jev_tiers import TAG, FENCE, numbers, sentences, words  # noqa: E402
 from pregate_check import _appears  # noqa: E402
 
 MATERIAL_MIN, WORKERS = 0.6, 8
@@ -34,7 +34,7 @@ SECTION = re.compile(r"^(#{1,3} (.*)|--- (.*?) ---)\s*$")
 
 def facts(dossier_text):
     out, section = [], "(preamble)"
-    for line in dossier_text.splitlines():
+    for line in FENCE.sub("", dossier_text).splitlines():
         m = SECTION.match(line.strip())
         if m:
             section = re.sub(r"[^\w /&-]", "", m.group(2) or m.group(3) or "").strip()
@@ -70,7 +70,7 @@ def materiality(fs, ask, workers=WORKERS, company=""):
 
 def build(client, d):
     fs = facts(open(os.path.join(d, "refined_dossier.md"), encoding="utf-8").read())
-    fs = materiality(fs, client.system_one)
+    fs = materiality(fs, client.system_one, company=os.path.basename(os.path.normpath(d)))
     with open(os.path.join(d, "evidence_ledger.json"), "w", encoding="utf-8") as f:
         json.dump(fs, f, indent=1)
     print(f"evidence ledger: {len(fs)} facts, {sum(x['material'] for x in fs)} material")
@@ -84,19 +84,35 @@ def _set_aside(text):
     i = text.find(SET_ASIDE)
     if i < 0:
         return {}
-    block = re.split(r"^## ", text[i + len(SET_ASIDE):], maxsplit=1, flags=re.M)[0]
+    block = re.split(r"^#{1,3} ", text[i + len(SET_ASIDE):], maxsplit=1, flags=re.M)[0]
     return {m.group(1): m.group(2).strip() for m in SET_ASIDE_LINE.finditer(block)}
 
 
 def _fmt(v):
-    # Controller ruling: the integer form ("4") only when v is integral, so a
-    # fractional value like 4.06 is never matched by a bare "4" in the target.
+    # Fix round 1, item 1: %g always included so an integer-valued float like
+    # 2026.0 or 166042.0 can be found as printed ("2026", "166042"); the comma
+    # form is added only when v is integral, so 166,042 is still matched; the
+    # rounded-to-one-decimal form is dropped entirely, so a fact of 4.06 is
+    # never "used" by a target that happens to say "4.1x".
     if not isinstance(v, float):
         return [str(v)]
-    forms = [f"{v:.2f}", f"{v:.1f}"]
+    forms = [f"{v:.2f}", f"{v:g}"]
     if v.is_integer():
         forms.append(f"{v:,.0f}")
     return forms
+
+
+def _covered_by_target(f, joined):
+    """A material fact appears in the target: by a printed form of one of its
+    numbers, or — for a numberless fact — by at least 60% of its content
+    words (fix round 1, item 2: a disclosure like "not disclosed" carries no
+    number at all and could never be found before)."""
+    if f["numbers"]:
+        return any(_appears(s, joined) for v in f["numbers"] for s in _fmt(v))
+    fw = words(f["text"])
+    if not fw:
+        return False
+    return len(fw & words(joined)) / len(fw) >= 0.6
 
 
 def coverage(fs, targets):
@@ -108,10 +124,13 @@ def coverage(fs, targets):
     for f in fs:
         if not f.get("material"):
             continue
-        if any(_appears(s, joined) for v in f["numbers"] for s in _fmt(v)):
-            used.append(f["id"])
-        elif f["id"] in aside:
+        # A fact explicitly listed under "Evidence considered and set aside"
+        # is set aside even if its words also happen to appear in that same
+        # note describing it — the explicit declaration wins.
+        if f["id"] in aside:
             continue
+        if _covered_by_target(f, joined):
+            used.append(f["id"])
         else:
             missing.append(f)
     return {"used": used, "set_aside": {k: v for k, v in aside.items() if any(x["id"] == k for x in fs)}, "missing": missing}
@@ -124,13 +143,35 @@ def coverage_report(cov):
     return "\n".join(lines) + "\n"
 
 
+def coverage_check(d, memo=None):
+    """The one coverage path: verify_verdict.deterministic and the coverage
+    CLI both call this. Loads the ledger, builds the targets (verdict.md plus
+    memo if given), writes evidence_coverage.md, and returns the
+    (status, name, detail) tuple both callers report. FAIL only under
+    COVERAGE_MODE=strict; INFO — not WARN — when there is no ledger to check,
+    so the fail-open is visible in verification.md rather than silent."""
+    ledger_path = os.path.join(d, "evidence_ledger.json")
+    if not os.path.exists(ledger_path):
+        return ("INFO", "evidence_coverage", "no evidence_ledger.json — coverage not checked")
+    fs = json.load(open(ledger_path, encoding="utf-8"))
+    targets = [open(os.path.join(d, n), encoding="utf-8").read() for n in ("verdict.md", memo) if n and os.path.exists(os.path.join(d, n))]
+    cov = coverage(fs, targets)
+    open(os.path.join(d, "evidence_coverage.md"), "w", encoding="utf-8").write(coverage_report(cov))
+    ids = [f["id"] for f in cov["missing"]]
+    status = ("FAIL" if os.environ.get("COVERAGE_MODE", "warn") == "strict" else "WARN") if ids else "OK"
+    detail = (f"{len(ids)} material fact(s) neither used nor set aside: {', '.join(ids)}" if ids
+              else f"{len(cov['used'])} used, {len(cov['set_aside'])} set aside")
+    return (status, "evidence_coverage", detail)
+
+
 def coverage_cli(d, names):
-    fs = json.load(open(os.path.join(d, "evidence_ledger.json"), encoding="utf-8"))
-    targets = [open(os.path.join(d, n), encoding="utf-8").read() for n in names if os.path.exists(os.path.join(d, n))]
-    text = coverage_report(coverage(fs, targets))
-    open(os.path.join(d, "evidence_coverage.md"), "w", encoding="utf-8").write(text)
-    print(text)
-    return 1 if "MISSING" in text and os.environ.get("COVERAGE_MODE", "warn") == "strict" else 0
+    memo = names[1] if len(names) > 1 else None
+    status, _, detail = coverage_check(d, memo)
+    if status == "INFO":
+        print(detail)
+        return 0
+    print(open(os.path.join(d, "evidence_coverage.md"), encoding="utf-8").read())
+    return 1 if status == "FAIL" else 0
 
 
 if __name__ == "__main__":

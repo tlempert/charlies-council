@@ -700,3 +700,10 @@ class TestVerifyVerdict:
         (tmp_path / "evidence_ledger.json").write_text(json.dumps([{"id": "E001", "material": True, "numbers": [99.5], "text": "[SEC] x 99.5"}]))
         results = _load("verify_verdict").deterministic(str(tmp_path))
         assert ("WARN", "evidence_coverage", "1 material fact(s) neither used nor set aside: E001") in results
+
+    def test_bundle_reports_info_when_no_ledger_exists(self, tmp_path):
+        (tmp_path / "verdict.md").write_text(f"Prose.\n```json model_ledger\n{json.dumps(_ledger())}\n```\n")
+        (tmp_path / "all_summaries.md").write_text(SUMMARIES)
+        (tmp_path / "refined_dossier.md").write_text(DOSSIER)
+        results = _load("verify_verdict").deterministic(str(tmp_path))
+        assert ("INFO", "evidence_coverage", "no evidence_ledger.json — coverage not checked") in results

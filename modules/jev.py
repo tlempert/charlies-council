@@ -8,6 +8,10 @@ for a verdict, a number or an explanation.
 
 Every check is advisory. No key, no SDK, no network, a rate limit mid-run:
 the check prints why, exits 0, and the pipeline continues on the raw file.
+
+`cached`/`stamp` key an output on its named inputs only, so a change to a
+script's own threshold or question is invisible to the cache — delete the
+`.sha` sidecars in existing run directories after such a change.
 """
 import hashlib
 import os
@@ -15,32 +19,38 @@ import os
 TIMEOUT_SECONDS = 30
 
 
-def _hash(paths):
+def _hash(paths, extra=""):
     h = hashlib.sha256()
     for p in paths:
         with open(p, "rb") as f:
             h.update(f.read())
+    h.update(extra.encode("utf-8"))
     return h.hexdigest()
 
 
-def cached(out_path, *input_paths):
+def cached(out_path, *input_paths, extra=""):
     """True when out_path exists and its sidecar (out_path + '.sha') matches
-    the sha256 of the inputs' current bytes, in order. A missing output or
-    sidecar, or a changed input, is never cached."""
+    the sha256 of the inputs' current bytes, in order, plus extra's bytes. A
+    missing output or sidecar, or a changed input, is never cached. Prints
+    "jev: CACHED <out_path>" on a hit, so every call site can be a plain
+    `if jev.cached(...): return`."""
     sidecar = out_path + ".sha"
     if not os.path.exists(out_path) or not os.path.exists(sidecar):
         return False
     try:
         with open(sidecar, encoding="utf-8") as f:
-            return f.read().strip() == _hash(input_paths)
+            hit = f.read().strip() == _hash(input_paths, extra)
     except OSError:
         return False
+    if hit:
+        print(f"jev: CACHED {out_path}")
+    return hit
 
 
-def stamp(out_path, *input_paths):
-    """Record the inputs' current hash beside out_path, after it is written."""
+def stamp(out_path, *input_paths, extra=""):
+    """Record the inputs' (and extra's) current hash beside out_path, after it is written."""
     with open(out_path + ".sha", "w", encoding="utf-8") as f:
-        f.write(_hash(input_paths))
+        f.write(_hash(input_paths, extra))
 
 
 def client():

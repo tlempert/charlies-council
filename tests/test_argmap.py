@@ -111,7 +111,9 @@ class TestConflictsAndDependencies:
 
 class TestBuildCache:
     def test_build_skips_a_second_call_with_unchanged_experts(self, tmp_path):
+        import json
         (tmp_path / "lynch.md").write_text(LYNCH)
+        (tmp_path / "evidence_ledger.json").write_text(json.dumps([{"id": "E001", "numbers": [75.9], "material": True}]))
         calls = []
 
         def ask(state, q):
@@ -124,3 +126,6 @@ class TestBuildCache:
         assert n > 0
         am.build(client, str(tmp_path))
         assert len(calls) == n
+        (tmp_path / "evidence_ledger.json").write_text(json.dumps([{"id": "E002", "numbers": [1.0], "material": True}]))
+        am.build(client, str(tmp_path))
+        assert len(calls) > n

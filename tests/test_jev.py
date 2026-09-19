@@ -87,6 +87,24 @@ class TestSnippetTriage:
         rows, _, _ = snippets.run("KNSL", "Kinsale", recs, _fake_ask([keep, drop]), workers=1)
         assert [r["drop"] for r in rows] == [False, True]
 
+    def test_run_with_several_workers_still_returns_rows_in_input_order(self):
+        # A content-keyed fake ask is a pure function of its input, so it is
+        # safe for several threads to call concurrently — unlike _fake_ask's
+        # shared iterator, which is why this is the one test that exercises
+        # workers > 1 against a genuinely concurrent pool.
+        raw6 = "".join(f"SOURCE: T{i} (https://x/{i})\nCONTENT: marker {'ODD' if i % 2 else 'EVEN'} idx={i}.\n\n" for i in range(6))
+        recs = snippets.parse(raw6)
+
+        def ask(state, qs):
+            odd = "ODD" in state["snippet"]
+            return _answer({"about_company": 0.95, "has_figure": 0.9},
+                           {"category": ("off_topic" if odd else "accounting", 0.95 if odd else 0.9),
+                            "status": ("enacted", 1), "role": ("neither", 1)})
+
+        rows, _, _ = snippets.run("KNSL", "Kinsale", recs, ask, workers=4)
+        assert [r["title"] for r in rows] == [f"T{i}" for i in range(6)]
+        assert [r["drop"] for r in rows] == [i % 2 == 1 for i in range(6)]
+
 
 # --- jev_summaries -----------------------------------------------------------
 
@@ -188,6 +206,26 @@ class TestSnippetsCache:
         assert n > 0
         snippets.triage(client, "KNSL", "Kinsale", str(p))
         assert len(calls) == n
+        p.write_text(RAW.replace("Kinsale", "Kinsale Capital"))
+        snippets.triage(client, "KNSL", "Kinsale", str(p))
+        assert len(calls) > n
+
+    def test_triage_is_not_cached_for_a_different_company_on_the_same_file(self, tmp_path):
+        p = tmp_path / "raw.txt"
+        p.write_text(RAW)
+        calls = []
+
+        def ask(state, qs):
+            calls.append(1)
+            return _answer({"about_company": 0.95, "has_figure": 0.9},
+                           {"category": ("accounting", 0.9), "status": ("enacted", 1), "role": ("neither", 1)})
+
+        client = NS(system_one=ask)
+        snippets.triage(client, "KNSL", "Kinsale", str(p))
+        n = len(calls)
+        assert n > 0
+        snippets.triage(client, "ROG.SW", "Roche", str(p))
+        assert len(calls) > n
 
 
 class TestNeutralityCache:
@@ -206,6 +244,9 @@ class TestNeutralityCache:
         assert n > 0
         neutrality.read(client, str(p))
         assert len(calls) == n
+        p.write_text(DOSSIER + "\n## MORE\n\n" + "A new paragraph long enough to be read as a section. " * 3)
+        neutrality.read(client, str(p))
+        assert len(calls) > n
 
 
 class TestSummariesCache:
@@ -224,6 +265,9 @@ class TestSummariesCache:
         assert n > 0
         summaries.audit(client, str(p))
         assert len(calls) == n
+        p.write_text(BLOCKS + "=== EXPERT: d ===\n---SUMMARY---\nVERDICT: PASS\nKEY METRIC: y\nTRIGGER PRICE: $1 @ 1% — no-growth yield\n---END SUMMARY---\n\n")
+        summaries.audit(client, str(p))
+        assert len(calls) > n
 
 
 class TestAdvisoryBoundary:
@@ -329,6 +373,9 @@ class TestTiersCache:
         assert n > 0
         tiers.check(client, str(tmp_path))
         assert len(calls) == n
+        (tmp_path / "refined_dossier.md").write_text(DOSSIER_T + "\n[SEC] A brand new dossier sentence with 42.0 in it.\n")
+        tiers.check(client, str(tmp_path))
+        assert len(calls) > n
 
 
 # --- jev_contradictions -----------------------------------------------------
@@ -389,6 +436,11 @@ class TestContradictionsCache:
         assert n > 0
         contra.check(client, str(tmp_path))
         assert len(calls) == n
+        (tmp_path / "verdict.md").write_text(
+            KNSL_MEMO + " Free cash flow is float here, not owner cash, and should not be used to size anything. "
+            "Free cash flow rose sharply this quarter and that is the print to watch next.")
+        contra.check(client, str(tmp_path))
+        assert len(calls) > n
 
 
 # --- jev_findings -----------------------------------------------------------
@@ -429,6 +481,9 @@ class TestFindingsCache:
         assert n > 0
         jf.classify(client, str(tmp_path))
         assert len(calls) == n
+        (tmp_path / "verdict.md").write_text(KNSL_VERDICT + "\n\nAn added paragraph changes the verdict file.\n")
+        jf.classify(client, str(tmp_path))
+        assert len(calls) > n
 
 
 # KNSL-shaped: title, a decoy heading that merely mentions "correction" in

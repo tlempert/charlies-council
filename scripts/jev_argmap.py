@@ -193,13 +193,11 @@ def build(client, d):
     inputs = expert_paths + ([p] if os.path.exists(p) else [])
     out_path = os.path.join(d, "argument_map.json")
     if jev.cached(out_path, *inputs):
-        print(f"jev: CACHED {out_path}")
         return
     cs = []
-    for k in EXPERTS:
-        fp = os.path.join(d, f"{k}.md")
-        if os.path.exists(fp):
-            cs += claims_for(k, open(fp, encoding="utf-8").read())
+    for fp in expert_paths:
+        k = os.path.basename(fp)[:-len(".md")]
+        cs += claims_for(k, open(fp, encoding="utf-8").read())
     cs = link_evidence(classify(cs, client.system_one), facts)
     findings, pairs_examined, tokens = contradictions(cs, client.system_one)
     deps = dependencies(cs, facts)

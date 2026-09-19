@@ -98,7 +98,6 @@ def report(rows):
 def audit(client, path):
     out_path = os.path.join(os.path.dirname(path), "jev_independence.md")
     if jev.cached(out_path, path):
-        print(f"jev: CACHED {out_path}")
         return
     rows = run(blocks(open(path, encoding="utf-8").read()), client.system_one)
     text = report(rows)

@@ -166,6 +166,9 @@ class TestBuildCache:
         assert n > 0
         led.build(client, str(tmp_path))
         assert len(calls) == n
+        (tmp_path / "refined_dossier.md").write_text(DOSSIER + "\n[SEC] A brand new fact with 12.5 in it.\n")
+        led.build(client, str(tmp_path))
+        assert len(calls) > n
 
 
 class TestCoverageCheck:

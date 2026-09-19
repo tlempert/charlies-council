@@ -159,7 +159,6 @@ def check(client, directory, memo_name="verdict.md"):
     dossier_path = os.path.join(directory, "refined_dossier.md")
     out_path = os.path.join(directory, "jev_tiers.md")
     if jev.cached(out_path, memo_path, dossier_path):
-        print(f"jev: CACHED {out_path}")
         return
     memo = open(memo_path, encoding="utf-8").read()
     dossier = open(dossier_path, encoding="utf-8").read()

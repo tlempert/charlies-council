@@ -118,7 +118,7 @@ Before the condense, classify every snippet with TypeSafe Jev — a System One m
 cd /Users/tallempert/src-tal/investor && ./venv/bin/python3 scripts/jev_snippets.py {TICKER} "{COMPANY NAME}" /tmp/silicon_council/{TICKER}/raw_forensic.txt
 ```
 
-It writes `raw_forensic.kept.txt` (the snippets to condense) and `raw_forensic.jev.md` (every drop with its probabilities), and prints the drops and the rebuttal pairing. **If it prints `UNPAIRED`, an accusation reached the dossier with no response found: run the two rebuttal queries from Step 2 for that allegation before continuing.** If it prints `jev: SKIPPED`, say so to the user and continue on the raw file — the check is advisory and the pipeline never waits on it.
+It writes `raw_forensic.kept.txt` (the snippets to condense) and `raw_forensic.jev.md` (every drop with its probabilities), and prints the drops and the rebuttal pairing. **If it prints `UNPAIRED`, an accusation reached the dossier with no response found: run the two rebuttal queries from Step 2 for that allegation before continuing.** If it prints `jev: SKIPPED`, say so to the user and continue on the raw file — the check is advisory and the pipeline never waits on it. On `jev: CACHED`, the drops and pairing are in `raw_forensic.jev.md`; read its `## Dropped` section.
 
 ### Step 2.4: Codex Preflight (once per run)
 
@@ -197,21 +197,13 @@ Keep, and strengthen: unresolved conflicts stated as conflicts with both sides s
 
 **Test before proceeding:** could a reader tell from the dossier alone which way you expect the council to vote? If yes, keep cutting. Twelve experts reading one steered dossier are one opinion with twelve signatures.
 
-**Then ask a reader that did not write it.** Jev reads every section and paragraph and answers two questions the writer cannot answer about its own text: does the wording argue beyond its sourced facts, and does the paragraph tell the reader what to conclude. Warning sections (data integrity, data quality, pipeline defects, what is unresolved) are skipped by title — a warning is not a steer.
-
-```bash
-cd /Users/tallempert/src-tal/investor && ./venv/bin/python3 scripts/jev_neutrality.py /tmp/silicon_council/{TICKER}/refined_dossier.md
-```
-
-Strip or rewrite each section and paragraph it lists, then re-run. Proceed when it prints `NEUTRAL`, or when every remaining item is one you can justify in a sentence (a threat entry that quotes a vendor's own words, say — then strip the adjectives and keep the facts). On KNSL it put two threat-register entries at the top of the list (0.84 and 0.80): both were a vendor's own marketing copy — "flexible, scalable, highly configurable" — that had reached twelve experts as evidence. `jev: SKIPPED` means no second reader this run; say so and rely on the self-check above.
+The Jev reader runs in 3.5g, after the threat register is appended, so it reads the same dossier the experts will.
 
 ### Step 3.5: Moat Threat Search
 
 Record the checkpoint: `./venv/bin/python3 scripts/council_manifest.py step {TICKER} threats started`
 
 Execute three layers of threat queries to surface non-obvious risks the experts would otherwise miss.
-
-**Overlap with Step 3.4.** Write the 3.5a–c queries and run 3.5d–e as **one foreground Bash call** immediately, then do the 3.4 neutrality loop while it runs; 3.5f (append) happens after both finish. In a headless run the Bash call is foreground with a 600000 ms timeout, as Step 4 already requires; the neutrality loop's Jev call runs in the same turn after it returns, so the overlap is between the Tavily/Codex leg and this session's own re-read and edit of the dossier, not two Bash calls running at once.
 
 **3.5a — Static template queries (LLM-adapted):**
 
@@ -288,6 +280,8 @@ Only the byte count returns to your context. Do NOT `cat` this file. Then triage
 cd /Users/tallempert/src-tal/investor && ./venv/bin/python3 scripts/jev_snippets.py {TICKER} "{COMPANY NAME}" /tmp/silicon_council/{TICKER}/raw_moat_threats.txt
 ```
 
+On `jev: CACHED`, the drops and pairing are in `raw_moat_threats.jev.md`; read its `## Dropped` section.
+
 **3.5e — Condense the threat dump into a register (Codex):**
 
 Mechanical, high-volume, zero judgment — offload it:
@@ -314,6 +308,16 @@ D=/tmp/silicon_council/{TICKER}; { echo; echo "--- MOAT THREAT SEARCH ---"; echo
 ```
 
 This ensures all 12 experts see the moat-threat data when they read the dossier.
+
+**3.5g — Neutrality reader on the appended dossier (Jev):** Then ask a reader that did not write it. Jev reads every section and paragraph and answers two questions the writer cannot answer about its own text: does the wording argue beyond its sourced facts, and does the paragraph tell the reader what to conclude. Warning sections (data integrity, data quality, pipeline defects, what is unresolved) are skipped by title — a warning is not a steer.
+
+```bash
+cd /Users/tallempert/src-tal/investor && ./venv/bin/python3 scripts/jev_neutrality.py /tmp/silicon_council/{TICKER}/refined_dossier.md
+```
+
+On `jev: CACHED`, read the last line of `jev_neutrality.md` — it is the same NEUTRAL/STEERING verdict.
+
+Strip or rewrite each section and paragraph it lists, then re-run. Proceed when it prints `NEUTRAL`, or when every remaining item is one you can justify in a sentence (a threat entry that quotes a vendor's own words, say — then strip the adjectives and keep the facts). On KNSL it put two threat-register entries at the top of the list (0.84 and 0.80): both were a vendor's own marketing copy — "flexible, scalable, highly configurable" — that had reached twelve experts as evidence. `jev: SKIPPED` means no second reader this run; say so and rely on the self-check above.
 
 ```bash
 cd /Users/tallempert/src-tal/investor && ./venv/bin/python3 scripts/council_manifest.py evidence {TICKER} && ./venv/bin/python3 scripts/evidence_ledger.py build /tmp/silicon_council/{TICKER}
@@ -423,10 +427,10 @@ Where `{EXPERT_KEY}` is: `jeff_bezos`, `warren_buffett`, `michael_burry`, `tim_c
 Wait for all 12 to complete — both the backgrounded Codex batch and the six Claude subagents. Then collect the ---SUMMARY--- blocks for Step 5, writing them straight to `$D/all_summaries.md` rather than the session — only the one-line verdicts come back to your context. Truncate the file first so a resumed run does not append a second copy:
 
 ```bash
-D=/tmp/silicon_council/{TICKER}; : > $D/all_summaries.md; for k in jeff_bezos warren_buffett michael_burry tim_cook steve_jobs psychologist sherlock futurist biologist historian anthropologist lynch; do { echo "=== EXPERT: $k ==="; sed -n '/---SUMMARY---/,/---END SUMMARY---/p' $D/$k.md; } >> $D/all_summaries.md; done; grep -h -A1 "=== EXPERT" $D/all_summaries.md | grep -v "^--$"; grep -h "^VERDICT:\|^POSITION SIZE:" $D/all_summaries.md | paste - - | nl
+D=/tmp/silicon_council/{TICKER}; : > $D/all_summaries.md; for k in jeff_bezos warren_buffett michael_burry tim_cook steve_jobs psychologist sherlock futurist biologist historian anthropologist lynch; do { echo "=== EXPERT: $k ==="; sed -n '/---SUMMARY---/,/---END SUMMARY---/p' $D/$k.md; } >> $D/all_summaries.md; done; for k in jeff_bezos warren_buffett michael_burry tim_cook steve_jobs psychologist sherlock futurist biologist historian anthropologist lynch; do v=$(grep -m1 '^VERDICT:' $D/$k.md); p=$(grep -m1 '^POSITION SIZE:' $D/$k.md); echo "$k | ${v:-MISSING} | ${p:-}"; done
 ```
 
-If any block is missing from the printed one-liners, the validation loop above was skipped — go back and run it. Do not proceed to Step 5 with 11 experts: a silently dropped verdict corrupts the Moat Tribunal. `all_summaries.md`, labelled `=== EXPERT: <key> ===`, is what the pre-gate, Munger and the Reality Check read.
+The list must show 12 rows and no MISSING; a MISSING row means the validation loop above was skipped. Do not proceed to Step 5 with 11 experts: a silently dropped verdict corrupts the Moat Tribunal. `all_summaries.md`, labelled `=== EXPERT: <key> ===`, is what the pre-gate, Munger and the Reality Check read.
 
 **Then count the witnesses.** Twelve verdicts are twelve opinions only if they were reached twelve ways. Jev classifies each block's trigger-price basis and KEY METRIC family; code counts how many distinct bases the council actually used:
 
@@ -434,7 +438,7 @@ If any block is missing from the printed one-liners, the validation loop above w
 D=/tmp/silicon_council/{TICKER}; cd /Users/tallempert/src-tal/investor && (./venv/bin/python3 scripts/jev_summaries.py $D/all_summaries.md & ./venv/bin/python3 scripts/jev_argmap.py $D & wait)
 ```
 
-It writes `jev_independence.md` and prints it. The pre-gate's regex catches the literal owner-EPS ÷ hurdle figure; this catches the same reasoning under another hurdle or base (registry F19: cross-hurdle echoes need catching too). A `WARN` does not change any verdict; it tells Munger how many independent reads the tally contains and tells the gate where to look. Experts it lists under "Read by hand" have a trigger line the classifier could not place — read those two blocks yourself. `jev: SKIPPED` → no audit this run; say so.
+It writes `jev_independence.md` and prints it. The pre-gate's regex catches the literal owner-EPS ÷ hurdle figure; this catches the same reasoning under another hurdle or base (registry F19: cross-hurdle echoes need catching too). A `WARN` does not change any verdict; it tells Munger how many independent reads the tally contains and tells the gate where to look. Experts it lists under "Read by hand" have a trigger line the classifier could not place — read those two blocks yourself. `jev: SKIPPED` → no audit this run; say so. On `jev: CACHED`, read `jev_independence.md`.
 
 Alongside it, `jev_argmap.py` writes `argument_map.md`: an index for Munger and the gate — claims by topic and stance, fact conflicts between experts, facts only one expert relies on, material facts nobody cites. Munger cites the expert's file; the gate uses the fact-conflict list as a Check 0/2 starting list.
 

@@ -16,6 +16,7 @@ can strip them, then re-run until it prints NEUTRAL.
 import os
 import re
 import sys
+from concurrent.futures import ThreadPoolExecutor
 
 sys.path.insert(0, os.path.join(os.path.dirname(os.path.abspath(__file__)), ".."))
 from modules import jev  # noqa: E402
@@ -25,6 +26,7 @@ SECTION = re.compile(r"^(#{1,3} .*|--- .*? ---)\s*$", re.M)
 # Priors from one KNSL run, where the two vendor-copy entries scored 0.84 and
 # 0.80 and the ordinary sections 0.72–0.74. Move them as runs accumulate.
 EDITORIAL_MIN, STEER_MIN, MIN_PARA = 0.75, 0.6, 120
+WORKERS = 8
 
 
 def sections(text):
@@ -55,23 +57,38 @@ def questions():
     }
 
 
-def run(text, ask):
-    """Returns (sections, steering, tokens). sections: (title, p_editorial); steering: (p, title, excerpt)."""
+def run(text, ask, workers=WORKERS):
+    """Returns (sections, steering, tokens). sections: (title, p_editorial); steering: (p, title, excerpt).
+
+    One section call and one call per paragraph are collected first, then
+    submitted to the pool together; results are assembled back in the
+    original order so the report reads the same as a sequential run."""
     qs = questions()
-    read, steering, tokens = [], [], 0
+    units = []   # (kind, title, content), in the original per-section/per-paragraph order
     for title, body in sections(text):
         title = title.strip()
         paras = paragraphs(body)
         if not paras or WARNING_SECTIONS.search(title):
             continue
-        r = ask({"section_title": title, "section_text": body[:6000]}, {"editorial": qs["editorial"]})
-        tokens += r.usage.input_tokens or 0
-        read.append((title[:60], round(r.nouls["editorial"].noul, 2)))
-        for p in paras:
-            r = ask({"section_title": title, "paragraph": p}, {"steers": qs["steers"]})
-            tokens += r.usage.input_tokens or 0
-            if r.nouls["steers"].noul >= STEER_MIN:
-                steering.append((round(r.nouls["steers"].noul, 2), title[:40], p[:160].replace("\n", " ")))
+        units.append(("section", title, body[:6000]))
+        units.extend(("para", title, p) for p in paras)
+
+    def one(u):
+        kind, title, content = u
+        if kind == "section":
+            return ask({"section_title": title, "section_text": content}, {"editorial": qs["editorial"]})
+        return ask({"section_title": title, "paragraph": content}, {"steers": qs["steers"]})
+
+    with ThreadPoolExecutor(max_workers=workers) as ex:
+        responses = list(ex.map(one, units))
+
+    tokens = sum(r.usage.input_tokens or 0 for r in responses)
+    read, steering = [], []
+    for (kind, title, content), r in zip(units, responses):
+        if kind == "section":
+            read.append((title[:60], round(r.nouls["editorial"].noul, 2)))
+        elif r.nouls["steers"].noul >= STEER_MIN:
+            steering.append((round(r.nouls["steers"].noul, 2), title[:40], content[:160].replace("\n", " ")))
     return read, steering, tokens
 
 

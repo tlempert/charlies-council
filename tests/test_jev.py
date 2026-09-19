@@ -76,9 +76,16 @@ class TestSnippetTriage:
         recs = snippets.parse(RAW)
         keep = _answer({"about_company": 0.95, "has_figure": 0.9}, {"category": ("accounting", 0.9), "status": ("enacted", 1), "role": ("neither", 1)})
         drop = _answer({"about_company": 0.9, "has_figure": 0.1}, {"category": ("off_topic", 0.9), "status": ("not_applicable", 1), "role": ("neither", 1)})
-        rows, tokens, model = snippets.run("KNSL", "Kinsale", recs, _fake_ask([keep, drop]))
+        rows, tokens, model = snippets.run("KNSL", "Kinsale", recs, _fake_ask([keep, drop]), workers=1)
         assert [r["drop"] for r in rows] == [False, True]
         assert tokens == 20 and model == "jev-fake"
+
+    def test_snippet_run_accepts_workers_and_keeps_order(self):
+        recs = snippets.parse(RAW)
+        keep = _answer({"about_company": 0.95, "has_figure": 0.9}, {"category": ("accounting", 0.9), "status": ("enacted", 1), "role": ("neither", 1)})
+        drop = _answer({"about_company": 0.9, "has_figure": 0.1}, {"category": ("off_topic", 0.9), "status": ("not_applicable", 1), "role": ("neither", 1)})
+        rows, _, _ = snippets.run("KNSL", "Kinsale", recs, _fake_ask([keep, drop]), workers=1)
+        assert [r["drop"] for r in rows] == [False, True]
 
 
 # --- jev_summaries -----------------------------------------------------------
@@ -128,7 +135,7 @@ class TestNeutrality:
             calls.append(state.get("section_title"))
             return _answer({"editorial": 0.1, "steers": 0.1})
 
-        neutrality.run(DOSSIER, ask)
+        neutrality.run(DOSSIER, ask, workers=1)
         assert "## DATA QUALITY SCORECARD" not in calls
         assert "## BUSINESS FACTS" in calls
 
@@ -137,7 +144,7 @@ class TestNeutrality:
             _answer({"editorial": 0.1}), _answer({"steers": 0.2}),     # business facts
             _answer({"editorial": 0.95}), _answer({"steers": 0.8}),    # threat entry with vendor copy
         ]
-        read, steering, tokens = neutrality.run(DOSSIER, _fake_ask(answers))
+        read, steering, tokens = neutrality.run(DOSSIER, _fake_ask(answers), workers=1)
         text = neutrality.report(read, steering, tokens)
         assert "- 0.95 — --- MOAT THREAT SEARCH ---" in text
         assert "0.8 [--- MOAT THREAT SEARCH ---]" in text

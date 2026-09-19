@@ -20,9 +20,12 @@ import os
 import re
 import sys
 from collections import Counter
+from concurrent.futures import ThreadPoolExecutor
 
 sys.path.insert(0, os.path.join(os.path.dirname(os.path.abspath(__file__)), ".."))
 from modules import jev  # noqa: E402
+
+WORKERS = 8
 
 CATEGORIES = {
     "red_flag": "A lawsuit, investigation, short-seller report, executive departure, failed product or regulatory action against the company",
@@ -123,15 +126,19 @@ def report(ticker, rows, tokens, model):
     return "\n".join(lines) + "\n"
 
 
-def run(ticker, company, snippets, ask):
-    """ask(state, questions) -> SystemOneResponse. Returns (rows, tokens, model)."""
-    rows, tokens, model = [], 0, ""
+def run(ticker, company, snippets, ask, workers=WORKERS):
+    """ask(state, questions) -> SystemOneResponse. Returns (rows, tokens, model).
+
+    Snippets are independent, so they are asked concurrently; ex.map preserves
+    input order in its results regardless of completion order."""
     qs = questions(ticker, company)
-    for s in snippets:
-        r = ask({"ticker": ticker, "company": company, "article_title": s["title"], "snippet": s["content"]}, qs)
-        tokens += r.usage.input_tokens or 0
-        model = r.model
-        rows.append(judge(s, r))
+    with ThreadPoolExecutor(max_workers=workers) as ex:
+        responses = list(ex.map(
+            lambda s: ask({"ticker": ticker, "company": company, "article_title": s["title"], "snippet": s["content"]}, qs),
+            snippets))
+    tokens = sum(r.usage.input_tokens or 0 for r in responses)
+    model = responses[-1].model if responses else ""
+    rows = [judge(s, r) for s, r in zip(snippets, responses)]
     return rows, tokens, model
 
 

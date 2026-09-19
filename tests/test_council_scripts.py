@@ -1058,3 +1058,31 @@ class TestTheShadowEvidenceOutlivesTheRunFolder:
         assert "council_manifest.py status {TICKER}" in step9
         assert "notes.company_type" in step9 and "notes.type_warns" in step9
         assert "`company_type.json`'s `primary`" not in step9
+
+
+class TestCodexMemoGetsARetryBeforeFallingToClaude:
+    """KNSL's last two runs failed the Codex leg only on length — the first
+    Codex draft is worth a second try with the validator's own feedback
+    before paying for the Claude leg."""
+
+    SKILL = os.path.join(_ROOT, "skills", "analyze-company.md")
+
+    def _step7(self):
+        text = open(self.SKILL, encoding="utf-8").read()
+        return text.split("### Step 7: Investor Memo", 1)[1].split("### Step 7b:", 1)[0]
+
+    def test_the_failed_first_draft_is_moved_aside_before_retrying(self):
+        step7 = self._step7()
+        claude_leg = step7.index("**Claude leg")
+        assert "memo.codex-draft1.md" in step7[:claude_leg]
+
+    def test_the_retry_carries_the_validators_feedback_as_a_fifth_input(self):
+        step7 = self._step7()
+        claude_leg = step7.index("**Claude leg")
+        assert "INPUT 5: validator feedback on your first draft" in step7[:claude_leg]
+
+    def test_only_a_second_codex_failure_falls_through_to_the_claude_leg(self):
+        step7 = self._step7()
+        claude_leg = step7.index("**Claude leg")
+        assert step7.index("memo.codex-draft1.md") < claude_leg
+        assert step7.index("INPUT 5: validator feedback on your first draft") < claude_leg

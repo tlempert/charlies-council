@@ -3,6 +3,7 @@
 
     gate_policy.py findings  reality_check.md              -> findings.json
     gate_policy.py decide    /tmp/silicon_council/TICKER   -> PASS_BY_VERIFICATION | PREMIUM_PASS_2 | PUBLISH_WITH_CORRECTIONS
+    gate_policy.py snapshot  /tmp/silicon_council/TICKER   -> verdict.pass1.json, verdict.pass1.md
 
 ADBE 2026-09-01 ran four Opus review passes; two were the reviewer's own
 pressure being unwound. KNSL 2026-09-17 ran three, and several findings were
@@ -111,6 +112,17 @@ def findings_cli(path):
     return 0
 
 
+def snapshot_cli(d):
+    """Save what the reviewer is about to see, before it sees it: the model
+    ledger as verdict.pass1.json, and the whole draft as verdict.pass1.md so
+    a later pass can `diff -u` against it."""
+    import shutil
+    text = open(os.path.join(d, "verdict.md"), encoding="utf-8").read()
+    json.dump(_ledger(text), open(os.path.join(d, "verdict.pass1.json"), "w", encoding="utf-8"))
+    shutil.copyfile(os.path.join(d, "verdict.md"), os.path.join(d, "verdict.pass1.md"))
+    return 0
+
+
 def decide_cli(d):
     fs = json.load(open(os.path.join(d, "findings.json"), encoding="utf-8"))
     after_text = open(os.path.join(d, "verdict.md"), encoding="utf-8").read()
@@ -129,5 +141,7 @@ if __name__ == "__main__":
         sys.exit(findings_cli(sys.argv[2]))
     if len(sys.argv) >= 3 and sys.argv[1] == "decide":
         sys.exit(decide_cli(sys.argv[2]))
+    if len(sys.argv) >= 3 and sys.argv[1] == "snapshot":
+        sys.exit(snapshot_cli(sys.argv[2]))
     print(__doc__)
     sys.exit(2)

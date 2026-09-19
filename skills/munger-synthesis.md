@@ -266,6 +266,15 @@ drops to 4.8%. If your bull case cannot clear the CAGR at the multiple you
 actually expect to be paid at exit, the "buy" is a bet on multiple
 expansion, not on the business, and the prose must say so.
 
+## MANDATORY: CORRECTION LOG (after any revision)
+
+After a Reality Check revision, the verdict carries a `## CORRECTION LOG`
+heading (this exact wording) with `### Pass N` subsections. Each item is
+labelled `A1…` (an arithmetic or sourcing fix), `B1…` (a charge moved), or
+`J1…` (a judgment changed). If the verdict word changed, add a line beginning
+"verdict changed because". `scripts/jev_findings.py::correction_log_of`
+anchors on this heading to find what changed.
+
 ## MANDATORY: EVIDENCE CONSIDERED AND SET ASIDE
 
 `evidence_ledger.json` lists every material fact in the dossier by id. A fact you rely on appears in your prose with its number. A fact you weighed and rejected appears under this exact heading, one line each, `- E017 — reason`, immediately above the model ledger:

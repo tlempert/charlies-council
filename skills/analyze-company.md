@@ -18,7 +18,7 @@ Execute these steps in order. Do not skip steps.
 
 ### Step 0: Validate
 
-Extract the ticker from the arguments. If no ticker was provided, ask the user for one and stop.
+Extract the ticker from the arguments. If no ticker was provided, ask the user for one and stop. An optional trailing `--explainers` argument (e.g. `/analyze-company AAPL --explainers`) turns on Step 9b; without it, the newsletter and business explainer are skipped.
 
 **Resume or clean slate.** Every step below records itself in `/tmp/silicon_council/{TICKER}/manifest.json`, so a run that died at Step 6 restarts at Step 6, not Step 1:
 
@@ -29,7 +29,7 @@ Extract the ticker from the arguments. If no ticker was provided, ask the user f
 - If a manifest exists **from today** and the user did not ask for a fresh run, say which steps are already `done`, skip them, and continue from the first step that is not.
 - Otherwise run `rm -rf /tmp/silicon_council/{TICKER}` (only this ticker's directory — other analyses are unaffected) and initialise: `./venv/bin/python3 scripts/council_manifest.py init {TICKER}`.
 
-Every step below records itself twice: `./venv/bin/python3 scripts/council_manifest.py step {TICKER} <step-name> started` the moment the step begins, and the same line with `done` when it completes — the dashboard times a step from the gap between them. Step names: `dossier`, `forensic`, `condense`, `refine`, `threats`, `experts`, `synthesis`, `gate`, `memo`, `reports`, `assemble`.
+Every step below records itself twice: `./venv/bin/python3 scripts/council_manifest.py step {TICKER} <step-name> started` the moment the step begins, and the same line with `done` when it completes — the dashboard times a step from the gap between them. Step names: `dossier`, `forensic`, `condense`, `refine`, `threats`, `experts`, `synthesis`, `gate`, `gate_pass1`, `gate_pass2`, `memo`, `reports`, `assemble`.
 
 ### Step 1: Build Dossier (Python)
 
@@ -472,7 +472,7 @@ cd /Users/tallempert/src-tal/investor && ./venv/bin/python3 scripts/verify_verdi
 
 It runs the pre-gate (ledger sourcing, geometry, tally, required-growth arithmetic, trigger echo), the semantic checks (formula prose, table labels, units, argument weights vs scenario weights, sizing basis — WARN while `SEMANTICS_MODE=warn`), and, concurrently and advisory, the evidence-tier and internal-consistency readers. Everything lands in `verification.md`. **If it prints `VERIFY: FAIL`, send the FAIL lines to the Munger agent via SendMessage and have it fix those items; re-run; at most three rounds.** Pass `verification.md` to the Reality Check as its starting list. (registry F16–F19: seven of ADBE's ten FATAL findings were mechanical.) On ADBE, "[MEDIA] reportedly" becoming "legally required since the consent decree" cost ~$100/share and was found on pass 3; this exists so it is on the table before pass 1.
 
-### Step 6: Reality Check GATE (runs ALONE and FIRST — must complete before Step 6b)
+### Step 6: Reality Check GATE (runs ALONE and FIRST)
 
 Record the checkpoint: `./venv/bin/python3 scripts/council_manifest.py step {TICKER} gate started`
 
@@ -485,11 +485,19 @@ Launch the Reality Check subagent (Opus, `model: "opus"`) **by itself** and wait
 
 Same evidence tier applies: advocacy, not fact.
 
-**The gate runs until a pass returns PASS, with a hard cap of THREE review passes in total — the initial review plus at most two reviews of revisions.** On ADBE it ran four: draft 1 WAIT → pass 1 pushed to BUY → pass 2 pushed back to WAIT → pass 3 found the return trip had copied the reviewer's own inputs verbatim. Two of those passes were the reviewer authoring the verdict. If pass 3 still returns FATAL, stop revising: publish with the `EDITOR'S CORRECTIONS` block from option (b) below and say so to the user. **Before every pass, re-run the pre-gate and `jev_tiers.py` on the current draft** and hand the reviewer both outputs; **for pass 2 and later, hand the reviewer the synthesist's own change summary (§6 correction log) and tell it to attack only what changed** — it should verify prior fixes, not re-argue withdrawn claims, which on ADBE let pass 4 cost 157K tokens re-reading a 48KB memo plus three reviews.
+Let `$D` stand for `/tmp/silicon_council/{TICKER}` below.
+
+**The gate is one comprehensive premium review, then verification, then a second premium review only if a rule says so.** (registry F22, F23: ADBE ran four passes, two of them the reviewer's own pressure being unwound; GTT's rewrite carried six new FATALs that only a review of the *replacement* caught — which is what the verification of the revision below exists to do without a full pass.)
+
+1. **Pass 1.** Record `step {TICKER} gate_pass1 started`. Save the ledger the reviewer is about to see: `./venv/bin/python3 scripts/gate_policy.py snapshot $D`. Launch the Reality Check (Opus) with the verdict, the twelve SUMMARY blocks (the full reports are on disk and it may Read any of them), `verification.md`, `argument_map.md`, every known data-quality defect and the strongest counter-argument. It writes `reality_check.md`. Record `gate_pass1 done`. Then parse it: `./venv/bin/python3 scripts/gate_policy.py findings $D/reality_check.md`.
+2. **PASS with ≤ 3 published-number MAJORs → done.** Go to Step 7.
+3. **REJECT → one revision.** Strip values from any finding that prescribes one (the parser does this after step 4 below; on pass 1 do it by eye — on ADBE pass 3 found its own "18x–20x band" copied into the memo verbatim) and send the FATAL and MAJOR findings to the Munger agent via SendMessage. Never tell it to keep the verdict (registry F24). It revises `verdict.md` with a correction log whose items are labelled `A1…` (arithmetic/sourcing), `B1…` (a charge moved), `J1…` (a judgment changed), as the KNSL log did, and — if the verdict word changed — a line beginning "verdict changed because".
+4. **Verify the revision, cheaply.** `./venv/bin/python3 scripts/verify_verdict.py $D` (send FAIL lines back; at most three rounds; record `council_manifest.py counter {TICKER} verify_fail_rounds N`), then `./venv/bin/python3 scripts/jev_findings.py $D` (each pass-1 finding: addressed / partial / unaddressed / disputed; wording-only; prescribes-value), then `./venv/bin/python3 scripts/gate_policy.py decide $D`.
+5. **`PASS_BY_VERIFICATION`** → append the `findings.md` table and `verification.md` summary to `reality_check.md` under `### Verification of the revision` and go to Step 7. **`PREMIUM_PASS_2`** → record `gate_pass2 started`; `diff -u $D/verdict.pass1.md $D/verdict.md > $D/verdict.diff`; launch a fresh Reality Check with `verdict.diff`, `findings.json`, `verification.md`, and the instruction to attack only what changed and to read the full file only for changed sections; it appends `### Pass 2` to `reality_check.md`; record `gate_pass2 done`. Its REJECT → one more revision → verification only → publish with an `EDITOR'S CORRECTIONS` block for anything still FATAL (option b below). **`PUBLISH_WITH_CORRECTIONS`** → option (b) now.
+
+Wording-only findings (`wording_only ≥ 0.7`) are forwarded to Step 7 as style notes for the memo writer; they never re-open the synthesis.
 
 **The reviewer prescribes operations, never values.** reality-check.md now forbids it from naming a multiple, growth rate, ceiling, weight or size; if a review contains a number the memo should adopt, strike it before forwarding. A synthesist that reproduces the reviewer's number has complied, not reasoned.
-
-**THE GATE RUNS AT LEAST TWICE. This is not optional.** On GTT.PA, pass 1 found 3 FATAL findings; Munger's rewrite fixed them and pass 2 found **6 more, all in the replacement argument**. On ACN, pass 1 found 2 FATAL plus a Check 0 violation, and the corrected memo **changed verdict from WAIT/0% to BUY/2%**. A revision that has never been red-teamed is not safer than the draft it replaced — it is a fresh argument with zero review. Run pass 2 against the REVISED verdict, telling it what changed and instructing it to attack the REPLACEMENT reasoning rather than re-litigating what was already withdrawn. Stop when a pass returns zero FATAL findings.
 
 **Point the gate in BOTH directions, every pass.** Ask explicitly whether the memo has OVERCORRECTED, not only whether it is too generous. This is where the two best findings of both runs came from: on GTT that the Korean antitrust remedy had been in force since Dec-2022 *while margins expanded 650bp* (bounding a risk eight experts called unquantifiable), and on ACN that Munger had understated his own case by 3–8x. A red team that only ratchets one way is not a red team, and both times the one-directional reading was the wrong one.
 
@@ -499,59 +507,11 @@ Same evidence tier applies: advocacy, not fact.
 
 Do NOT publish a report whose headline verdict rests on an argument the gate has refuted, with the refutation buried several sections below it. That is what happened on KSPI.
 
-### Step 6b: Family Newsletter + Business Explainer (PARALLEL)
-
-Record the checkpoint: `./venv/bin/python3 scripts/council_manifest.py step {TICKER} reports started`
-
-Launch these two in a single message with `run_in_background: true`, passing the verdict **as corrected by Step 6**.
-
-**Newsletter (sonnet model):** Read `/Users/tallempert/src-tal/investor/skills/family-newsletter.md`. Pass the Munger verdict summary and refined dossier. Add: "IMPORTANT: All data is provided. Output immediately. AFTER completing, save your FULL output to /tmp/silicon_council/{TICKER}/newsletter.md using the Write tool."
-
-**Business Explainer (sonnet model):** Launch a subagent with these instructions:
-
-"You are the world's greatest business teacher — a fusion of Richard Feynman, Warren Buffett, and Charlie Munger. Your audience is an intelligent adult who has never studied this company before.
-
-Using ONLY the dossier and Munger verdict data provided, write a 7-section Feynman-style explanation. Sections 2 and 3 are NEW and critical — they teach problem-type frameworks that compound across every company the reader studies.
-
-BEFORE writing, classify the question type using this taxonomy:
-
-| Problem Type | Recognition Signal | Framework to Teach |
-|--------------|-------------------|---------------------|
-| **Clean analytical** | Stable fundamentals, predictable market, no dominant external risk | Standard tools apply: DCF, moat analysis, ROIC |
-| **Regime/political** | Fundamentals excellent but subject to state override; political jurisdiction matters more than industry | Fundamentals necessary but insufficient; size as if wrong about regime; larger margin of safety |
-| **Cyclical/timing** | Business structurally healthy but earnings depend on a cycle | Buy at cycle bottom; normalize earnings across cycle; multiples are cycle-dependent |
-| **Binary/event-driven** | Single outcome (drug approval, M&A, regulatory ruling) dominates all other variables | Option-like thinking; size as if you could lose 100% |
-| **Narrative/momentum** | Fundamentals matter less than sentiment; multiple expansion > earnings growth | Recognize when sentiment dominates; ask 'how long can the narrative run' |
-
-Pick the dominant type (most cases are mixed — one dominates). Then write these 7 sections in order:
-
-1. **What This Company Actually Does** — 2-3 sentences a teenager could understand. Use a concrete analogy.
-
-2. **What Kind of Problem This Is** — NEW. Name the problem type you classified above. Explain in plain English why this company is this type of problem and why that matters for analysis. For clean analytical cases, this section is short (~100 words): 'This is a clean analytical problem. Standard tools apply directly — skip ahead if you know the drill.' For ambiguous cases, this is the heart of the explanation (~300-400 words).
-
-3. **How to Think About This Kind of Problem** — NEW. Teach a reusable mental model for problems of this type. The reader should walk away with a framework they can apply to every future decision of the same type. For clean cases: ~100 words acknowledging the standard approach. For ambiguous cases: ~300-400 words with a numbered framework.
-
-4. **How They Make Money** — Revenue model in plain English. What do customers pay for? Why do they pay so much?
-
-5. **Why They're Hard to Kill** — The moat explained simply. What makes it hard for competitors?
-
-6. **The One Thing That Could Go Wrong** — The single biggest risk in one paragraph. Don't list 5 risks — pick the one that matters most.
-
-7. **The Price Tag Problem** — Why the stock is priced where it is, explained as a house-buying analogy.
-
-TONE: Authoritative but warm. No jargon without immediate explanation. Use analogies liberally. Aim for ~900 words total for clean cases, ~1200 words for ambiguous cases. Sections 2 and 3 should compound across reader's learning — after 20 reports, they should have 20 reusable frameworks, not just 20 companies understood.
-
-AFTER completing, save your FULL output to /tmp/silicon_council/{TICKER}/teacher.md using the Write tool."
-
-Pass the refined dossier and Munger verdict summary to the Business Explainer.
-
-Collect both reports, then record: `./venv/bin/python3 scripts/council_manifest.py step {TICKER} reports done`.
-
 ### Step 7: Investor Memo (Codex → Claude)
 
 Record the checkpoint: `./venv/bin/python3 scripts/council_manifest.py step {TICKER} memo started`
 
-Runs once the gate has PASSed and may be launched alongside Step 6b — it needs only the gated `verdict.md`, `refined_dossier.md`, `all_summaries.md` and `reality_check.md`. The memo is the council's conclusion rewritten as one analyst's letter in the shape of the GPT-Astra memo the harness was measured against: what you would own, the engine, the bull case and its counterargument, the bet behind the price with the required-growth cross-check, conditions to buy / wait / walk away, what the gate struck, five questions for the next review, and a numbered source list. Every number is cited and the ledger's figures are unchanged — the spec is `skills/investor-memo.md` and `scripts/validate_memo.py` enforces it.
+Runs once the gate has PASSed — it needs only the gated `verdict.md`, `refined_dossier.md`, `all_summaries.md` and `reality_check.md`. The memo is the council's conclusion rewritten as one analyst's letter in the shape of the GPT-Astra memo the harness was measured against: what you would own, the engine, the bull case and its counterargument, the bet behind the price with the required-growth cross-check, conditions to buy / wait / walk away, what the gate struck, five questions for the next review, and a numbered source list. Every number is cited and the ledger's figures are unchanged — the spec is `skills/investor-memo.md` and `scripts/validate_memo.py` enforces it.
 
 **The writer is cascaded: Codex first, Claude when Codex is unavailable or its draft fails validation.** Codex writing it is also a second model reading the verdict; Claude writing it is the same conclusion in the same shape.
 
@@ -573,7 +533,7 @@ When it returns, run the validator once more from this session. `MEMO_OK=0` → 
 
 Record the checkpoint: `./venv/bin/python3 scripts/council_manifest.py step {TICKER} assemble started`
 
-All 17 temp files should already exist in `/tmp/silicon_council/{TICKER}/` — each expert, Munger, newsletter, reality check, business explainer and the investor memo wrote their own file in Steps 4-7 (`memo.md` is absent only if Step 7 recorded `failed`).
+The 15 temp files from Steps 4-7 should already exist in `/tmp/silicon_council/{TICKER}/` — each expert, Munger, reality check and the investor memo wrote their own file (`memo.md` is absent only if Step 7 recorded `failed`). `newsletter.md` and `teacher.md` exist only when `--explainers` was given, and only after Step 9b (below) has run — this assembly runs again once they land.
 
 **Verify files exist**, then run Python to assemble into Obsidian:
 
@@ -686,5 +646,55 @@ Display a summary:
 2. The reality check scorecard
 3. The file paths where reports were saved, including the investor memo and which leg wrote it (Codex gpt-5.6-sol or Claude sonnet) — or that Step 7 failed on both, with the validator's lines
 4. The GitHub Pages URLs: the interactive dashboard and the standalone memo page
+
+### Step 9b: Family Newsletter + Business Explainer (PARALLEL)
+
+**Only if `--explainers` was given.** Launch the newsletter and business-explainer subagents (unchanged prompts) with the gated verdict and the memo's style notes, then re-run the Step 8 assembly for the two new files and `build_corpus_index.py`.
+
+Record the checkpoint: `./venv/bin/python3 scripts/council_manifest.py step {TICKER} reports started`
+
+Launch these two in a single message with `run_in_background: true`, passing the verdict as gated by Step 6 and the memo's style notes from Step 7.
+
+**Newsletter (sonnet model):** Read `/Users/tallempert/src-tal/investor/skills/family-newsletter.md`. Pass the Munger verdict summary and refined dossier. Add: "IMPORTANT: All data is provided. Output immediately. AFTER completing, save your FULL output to /tmp/silicon_council/{TICKER}/newsletter.md using the Write tool."
+
+**Business Explainer (sonnet model):** Launch a subagent with these instructions:
+
+"You are the world's greatest business teacher — a fusion of Richard Feynman, Warren Buffett, and Charlie Munger. Your audience is an intelligent adult who has never studied this company before.
+
+Using ONLY the dossier and Munger verdict data provided, write a 7-section Feynman-style explanation. Sections 2 and 3 are NEW and critical — they teach problem-type frameworks that compound across every company the reader studies.
+
+BEFORE writing, classify the question type using this taxonomy:
+
+| Problem Type | Recognition Signal | Framework to Teach |
+|--------------|-------------------|---------------------|
+| **Clean analytical** | Stable fundamentals, predictable market, no dominant external risk | Standard tools apply: DCF, moat analysis, ROIC |
+| **Regime/political** | Fundamentals excellent but subject to state override; political jurisdiction matters more than industry | Fundamentals necessary but insufficient; size as if wrong about regime; larger margin of safety |
+| **Cyclical/timing** | Business structurally healthy but earnings depend on a cycle | Buy at cycle bottom; normalize earnings across cycle; multiples are cycle-dependent |
+| **Binary/event-driven** | Single outcome (drug approval, M&A, regulatory ruling) dominates all other variables | Option-like thinking; size as if you could lose 100% |
+| **Narrative/momentum** | Fundamentals matter less than sentiment; multiple expansion > earnings growth | Recognize when sentiment dominates; ask 'how long can the narrative run' |
+
+Pick the dominant type (most cases are mixed — one dominates). Then write these 7 sections in order:
+
+1. **What This Company Actually Does** — 2-3 sentences a teenager could understand. Use a concrete analogy.
+
+2. **What Kind of Problem This Is** — NEW. Name the problem type you classified above. Explain in plain English why this company is this type of problem and why that matters for analysis. For clean analytical cases, this section is short (~100 words): 'This is a clean analytical problem. Standard tools apply directly — skip ahead if you know the drill.' For ambiguous cases, this is the heart of the explanation (~300-400 words).
+
+3. **How to Think About This Kind of Problem** — NEW. Teach a reusable mental model for problems of this type. The reader should walk away with a framework they can apply to every future decision of the same type. For clean cases: ~100 words acknowledging the standard approach. For ambiguous cases: ~300-400 words with a numbered framework.
+
+4. **How They Make Money** — Revenue model in plain English. What do customers pay for? Why do they pay so much?
+
+5. **Why They're Hard to Kill** — The moat explained simply. What makes it hard for competitors?
+
+6. **The One Thing That Could Go Wrong** — The single biggest risk in one paragraph. Don't list 5 risks — pick the one that matters most.
+
+7. **The Price Tag Problem** — Why the stock is priced where it is, explained as a house-buying analogy.
+
+TONE: Authoritative but warm. No jargon without immediate explanation. Use analogies liberally. Aim for ~900 words total for clean cases, ~1200 words for ambiguous cases. Sections 2 and 3 should compound across reader's learning — after 20 reports, they should have 20 reusable frameworks, not just 20 companies understood.
+
+AFTER completing, save your FULL output to /tmp/silicon_council/{TICKER}/teacher.md using the Write tool."
+
+Pass the refined dossier and Munger verdict summary to the Business Explainer.
+
+Collect both reports, record `./venv/bin/python3 scripts/council_manifest.py step {TICKER} reports done`, then re-run the Step 8 assembly (it will pick up `newsletter.md` and `teacher.md` this time) and `./venv/bin/python3 scripts/build_corpus_index.py`.
 
 Done.

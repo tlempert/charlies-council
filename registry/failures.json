@@ -362,7 +362,7 @@
   "mentions": [
    {
     "file": "skills/analyze-company.md",
-    "needle": "on ADBE let pass 4 cost 157K tokens re-reading a 48KB memo plus three reviews"
+    "needle": "on ADBE pass 3 found its own \"18x–20x band\" copied into the memo verbatim"
    },
    {
     "file": "skills/reality-check.md",
@@ -384,7 +384,7 @@
   "mentions": [
    {
     "file": "skills/analyze-company.md",
-    "needle": "On ADBE it ran four: draft 1 WAIT → pass 1 pushed to BUY → pass 2 pushed back to WAIT"
+    "needle": "ADBE ran four passes, two of them the reviewer's own pressure being unwound"
    }
   ],
   "evidence": []
@@ -402,7 +402,7 @@
   "mentions": [
    {
     "file": "skills/analyze-company.md",
-    "needle": "On GTT.PA, pass 1 found 3 FATAL findings; Munger's rewrite fixed them and pass 2 found"
+    "needle": "GTT's rewrite carried six new FATALs that only a review of the *replacement* caught"
    },
    {
     "file": "skills/analyze-company.md",

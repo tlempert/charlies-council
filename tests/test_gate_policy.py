@@ -1,6 +1,7 @@
 """The gate policy: reviewer findings as data, resolution classes from Jev,
 and the rule that decides whether a second premium pass runs."""
 import importlib.util
+import json
 import os
 from types import SimpleNamespace as NS
 
@@ -127,3 +128,19 @@ class TestFindingsCLI:
         rc = gp.findings_cli(str(review))
         assert rc == 0
         assert "PARSE MISMATCH" not in capsys.readouterr().out
+
+
+class TestSnapshotCLI:
+    def test_the_ledger_and_the_verdict_text_are_both_snapshotted_for_pass_1(self, tmp_path):
+        verdict = tmp_path / "verdict.md"
+        verdict.write_text(
+            "# Verdict\n\nSome prose.\n\n"
+            "```json model_ledger\n"
+            '{"verdict": "WAIT", "ceiling": 306.0, "position_pct": 0}\n'
+            "```\n"
+        )
+        rc = gp.snapshot_cli(str(tmp_path))
+        assert rc == 0
+        ledger = json.load(open(tmp_path / "verdict.pass1.json", encoding="utf-8"))
+        assert ledger == {"verdict": "WAIT", "ceiling": 306.0, "position_pct": 0}
+        assert (tmp_path / "verdict.pass1.md").read_text() == verdict.read_text()

@@ -124,6 +124,11 @@ verdict flipped since the last pass, treat the flip itself as the first object
 of scrutiny — was it forced by corrected arithmetic, or by your predecessor's
 pressure?
 
+On pass 2 you receive `verdict.diff`, `findings.json` (each of your pass-1
+findings with a resolution class) and `verification.md`. Read the full memo
+only where the diff touches it. Your first object of scrutiny is any finding
+classed `disputed` or `unaddressed`, then any verdict flip.
+
 ## 1. Charlie Munger's Audit
 - Focus on **"Rat Poison"** (Stock Based Compensation). If the report ignores SBC, tear it apart.
 - Focus on **"EBITDA"**. If the report relies on it, call it "bullshit earnings."

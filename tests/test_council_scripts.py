@@ -1079,13 +1079,13 @@ class TestCodexMemoGetsARetryBeforeFallingToClaude:
     def test_the_retry_carries_the_validators_feedback_as_a_fifth_input(self):
         step7 = self._step7()
         claude_leg = step7.index("**Claude leg")
-        assert "INPUT 5: validator feedback on your first draft" in step7[:claude_leg]
+        assert "INPUT 6: validator feedback on your first draft" in step7[:claude_leg]
 
     def test_only_a_second_codex_failure_falls_through_to_the_claude_leg(self):
         step7 = self._step7()
         claude_leg = step7.index("**Claude leg")
         assert step7.index("memo.codex-draft1.md") < claude_leg
-        assert step7.index("INPUT 5: validator feedback on your first draft") < claude_leg
+        assert step7.index("INPUT 6: validator feedback on your first draft") < claude_leg
 
 
 class TestExpertsFullFileReplacesTwelveIndividualReads:

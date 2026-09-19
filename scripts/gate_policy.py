@@ -19,10 +19,18 @@ import sys
 
 sys.path.insert(0, os.path.dirname(os.path.abspath(__file__)))
 
-FINDING = re.compile(r"^\*\*(FATAL|MAJOR|MODERATE|MINOR)(\s*\((?:prose only|prose)\))?\s*[—-]\s*(.+?)\.?\*\*\s*(.*)$", re.M)
+_SEV = r"(?:FATAL|MAJOR-AGGREGATE|MAJOR|MODERATE|MINOR)"
+_PROSE = r"(?:\s*\((?:prose only|prose)\))?"
+_SEP = r"\s*[—–-]\s*"
+FINDING = re.compile(
+    r"^(?:[-*]\s+)?(?:"
+    rf"\*\*(?P<sev1>{_SEV})(?P<prose1>{_PROSE}){_SEP}(?P<name1>.+?)\.?\*\*\s*(?P<body1>.*)"
+    r"|"
+    rf"\#{{2,6}}\s+(?P<sev2>{_SEV})(?P<prose2>{_PROSE}){_SEP}(?P<name2>.+?)\.?"
+    r")$", re.M)
 RESULT = re.compile(r"`?(PASS|REJECT)\s*[—-]\s*(\d+)\s*FATAL", re.I)
 CEILING_MOVE, POSITION_MOVE, MAX_FIX_ROUNDS = 0.10, 1.0, 3
-WORDING_MIN, UNADDRESSED_MIN = 0.7, 0.6
+WORDING_MIN = 0.7
 
 
 def parse_findings(text):
@@ -30,8 +38,13 @@ def parse_findings(text):
     ms = list(FINDING.finditer(text))
     for i, m in enumerate(ms):
         end = ms[i + 1].start() if i + 1 < len(ms) else len(text)
-        body = (m.group(4) + text[m.end():end]).split("### Result")[0].strip()
-        out.append({"severity": m.group(1), "prose_only": bool(m.group(2)), "name": m.group(3).strip(), "body": body})
+        sev = m.group("sev1") or m.group("sev2")
+        prose = m.group("prose1") or m.group("prose2")
+        name = m.group("name1") or m.group("name2")
+        body_tail = m.group("body1") if m.group("sev1") else ""
+        severity = "MAJOR" if sev == "MAJOR-AGGREGATE" else sev
+        body = (body_tail + text[m.end():end]).split("### Result")[0].strip()
+        out.append({"severity": severity, "prose_only": bool(prose), "name": name.strip(), "body": body})
     return out
 
 
@@ -51,7 +64,7 @@ def flip_attributed(correction_log):
     return bool(re.search(r"^\s*[-*]?\s*\*{0,2}[JAB]\d\b", correction_log, re.M) or re.search(r"verdict (changed|moved|flipped) because", correction_log, re.I))
 
 
-def decide(findings, ledger_before, ledger_after, verify_fail_rounds, premium_passes, flip_attributed):
+def decide(findings, ledger_before, ledger_after, verify_fail_rounds, premium_passes, flip_is_attributed):
     """Stopping rules (plan §6). Returns (decision, reasons)."""
     reasons = []
     live = [f for f in findings if f.get("wording_only", 0) < WORDING_MIN]
@@ -59,7 +72,7 @@ def decide(findings, ledger_before, ledger_after, verify_fail_rounds, premium_pa
         reasons.append("an unaddressed FATAL finding remains")
     delta = ledger_delta(ledger_before, ledger_after)
     if delta["verdict_changed"]:
-        reasons.append("the verdict word changed since pass 1" + ("" if flip_attributed else " — flip not attributed to a named correction"))
+        reasons.append("the verdict word changed since pass 1" + ("" if flip_is_attributed else " — flip not attributed to a named correction"))
     if delta["ceiling_move"] > CEILING_MOVE:
         reasons.append(f"ceiling moved {delta['ceiling_move']:.0%}")
     if delta["position_move"] > POSITION_MOVE:
@@ -78,6 +91,26 @@ def _ledger(text):
     return json.loads(m.group(1)) if m else {}
 
 
+def findings_cli(path):
+    """Parse `path` (a reality_check*.md) and write findings.json beside it.
+
+    A reviewer's own result line ("REJECT — 1 FATAL: ...") is the check on
+    the parse: if the FATAL count it declares does not match the count this
+    file actually parsed out, the regex missed or misread a finding, and the
+    caller should not trust findings.json blindly."""
+    text = open(path, encoding="utf-8").read()
+    fs = parse_findings(text)
+    out = os.path.join(os.path.dirname(path), "findings.json")
+    json.dump(fs, open(out, "w", encoding="utf-8"), indent=1)
+    _, n_fatal_result = result_line(text)
+    n_fatal_parsed = sum(1 for f in fs if f["severity"] == "FATAL")
+    if n_fatal_result != n_fatal_parsed:
+        print(f"PARSE MISMATCH — result line says {n_fatal_result} FATAL, parsed {n_fatal_parsed}")
+        return 1
+    print(f"{len(fs)} finding(s); result {result_line(text)}")
+    return 0
+
+
 def decide_cli(d):
     fs = json.load(open(os.path.join(d, "findings.json"), encoding="utf-8"))
     after_text = open(os.path.join(d, "verdict.md"), encoding="utf-8").read()
@@ -93,13 +126,8 @@ def decide_cli(d):
 
 if __name__ == "__main__":
     if len(sys.argv) >= 3 and sys.argv[1] == "findings":
-        text = open(sys.argv[2], encoding="utf-8").read()
-        out = os.path.join(os.path.dirname(sys.argv[2]), "findings.json")
-        json.dump(parse_findings(text), open(out, "w", encoding="utf-8"), indent=1)
-        print(f"{len(parse_findings(text))} finding(s); result {result_line(text)}")
-        sys.exit(0)
+        sys.exit(findings_cli(sys.argv[2]))
     if len(sys.argv) >= 3 and sys.argv[1] == "decide":
-        sys.path.insert(0, os.path.dirname(os.path.abspath(__file__)))
         sys.exit(decide_cli(sys.argv[2]))
     print(__doc__)
     sys.exit(2)

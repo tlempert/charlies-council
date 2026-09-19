@@ -75,8 +75,10 @@ def mark_step(m, name, status):
     s["status"] = status
     s["ts"] = now
     m["steps"][name] = s
-    if name in ("gate_pass1", "gate_pass2") and status == "done":
-        m["premium_passes"] = m.get("premium_passes", 0) + 1
+    # Recomputed, not incremented: a resumed run re-marks a step that already
+    # ran, and an increment would double-count it.
+    m["premium_passes"] = sum(1 for k in ("gate_pass1", "gate_pass2")
+                               if isinstance(m["steps"].get(k), dict) and m["steps"][k].get("status") == "done")
     return s
 
 

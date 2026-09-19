@@ -38,6 +38,26 @@ class TestParseFindings:
         assert gp.result_line(REVIEW) == ("REJECT", 1)
         assert gp.result_line("### Result\n`PASS — 0 FATAL. 2 MAJOR, 1 MODERATE, 0 MINOR.`") == ("PASS", 0)
 
+    def test_an_en_dash_separator_is_accepted(self):
+        f = gp.parse_findings("**FATAL – Reserve risk charged twice.** Operation: charge it once.\n")
+        assert f[0]["severity"] == "FATAL" and f[0]["name"] == "Reserve risk charged twice"
+
+    def test_a_leading_bullet_before_the_bold_marker_is_accepted(self):
+        f = gp.parse_findings("- **FATAL — Reserve risk charged twice.** Operation: charge it once.\n")
+        assert f[0]["severity"] == "FATAL" and f[0]["name"] == "Reserve risk charged twice"
+        f = gp.parse_findings("* **MODERATE — Terminal price label.** Operation: relabel.\n")
+        assert f[0]["severity"] == "MODERATE" and f[0]["name"] == "Terminal price label"
+
+    def test_a_heading_style_finding_is_accepted(self):
+        f = gp.parse_findings("#### FATAL — Reserve risk charged twice.\nOperation: charge it once.\n")
+        assert f[0]["severity"] == "FATAL" and f[0]["name"] == "Reserve risk charged twice"
+        assert "Operation: charge it once" in f[0]["body"]
+
+    def test_major_aggregate_is_severity_major_with_the_name_intact(self):
+        f = gp.parse_findings("**MAJOR-AGGREGATE — Three MAJORs touch published numbers.** See list below.\n")
+        assert f[0]["severity"] == "MAJOR"
+        assert f[0]["name"] == "Three MAJORs touch published numbers"
+
 
 class TestDecide:
     L1 = {"verdict": "WAIT", "ceiling": 306.0, "position_pct": 0}
@@ -72,3 +92,38 @@ class TestDecide:
     def test_verification_that_will_not_clear_triggers(self):
         d, _ = gp.decide([], self.L1, dict(self.L1), gp.MAX_FIX_ROUNDS, 1, True)
         assert d == "PREMIUM_PASS_2"
+
+    def test_an_attributed_verdict_flip_still_triggers(self):
+        d, why = gp.decide([], self.L1, dict(self.L1, verdict="BUY", position_pct=2), 0, 1, True)
+        assert d == "PREMIUM_PASS_2" and any("flip" in w or "verdict word changed" in w for w in why)
+
+    def test_decide_on_two_empty_ledgers_passes_by_verification_without_raising(self):
+        d, _ = gp.decide([], {}, {}, 0, 1, True)
+        assert d == "PASS_BY_VERIFICATION"
+
+
+class TestFindingsCLI:
+    def test_a_fatal_count_mismatch_is_reported_and_exits_1(self, tmp_path):
+        review = (tmp_path / "reality_check.md")
+        review.write_text(
+            "### Findings\n"
+            "**MODERATE — Terminal price label.** Operation: relabel.\n\n"
+            "### Result\n"
+            "`REJECT — 1 FATAL: reserve risk charged twice.`\n"
+        )
+        rc = gp.findings_cli(str(review))
+        assert rc == 1
+        out = (tmp_path / "reality_check.md").with_name("findings.json")
+        assert out.exists()
+
+    def test_a_matching_fatal_count_exits_0(self, tmp_path, capsys):
+        review = tmp_path / "reality_check.md"
+        review.write_text(
+            "### Findings\n"
+            "**FATAL — Reserve risk charged twice.** Operation: charge it once.\n\n"
+            "### Result\n"
+            "`REJECT — 1 FATAL: reserve risk charged twice.`\n"
+        )
+        rc = gp.findings_cli(str(review))
+        assert rc == 0
+        assert "PARSE MISMATCH" not in capsys.readouterr().out

@@ -64,9 +64,25 @@ def run(findings, correction_log, verdict_text, ask, workers=8):
     return findings
 
 
+CORRECTION_HEADING = re.compile(r"^(#+)\s+.*(correction log|corrections|what changed|§6).*$", re.M | re.I)
+
+
 def correction_log_of(verdict_text):
-    m = re.search(r"(?:^#+ .*?(correction|what changed|§6).*?$)(.*?)(?=^#+ |\Z)", verdict_text, re.S | re.M | re.I)
-    return m.group(2) if m else ""
+    """The correction-log section: from the end of the first matching heading
+    line up to the next heading at the same level or shallower, or end of
+    text. A heading merely containing the word "correction" in passing (a
+    section titled "Decision Logic" that mentions "a note on correction of
+    the prior estimate") is not the log; only "correction log", "corrections",
+    "what changed" or "§6" as a heading are."""
+    m = CORRECTION_HEADING.search(verdict_text)
+    if not m:
+        return ""
+    level = len(m.group(1))
+    start = m.end()
+    stop = re.compile(r"^#{1,%d}[ \t]" % level, re.M)
+    nm = stop.search(verdict_text, start)
+    end = nm.start() if nm else len(verdict_text)
+    return verdict_text[start:end].strip("\n")
 
 
 def classify(client, d):

@@ -240,6 +240,12 @@ class TestManifest:
         manifest.mark_step(m, "gate_pass2", "done")
         assert m["premium_passes"] == 2
 
+    def test_re_marking_the_same_gate_pass_done_is_idempotent(self, manifest):
+        m = manifest.init("ADBE")
+        manifest.mark_step(m, "gate_pass1", "done")
+        manifest.mark_step(m, "gate_pass1", "done")
+        assert m["premium_passes"] == 1
+
     def test_marking_a_gate_pass_started_does_not_increment(self, manifest):
         m = manifest.init("ADBE")
         manifest.mark_step(m, "gate_pass1", "started")

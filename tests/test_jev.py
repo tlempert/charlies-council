@@ -285,6 +285,7 @@ class TestContradictions:
 # --- jev_findings -----------------------------------------------------------
 
 jf = _load("jev_findings")
+gp = _load("gate_policy")
 
 
 class TestFindings:
@@ -300,3 +301,44 @@ class TestFindings:
     def test_values_in_the_operation_clause_are_struck(self):
         body = "Quote: 'at 17x'. Operation: use an 18x–20x band and a $306 ceiling."
         assert jf.strip_values(body) == "Quote: 'at 17x'. Operation: use an [value struck]–[value struck] band and a [value struck] ceiling."
+
+
+# KNSL-shaped: title, a decoy heading that merely mentions "correction" in
+# passing, the real §6 log with Pass 1/Pass 2 subsections and J1/J2 items,
+# then a following top-level heading the log must not swallow.
+KNSL_VERDICT = """# KNSL — Munger Synthesis (revised after Reality Check pass 2)
+**Kinsale Capital Group** | Analysis date 2026-09-17 | Price $362.48
+
+## 3. Decision Logic
+
+A note on correction of the prior estimate belongs here, not in the log.
+
+## 6. CORRECTION LOG
+
+### Pass 1 (reviewed 2026-09-16; corrections in draft 2)
+
+- **M1 — $305 growth-table row did not reproduce.** Row and trigger removed.
+- **J1 — Multiple 17x -> 16x (judgment, draft 2).** Reasons given at the time: RLI/WRB GAAP P/Es cap the top of the band.
+
+### Pass 2 (reviewed 2026-09-17; corrections in this draft)
+
+- **J2 — Multiple 16x -> 17x (judgment, this draft).** Reasons: the reserve charge was removed and the comparators were corrected.
+
+## 7. Ledger Note
+
+This section must not be included in the correction log.
+"""
+
+
+class TestCorrectionLogOf:
+    def test_the_section_after_the_correction_log_heading_is_returned(self):
+        log = jf.correction_log_of(KNSL_VERDICT)
+        assert "### Pass 1" in log and "J1" in log and "J2" in log
+        assert "Ledger Note" not in log
+        assert "note on correction of the prior estimate" not in log
+
+    def test_a_flip_in_the_returned_log_is_attributed(self):
+        assert gp.flip_attributed(jf.correction_log_of(KNSL_VERDICT))
+
+    def test_no_matching_heading_returns_empty_string(self):
+        assert jf.correction_log_of("# Title\n\n## 1. Something else entirely\n\nprose\n") == ""

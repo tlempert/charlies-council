@@ -78,6 +78,12 @@ class TestDecide:
         d, _ = gp.decide([self._f("FATAL", "unaddressed", wording=0.9)], self.L1, dict(self.L1), 0, 1, True)
         assert d == "PASS_BY_VERIFICATION"
 
+    def test_a_fatal_with_no_resolution_key_is_treated_as_unaddressed(self):
+        unclassified = {"severity": "FATAL", "prose_only": False, "name": "n", "body": ""}
+        d, why = gp.decide([unclassified], self.L1, dict(self.L1), 0, 1, True)
+        assert d == "PREMIUM_PASS_2"
+        assert "findings unclassified (Jev unavailable) — FATAL findings treated as unaddressed" in why
+
     def test_verdict_flip_without_attribution_triggers(self):
         d, why = gp.decide([], self.L1, dict(self.L1, verdict="BUY", position_pct=2), 0, 1, False)
         assert d == "PREMIUM_PASS_2" and any("flip" in w for w in why)
@@ -144,3 +150,44 @@ class TestSnapshotCLI:
         ledger = json.load(open(tmp_path / "verdict.pass1.json", encoding="utf-8"))
         assert ledger == {"verdict": "WAIT", "ceiling": 306.0, "position_pct": 0}
         assert (tmp_path / "verdict.pass1.md").read_text() == verdict.read_text()
+
+    def test_a_verdict_with_no_model_ledger_refuses_the_snapshot(self, tmp_path, capsys):
+        (tmp_path / "verdict.md").write_text("# Verdict\n\nNo ledger block here.\n")
+        rc = gp.snapshot_cli(str(tmp_path))
+        assert rc == 1
+        assert "no model_ledger in verdict.md — snapshot refused" in capsys.readouterr().out
+        assert not (tmp_path / "verdict.pass1.json").exists()
+        assert not (tmp_path / "verdict.pass1.md").exists()
+
+
+class TestStyleNotesCLI:
+    def _write(self, tmp_path, findings):
+        json.dump(findings, open(tmp_path / "findings.json", "w", encoding="utf-8"))
+
+    def test_only_wording_only_findings_are_written(self, tmp_path):
+        self._write(tmp_path, [
+            {"severity": "MODERATE", "name": "Terminal price label", "body": "Relabel the column." * 20,
+             "wording_only": 0.9, "resolution": "addressed"},
+            {"severity": "FATAL", "name": "Reserve risk charged twice", "body": "Charge it once.",
+             "wording_only": 0.1, "resolution": "addressed"},
+        ])
+        rc = gp.style_notes_cli(str(tmp_path))
+        assert rc == 0
+        out = (tmp_path / "style_notes.md").read_text()
+        assert "Terminal price label" in out
+        assert "Reserve risk charged twice" not in out
+        assert len(out.splitlines()[0]) <= 360  # body truncated to 300 chars, not dumped whole
+
+    def test_no_wording_only_findings_writes_an_empty_file(self, tmp_path):
+        self._write(tmp_path, [
+            {"severity": "FATAL", "name": "n", "body": "b", "wording_only": 0.1, "resolution": "addressed"},
+        ])
+        rc = gp.style_notes_cli(str(tmp_path))
+        assert rc == 0
+        assert (tmp_path / "style_notes.md").read_text() == ""
+
+    def test_unclassified_findings_write_an_empty_file(self, tmp_path):
+        self._write(tmp_path, [{"severity": "FATAL", "name": "n", "body": "b"}])
+        rc = gp.style_notes_cli(str(tmp_path))
+        assert rc == 0
+        assert (tmp_path / "style_notes.md").read_text() == ""

@@ -18,7 +18,7 @@ Execute these steps in order. Do not skip steps.
 
 ### Step 0: Validate
 
-Extract the ticker from the arguments. If no ticker was provided, ask the user for one and stop. An optional trailing `--explainers` argument (e.g. `/analyze-company AAPL --explainers`) turns on Step 9b; without it, the newsletter and business explainer are skipped.
+Extract the ticker from the arguments. If no ticker was provided, ask the user for one and stop. An optional trailing `--explainers` argument (e.g. `/analyze-company AAPL --explainers`) turns on Step 7b; without it, the newsletter and business explainer are skipped.
 
 **Resume or clean slate.** Every step below records itself in `/tmp/silicon_council/{TICKER}/manifest.json`, so a run that died at Step 6 restarts at Step 6, not Step 1:
 
@@ -476,7 +476,7 @@ It runs the pre-gate (ledger sourcing, geometry, tally, required-growth arithmet
 
 Record the checkpoint: `./venv/bin/python3 scripts/council_manifest.py step {TICKER} gate started`
 
-Launch the Reality Check subagent (Opus, `model: "opus"`) **by itself** and wait for it before launching anything else. Read `/Users/tallempert/src-tal/investor/skills/reality-check.md`. Pass it the Munger verdict, all 12 expert `---SUMMARY---` blocks, `jev_independence.md`, `jev_tiers.md` and `argument_map.md` if they exist (starting lists for Check 0 and Check 2, alongside the pre-gate output), every known data-quality defect, and the strongest available counter-argument to the verdict (e.g. a superinvestor who acted the other way, with their cost basis).
+Launch the Reality Check subagent (Opus, `model: "opus"`) **by itself** and wait for it before launching anything else. Read `/Users/tallempert/src-tal/investor/skills/reality-check.md`.
 
 **VIC pitch guard (only when `/tmp/vic_scan/{TICKER}/pitch.md` exists).** Pass the pitch to the Reality Check too, with its job set by which way Munger went:
 
@@ -485,17 +485,13 @@ Launch the Reality Check subagent (Opus, `model: "opus"`) **by itself** and wait
 
 Same evidence tier applies: advocacy, not fact.
 
-Let `$D` stand for `/tmp/silicon_council/{TICKER}` below.
-
 **The gate is one comprehensive premium review, then verification, then a second premium review only if a rule says so.** (registry F22, F23: ADBE ran four passes, two of them the reviewer's own pressure being unwound; GTT's rewrite carried six new FATALs that only a review of the *replacement* caught — which is what the verification of the revision below exists to do without a full pass.)
 
-1. **Pass 1.** Record `step {TICKER} gate_pass1 started`. Save the ledger the reviewer is about to see: `./venv/bin/python3 scripts/gate_policy.py snapshot $D`. Launch the Reality Check (Opus) with the verdict, the twelve SUMMARY blocks (the full reports are on disk and it may Read any of them), `verification.md`, `argument_map.md`, every known data-quality defect and the strongest counter-argument. It writes `reality_check.md`. Record `gate_pass1 done`. Then parse it: `./venv/bin/python3 scripts/gate_policy.py findings $D/reality_check.md`.
+1. **Pass 1.** Record `step {TICKER} gate_pass1 started`. Save the ledger the reviewer is about to see: `cd /Users/tallempert/src-tal/investor && D=/tmp/silicon_council/{TICKER} && ./venv/bin/python3 scripts/gate_policy.py snapshot $D`. Launch the Reality Check (Opus) with: the verdict; the 12 expert `---SUMMARY---` blocks (the full reports are on disk and it may Read any of them); `verification.md`; `argument_map.md`; `jev_independence.md` and `jev_tiers.md` if they exist (starting lists for Check 0 and Check 2, alongside the pre-gate output); every known data-quality defect; and the strongest available counter-argument to the verdict (e.g. a superinvestor who acted the other way, with their cost basis). It writes `reality_check.md`. Record `gate_pass1 done`. Then parse it: `cd /Users/tallempert/src-tal/investor && D=/tmp/silicon_council/{TICKER} && ./venv/bin/python3 scripts/gate_policy.py findings $D/reality_check.md`.
 2. **PASS with ≤ 3 published-number MAJORs → done.** Go to Step 7.
 3. **REJECT → one revision.** Strip values from any finding that prescribes one (the parser does this after step 4 below; on pass 1 do it by eye — on ADBE pass 3 found its own "18x–20x band" copied into the memo verbatim) and send the FATAL and MAJOR findings to the Munger agent via SendMessage. Never tell it to keep the verdict (registry F24). It revises `verdict.md` with a correction log whose items are labelled `A1…` (arithmetic/sourcing), `B1…` (a charge moved), `J1…` (a judgment changed), as the KNSL log did, and — if the verdict word changed — a line beginning "verdict changed because".
-4. **Verify the revision, cheaply.** `./venv/bin/python3 scripts/verify_verdict.py $D` (send FAIL lines back; at most three rounds; record `council_manifest.py counter {TICKER} verify_fail_rounds N`), then `./venv/bin/python3 scripts/jev_findings.py $D` (each pass-1 finding: addressed / partial / unaddressed / disputed; wording-only; prescribes-value), then `./venv/bin/python3 scripts/gate_policy.py decide $D`.
-5. **`PASS_BY_VERIFICATION`** → append the `findings.md` table and `verification.md` summary to `reality_check.md` under `### Verification of the revision` and go to Step 7. **`PREMIUM_PASS_2`** → record `gate_pass2 started`; `diff -u $D/verdict.pass1.md $D/verdict.md > $D/verdict.diff`; launch a fresh Reality Check with `verdict.diff`, `findings.json`, `verification.md`, and the instruction to attack only what changed and to read the full file only for changed sections; it appends `### Pass 2` to `reality_check.md`; record `gate_pass2 done`. Its REJECT → one more revision → verification only → publish with an `EDITOR'S CORRECTIONS` block for anything still FATAL (option b below). **`PUBLISH_WITH_CORRECTIONS`** → option (b) now.
-
-Wording-only findings (`wording_only ≥ 0.7`) are forwarded to Step 7 as style notes for the memo writer; they never re-open the synthesis.
+4. **Verify the revision, cheaply.** `cd /Users/tallempert/src-tal/investor && D=/tmp/silicon_council/{TICKER} && ./venv/bin/python3 scripts/verify_verdict.py $D` (send FAIL lines back; at most three rounds; record `council_manifest.py counter {TICKER} verify_fail_rounds N`), then `cd /Users/tallempert/src-tal/investor && D=/tmp/silicon_council/{TICKER} && ./venv/bin/python3 scripts/jev_findings.py $D` (each pass-1 finding: addressed / partial / unaddressed / disputed; wording-only; prescribes-value — if it prints `jev: SKIPPED` or `FAILED`, say so; `decide` then treats every FATAL as unaddressed and a second premium pass runs), then `cd /Users/tallempert/src-tal/investor && D=/tmp/silicon_council/{TICKER} && ./venv/bin/python3 scripts/gate_policy.py decide $D`. Record `step {TICKER} gate done` right after `decide` prints its decision, before Step 7.
+5. **`PASS_BY_VERIFICATION`** → append the `findings.md` table and `verification.md` summary to `reality_check.md` under `### Verification of the revision`, write the style notes for the memo writer with `cd /Users/tallempert/src-tal/investor && D=/tmp/silicon_council/{TICKER} && ./venv/bin/python3 scripts/gate_policy.py style-notes $D`, and go to Step 7. **`PREMIUM_PASS_2`** → record `gate_pass2 started`; `cd /Users/tallempert/src-tal/investor && D=/tmp/silicon_council/{TICKER} && diff -u $D/verdict.pass1.md $D/verdict.md > $D/verdict.diff || true` (diff exits 1 when the files differ — that is not a failure here); launch a fresh Reality Check with `verdict.diff`, `findings.json`, `verification.md`, and the instruction to attack only what changed and to read the full file only for changed sections; it appends `### Pass 2` to `reality_check.md`; record `gate_pass2 done`. Its REJECT → one more revision → verification only → publish with an `EDITOR'S CORRECTIONS` block for anything still FATAL (option b below). **`PUBLISH_WITH_CORRECTIONS`** → option (b) now.
 
 **The reviewer prescribes operations, never values.** reality-check.md now forbids it from naming a multiple, growth rate, ceiling, weight or size; if a review contains a number the memo should adopt, strike it before forwarding. A synthesist that reproduces the reviewer's number has complied, not reasoned.
 
@@ -518,22 +514,72 @@ Runs once the gate has PASSed — it needs only the gated `verdict.md`, `refined
 **Codex leg (`CODEX_OK=0`):**
 
 ```bash
-cd /Users/tallempert/src-tal/investor && CX=/Applications/ChatGPT.app/Contents/Resources/codex; D=/tmp/silicon_council/{TICKER}; { cat skills/investor-memo.md; echo; echo "=== INPUT 1: verdict.md ==="; cat $D/verdict.md; echo; echo "=== INPUT 2: refined_dossier.md ==="; cat $D/refined_dossier.md; echo; echo "=== INPUT 3: all_summaries.md ==="; cat $D/all_summaries.md; echo; echo "=== INPUT 4: reality_check.md ==="; cat $D/reality_check.md; } | $CX exec - -m gpt-5.6-sol -c model_reasoning_effort=medium --sandbox read-only --skip-git-repo-check --output-last-message $D/memo.md >$D/memo.log 2>&1; wc -c $D/memo.md; ./venv/bin/python3 scripts/validate_memo.py $D/memo.md $D/verdict.md; echo "MEMO_OK=$?"; ./venv/bin/python3 scripts/verify_verdict.py $D --memo memo.md | grep -E '^- (FAIL|WARN) .memo:' || true
+cd /Users/tallempert/src-tal/investor && CX=/Applications/ChatGPT.app/Contents/Resources/codex; D=/tmp/silicon_council/{TICKER}; { cat skills/investor-memo.md; echo; echo "=== INPUT 1: verdict.md ==="; cat $D/verdict.md; echo; echo "=== INPUT 2: refined_dossier.md ==="; cat $D/refined_dossier.md; echo; echo "=== INPUT 3: all_summaries.md ==="; cat $D/all_summaries.md; echo; echo "=== INPUT 4: reality_check.md ==="; cat $D/reality_check.md; [ -s $D/style_notes.md ] && { echo; echo "=== INPUT 5: style_notes.md (optional) ==="; cat $D/style_notes.md; }; } | $CX exec - -m gpt-5.6-sol -c model_reasoning_effort=medium --sandbox read-only --skip-git-repo-check --output-last-message $D/memo.md >$D/memo.log 2>&1; wc -c $D/memo.md; ./venv/bin/python3 scripts/validate_memo.py $D/memo.md $D/verdict.md; echo "MEMO_OK=$?"; ./venv/bin/python3 scripts/verify_verdict.py $D --memo memo.md | grep -E '^- (FAIL|WARN) .memo:' || true
 ```
 
 `MEMO_OK=0` → record `step {TICKER} memo done`; Step 9 names Codex (gpt-5.6-sol) as the writer. Otherwise move the draft aside (`mv $D/memo.md $D/memo.codex-rejected.md`), keep the validator's lines for Step 9, and run the Claude leg.
 
 **Claude leg (`CODEX_OK=1`, or the Codex draft failed):** launch one subagent with `model: sonnet`, `run_in_background: true`:
 
-"Read /Users/tallempert/src-tal/investor/skills/investor-memo.md and follow it exactly. Inputs, in this order — read each with the Read tool in full: /tmp/silicon_council/{TICKER}/verdict.md, /tmp/silicon_council/{TICKER}/refined_dossier.md, /tmp/silicon_council/{TICKER}/all_summaries.md, /tmp/silicon_council/{TICKER}/reality_check.md. Write the memo to /tmp/silicon_council/{TICKER}/memo.md with the Write tool. Then run `cd /Users/tallempert/src-tal/investor && ./venv/bin/python3 scripts/validate_memo.py /tmp/silicon_council/{TICKER}/memo.md /tmp/silicon_council/{TICKER}/verdict.md` until it exits 0, then run `./venv/bin/python3 scripts/verify_verdict.py /tmp/silicon_council/{TICKER} --memo memo.md` and report its `memo:` lines too. Do not change any number in the ledger. Report back only the validator's final output, the bundle's `memo:` lines, and the word count."
+"Read /Users/tallempert/src-tal/investor/skills/investor-memo.md and follow it exactly. Inputs, in this order — read each with the Read tool in full: /tmp/silicon_council/{TICKER}/verdict.md, /tmp/silicon_council/{TICKER}/refined_dossier.md, /tmp/silicon_council/{TICKER}/all_summaries.md, /tmp/silicon_council/{TICKER}/reality_check.md, and /tmp/silicon_council/{TICKER}/style_notes.md if it exists and is non-empty. Write the memo to /tmp/silicon_council/{TICKER}/memo.md with the Write tool. Then run `cd /Users/tallempert/src-tal/investor && ./venv/bin/python3 scripts/validate_memo.py /tmp/silicon_council/{TICKER}/memo.md /tmp/silicon_council/{TICKER}/verdict.md` until it exits 0, then run `./venv/bin/python3 scripts/verify_verdict.py /tmp/silicon_council/{TICKER} --memo memo.md` and report its `memo:` lines too. Do not change any number in the ledger. Report back only the validator's final output, the bundle's `memo:` lines, and the word count."
 
-When it returns, run the validator once more from this session. `MEMO_OK=0` → `step {TICKER} memo done`. Still failing → `mv $D/memo.md $D/memo.claude-rejected.md`, record `step {TICKER} memo failed`, and continue to Step 8 without a memo: the memo is a deliverable, not a gate, and Step 9 says which leg failed and why. Never patch the memo's numbers by hand from this session — the ledger is the only source of numbers, and a memo the validator rejects is a memo the reader should not get. The bundle's `memo:` WARN lines are reported to the user in Step 9; while `SEMANTICS_MODE=warn` they never reject a memo.
+When it returns, run the validator once more from this session. `MEMO_OK=0` → `step {TICKER} memo done`. Still failing → `mv $D/memo.md $D/memo.claude-rejected.md`, record `step {TICKER} memo failed`, and continue to Step 7b (if requested) and Step 8 without a memo: the memo is a deliverable, not a gate, and Step 9 says which leg failed and why. Never patch the memo's numbers by hand from this session — the ledger is the only source of numbers, and a memo the validator rejects is a memo the reader should not get. The bundle's `memo:` WARN lines are reported to the user in Step 9; while `SEMANTICS_MODE=warn` they never reject a memo.
+
+### Step 7b: Family Newsletter + Business Explainer (optional, `--explainers` only)
+
+Runs only when `--explainers` was given, after `memo done` (or `memo failed`) and before Step 8's assembly and cleanup.
+
+Record the checkpoint: `./venv/bin/python3 scripts/council_manifest.py step {TICKER} reports started`
+
+Launch these two in a single message with `run_in_background: true`, passing the verdict as gated by Step 6 and the memo's style notes from Step 7.
+
+**Newsletter (sonnet model):** Read `/Users/tallempert/src-tal/investor/skills/family-newsletter.md`. Pass the Munger verdict summary and refined dossier. Add: "IMPORTANT: All data is provided. Output immediately. AFTER completing, save your FULL output to /tmp/silicon_council/{TICKER}/newsletter.md using the Write tool."
+
+**Business Explainer (sonnet model):** Launch a subagent with these instructions:
+
+"You are the world's greatest business teacher — a fusion of Richard Feynman, Warren Buffett, and Charlie Munger. Your audience is an intelligent adult who has never studied this company before.
+
+Using ONLY the dossier and Munger verdict data provided, write a 7-section Feynman-style explanation. Sections 2 and 3 are NEW and critical — they teach problem-type frameworks that compound across every company the reader studies.
+
+BEFORE writing, classify the question type using this taxonomy:
+
+| Problem Type | Recognition Signal | Framework to Teach |
+|--------------|-------------------|---------------------|
+| **Clean analytical** | Stable fundamentals, predictable market, no dominant external risk | Standard tools apply: DCF, moat analysis, ROIC |
+| **Regime/political** | Fundamentals excellent but subject to state override; political jurisdiction matters more than industry | Fundamentals necessary but insufficient; size as if wrong about regime; larger margin of safety |
+| **Cyclical/timing** | Business structurally healthy but earnings depend on a cycle | Buy at cycle bottom; normalize earnings across cycle; multiples are cycle-dependent |
+| **Binary/event-driven** | Single outcome (drug approval, M&A, regulatory ruling) dominates all other variables | Option-like thinking; size as if you could lose 100% |
+| **Narrative/momentum** | Fundamentals matter less than sentiment; multiple expansion > earnings growth | Recognize when sentiment dominates; ask 'how long can the narrative run' |
+
+Pick the dominant type (most cases are mixed — one dominates). Then write these 7 sections in order:
+
+1. **What This Company Actually Does** — 2-3 sentences a teenager could understand. Use a concrete analogy.
+
+2. **What Kind of Problem This Is** — NEW. Name the problem type you classified above. Explain in plain English why this company is this type of problem and why that matters for analysis. For clean analytical cases, this section is short (~100 words): 'This is a clean analytical problem. Standard tools apply directly — skip ahead if you know the drill.' For ambiguous cases, this is the heart of the explanation (~300-400 words).
+
+3. **How to Think About This Kind of Problem** — NEW. Teach a reusable mental model for problems of this type. The reader should walk away with a framework they can apply to every future decision of the same type. For clean cases: ~100 words acknowledging the standard approach. For ambiguous cases: ~300-400 words with a numbered framework.
+
+4. **How They Make Money** — Revenue model in plain English. What do customers pay for? Why do they pay so much?
+
+5. **Why They're Hard to Kill** — The moat explained simply. What makes it hard for competitors?
+
+6. **The One Thing That Could Go Wrong** — The single biggest risk in one paragraph. Don't list 5 risks — pick the one that matters most.
+
+7. **The Price Tag Problem** — Why the stock is priced where it is, explained as a house-buying analogy.
+
+TONE: Authoritative but warm. No jargon without immediate explanation. Use analogies liberally. Aim for ~900 words total for clean cases, ~1200 words for ambiguous cases. Sections 2 and 3 should compound across reader's learning — after 20 reports, they should have 20 reusable frameworks, not just 20 companies understood.
+
+AFTER completing, save your FULL output to /tmp/silicon_council/{TICKER}/teacher.md using the Write tool."
+
+Pass the refined dossier and Munger verdict summary to the Business Explainer.
+
+Collect both reports, then record: `./venv/bin/python3 scripts/council_manifest.py step {TICKER} reports done`.
 
 ### Step 8: Assemble and Save Reports
 
 Record the checkpoint: `./venv/bin/python3 scripts/council_manifest.py step {TICKER} assemble started`
 
-The 15 temp files from Steps 4-7 should already exist in `/tmp/silicon_council/{TICKER}/` — each expert, Munger, reality check and the investor memo wrote their own file (`memo.md` is absent only if Step 7 recorded `failed`). `newsletter.md` and `teacher.md` exist only when `--explainers` was given, and only after Step 9b (below) has run — this assembly runs again once they land.
+The 15 temp files from Steps 4-7 should already exist in `/tmp/silicon_council/{TICKER}/` — each expert, Munger, reality check and the investor memo wrote their own file (`memo.md` is absent only if Step 7 recorded `failed`), plus `newsletter.md` and `teacher.md` when `--explainers` was given (Step 7b).
 
 **Verify files exist**, then run Python to assemble into Obsidian:
 
@@ -646,55 +692,5 @@ Display a summary:
 2. The reality check scorecard
 3. The file paths where reports were saved, including the investor memo and which leg wrote it (Codex gpt-5.6-sol or Claude sonnet) — or that Step 7 failed on both, with the validator's lines
 4. The GitHub Pages URLs: the interactive dashboard and the standalone memo page
-
-### Step 9b: Family Newsletter + Business Explainer (PARALLEL)
-
-**Only if `--explainers` was given.** Launch the newsletter and business-explainer subagents (unchanged prompts) with the gated verdict and the memo's style notes, then re-run the Step 8 assembly for the two new files and `build_corpus_index.py`.
-
-Record the checkpoint: `./venv/bin/python3 scripts/council_manifest.py step {TICKER} reports started`
-
-Launch these two in a single message with `run_in_background: true`, passing the verdict as gated by Step 6 and the memo's style notes from Step 7.
-
-**Newsletter (sonnet model):** Read `/Users/tallempert/src-tal/investor/skills/family-newsletter.md`. Pass the Munger verdict summary and refined dossier. Add: "IMPORTANT: All data is provided. Output immediately. AFTER completing, save your FULL output to /tmp/silicon_council/{TICKER}/newsletter.md using the Write tool."
-
-**Business Explainer (sonnet model):** Launch a subagent with these instructions:
-
-"You are the world's greatest business teacher — a fusion of Richard Feynman, Warren Buffett, and Charlie Munger. Your audience is an intelligent adult who has never studied this company before.
-
-Using ONLY the dossier and Munger verdict data provided, write a 7-section Feynman-style explanation. Sections 2 and 3 are NEW and critical — they teach problem-type frameworks that compound across every company the reader studies.
-
-BEFORE writing, classify the question type using this taxonomy:
-
-| Problem Type | Recognition Signal | Framework to Teach |
-|--------------|-------------------|---------------------|
-| **Clean analytical** | Stable fundamentals, predictable market, no dominant external risk | Standard tools apply: DCF, moat analysis, ROIC |
-| **Regime/political** | Fundamentals excellent but subject to state override; political jurisdiction matters more than industry | Fundamentals necessary but insufficient; size as if wrong about regime; larger margin of safety |
-| **Cyclical/timing** | Business structurally healthy but earnings depend on a cycle | Buy at cycle bottom; normalize earnings across cycle; multiples are cycle-dependent |
-| **Binary/event-driven** | Single outcome (drug approval, M&A, regulatory ruling) dominates all other variables | Option-like thinking; size as if you could lose 100% |
-| **Narrative/momentum** | Fundamentals matter less than sentiment; multiple expansion > earnings growth | Recognize when sentiment dominates; ask 'how long can the narrative run' |
-
-Pick the dominant type (most cases are mixed — one dominates). Then write these 7 sections in order:
-
-1. **What This Company Actually Does** — 2-3 sentences a teenager could understand. Use a concrete analogy.
-
-2. **What Kind of Problem This Is** — NEW. Name the problem type you classified above. Explain in plain English why this company is this type of problem and why that matters for analysis. For clean analytical cases, this section is short (~100 words): 'This is a clean analytical problem. Standard tools apply directly — skip ahead if you know the drill.' For ambiguous cases, this is the heart of the explanation (~300-400 words).
-
-3. **How to Think About This Kind of Problem** — NEW. Teach a reusable mental model for problems of this type. The reader should walk away with a framework they can apply to every future decision of the same type. For clean cases: ~100 words acknowledging the standard approach. For ambiguous cases: ~300-400 words with a numbered framework.
-
-4. **How They Make Money** — Revenue model in plain English. What do customers pay for? Why do they pay so much?
-
-5. **Why They're Hard to Kill** — The moat explained simply. What makes it hard for competitors?
-
-6. **The One Thing That Could Go Wrong** — The single biggest risk in one paragraph. Don't list 5 risks — pick the one that matters most.
-
-7. **The Price Tag Problem** — Why the stock is priced where it is, explained as a house-buying analogy.
-
-TONE: Authoritative but warm. No jargon without immediate explanation. Use analogies liberally. Aim for ~900 words total for clean cases, ~1200 words for ambiguous cases. Sections 2 and 3 should compound across reader's learning — after 20 reports, they should have 20 reusable frameworks, not just 20 companies understood.
-
-AFTER completing, save your FULL output to /tmp/silicon_council/{TICKER}/teacher.md using the Write tool."
-
-Pass the refined dossier and Munger verdict summary to the Business Explainer.
-
-Collect both reports, record `./venv/bin/python3 scripts/council_manifest.py step {TICKER} reports done`, then re-run the Step 8 assembly (it will pick up `newsletter.md` and `teacher.md` this time) and `./venv/bin/python3 scripts/build_corpus_index.py`.
 
 Done.

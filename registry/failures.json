@@ -378,7 +378,7 @@
   "date": "",
   "incorrect": "WAIT→BUY→WAIT",
   "required": "hard cap; attack only what changed",
-  "guard": "Step 6 cap of 3",
+  "guard": "Step 6 gate policy: two premium passes cap (gate_policy.decide)",
   "test": "",
   "coverage": "prose",
   "mentions": [
@@ -396,7 +396,7 @@
   "date": "",
   "incorrect": "pass 2 found 6 FATAL in the rewrite",
   "required": "revision verified before publication",
-  "guard": "\"runs at least twice\"",
+  "guard": "verification of the revision (verify_verdict + jev_findings + gate_policy.decide)",
   "test": "",
   "coverage": "prose",
   "mentions": [

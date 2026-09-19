@@ -4,6 +4,7 @@
     gate_policy.py findings  reality_check.md              -> findings.json
     gate_policy.py decide    /tmp/silicon_council/TICKER   -> PASS_BY_VERIFICATION | PREMIUM_PASS_2 | PUBLISH_WITH_CORRECTIONS
     gate_policy.py snapshot  /tmp/silicon_council/TICKER   -> verdict.pass1.json, verdict.pass1.md
+    gate_policy.py style-notes /tmp/silicon_council/TICKER -> style_notes.md
 
 ADBE 2026-09-01 ran four Opus review passes; two were the reviewer's own
 pressure being unwound. KNSL 2026-09-17 ran three, and several findings were
@@ -66,10 +67,17 @@ def flip_attributed(correction_log):
 
 
 def decide(findings, ledger_before, ledger_after, verify_fail_rounds, premium_passes, flip_is_attributed):
-    """Stopping rules (plan §6). Returns (decision, reasons)."""
+    """Stopping rules (plan §6). Returns (decision, reasons).
+
+    A FATAL finding with no `resolution` key at all means jev_findings.py
+    never classified it — skipped or failed, not merely undecided — and
+    that fails closed: treat it as unaddressed rather than silently letting
+    an unclassified FATAL pass."""
     reasons = []
     live = [f for f in findings if f.get("wording_only", 0) < WORDING_MIN]
-    if any(f["severity"] == "FATAL" and f.get("resolution") in ("unaddressed", "disputed") for f in live):
+    if any(f["severity"] == "FATAL" and "resolution" not in f for f in live):
+        reasons.append("findings unclassified (Jev unavailable) — FATAL findings treated as unaddressed")
+    elif any(f["severity"] == "FATAL" and f.get("resolution") in ("unaddressed", "disputed") for f in live):
         reasons.append("an unaddressed FATAL finding remains")
     delta = ledger_delta(ledger_before, ledger_after)
     if delta["verdict_changed"]:
@@ -115,11 +123,33 @@ def findings_cli(path):
 def snapshot_cli(d):
     """Save what the reviewer is about to see, before it sees it: the model
     ledger as verdict.pass1.json, and the whole draft as verdict.pass1.md so
-    a later pass can `diff -u` against it."""
+    a later pass can `diff -u` against it. Refuses rather than snapshotting
+    an empty ledger — a verdict.md with no model_ledger block is a broken
+    draft, not an empty one, and decide_cli's ledger_delta would otherwise
+    silently compare against {}."""
     import shutil
     text = open(os.path.join(d, "verdict.md"), encoding="utf-8").read()
-    json.dump(_ledger(text), open(os.path.join(d, "verdict.pass1.json"), "w", encoding="utf-8"))
+    ledger = _ledger(text)
+    if not ledger:
+        print("no model_ledger in verdict.md — snapshot refused")
+        return 1
+    json.dump(ledger, open(os.path.join(d, "verdict.pass1.json"), "w", encoding="utf-8"))
     shutil.copyfile(os.path.join(d, "verdict.md"), os.path.join(d, "verdict.pass1.md"))
+    return 0
+
+
+def style_notes_cli(d):
+    """Wording-only findings (Check 4 territory: labels, headings, phrasing,
+    a missing caveat) get forwarded to the memo writer as style notes; they
+    never re-open the synthesis. Written empty when there are none, and
+    empty (not guessed) when findings.json was never classified by Jev —
+    an unclassified finding has no `wording_only` key and defaults to 0,
+    which is correctly "not wording-only", not "unknown"."""
+    fs = json.load(open(os.path.join(d, "findings.json"), encoding="utf-8"))
+    lines = [f"- **{f['severity']} — {f['name']}.** {f.get('body', '')[:300]}"
+             for f in fs if f.get("wording_only", 0) >= WORDING_MIN]
+    text = "\n".join(lines) + ("\n" if lines else "")
+    open(os.path.join(d, "style_notes.md"), "w", encoding="utf-8").write(text)
     return 0
 
 
@@ -143,5 +173,7 @@ if __name__ == "__main__":
         sys.exit(decide_cli(sys.argv[2]))
     if len(sys.argv) >= 3 and sys.argv[1] == "snapshot":
         sys.exit(snapshot_cli(sys.argv[2]))
+    if len(sys.argv) >= 3 and sys.argv[1] == "style-notes":
+        sys.exit(style_notes_cli(sys.argv[2]))
     print(__doc__)
     sys.exit(2)

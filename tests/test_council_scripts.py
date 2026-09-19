@@ -1086,3 +1086,51 @@ class TestCodexMemoGetsARetryBeforeFallingToClaude:
         claude_leg = step7.index("**Claude leg")
         assert step7.index("memo.codex-draft1.md") < claude_leg
         assert step7.index("INPUT 5: validator feedback on your first draft") < claude_leg
+
+
+class TestExpertsFullFileReplacesTwelveIndividualReads:
+    """The synthesist and the reviewer each used to Read all twelve expert
+    reports individually, re-sending the whole context on every call. One
+    concatenated file lets both read everything with one Read call."""
+
+    SKILL = os.path.join(_ROOT, "skills", "analyze-company.md")
+
+    def _text(self):
+        return open(self.SKILL, encoding="utf-8").read()
+
+    def _step4(self):
+        text = self._text()
+        return text.split("### Step 4:", 1)[1].split("### Step 5:", 1)[0]
+
+    def _step5(self):
+        text = self._text()
+        return text.split("### Step 5:", 1)[1].split("### Step 6:", 1)[0]
+
+    def _step6(self):
+        text = self._text()
+        return text.split("### Step 6:", 1)[1].split("### Step 7:", 1)[0]
+
+    def test_step_4_writes_the_concatenated_experts_file_after_all_summaries(self):
+        step4 = self._step4()
+        assert "all_summaries.md" in step4
+        assert "experts_full.md" in step4
+        assert "=== EXPERT REPORT:" in step4
+        assert step4.index("all_summaries.md") < step4.index("experts_full.md")
+
+    def test_step_5_points_the_synthesist_at_the_one_file_not_twelve_paths(self):
+        step5 = self._step5()
+        assert "experts_full.md" in step5
+        assert "read in full with the Read tool from" in step5
+        assert "{jeff_bezos,warren_buffett,michael_burry,tim_cook,steve_jobs,psychologist," \
+               "sherlock,futurist,biologist,historian,anthropologist,lynch}.md" not in step5
+        # all_summaries.md and argument_map.md stay as indexes
+        assert "all_summaries.md" in step5
+        assert "argument_map.md" in step5
+
+    def test_step_5_keeps_the_f42_knsl_needle_intact(self):
+        step5 = self._step5()
+        assert 'On KNSL the synthesis called the moat "entirely broker-side"' in step5
+
+    def test_step_6_item_1_names_experts_full_for_the_reviewer(self):
+        step6 = self._step6()
+        assert "experts_full.md" in step6

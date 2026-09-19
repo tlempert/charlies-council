@@ -109,11 +109,29 @@ def _agreement_line(rows, label=None):
     return f"{prefix}{agreed}/{total} ({pct}%)"
 
 
+_NO_CONFIRMED_LABELS = "AGREEMENT 0/0 (n/a) — no confirmed labels yet"
+
+
+def _confirmed_agreement_lines(confirmed_rows):
+    """The two agreement lines, scored over confirmed gold rows only. A
+    proposed label hasn't been vetted by a human, so it must never move the
+    trust metric — with zero confirmed rows there is nothing to score."""
+    if not confirmed_rows:
+        return _NO_CONFIRMED_LABELS, _NO_CONFIRMED_LABELS
+    false_financial = sum(1 for r in confirmed_rows if r.get("false_financial"))
+    touched = sum(1 for r in confirmed_rows if r.get("flags"))
+    main = (f"{_agreement_line(confirmed_rows)} — false financial labels {false_financial} — "
+            f"memos the rules would touch {touched}")
+    teacher_rows = [r for r in confirmed_rows if r.get("excerpt_source") == "teacher"]
+    teacher = _agreement_line(teacher_rows, "teacher-excerpt rows only")
+    return main, teacher
+
+
 def shadow_report(rows):
     ok_rows = [r for r in rows if not r.get("error")]
     error_rows = [r for r in rows if r.get("error")]
-    false_financial = sum(1 for r in ok_rows if r.get("false_financial"))
-    touched = sum(1 for r in ok_rows if r.get("flags"))
+    confirmed_rows = [r for r in ok_rows if r.get("gold_status") == "confirmed"]
+    proposed_rows = [r for r in ok_rows if r.get("gold_status") != "confirmed"]
 
     lines = ["# Taxonomy corpus shadow classification", "",
              "| Ticker | Pred | Gold | Also | Agree | Excerpt | Rules would flag |",
@@ -123,15 +141,24 @@ def shadow_report(rows):
         lines.append(f"| {r.get('ticker', '')} | {r.get('pred', '')} | {r.get('gold', '')} | {also} | "
                      f"{'yes' if r.get('agree') else 'no'} | {r.get('excerpt_source') or ''} | {', '.join(r.get('flags') or [])} |")
     lines.append("")
-    lines.append(f"{_agreement_line(ok_rows)} — false financial labels {false_financial} — "
-                 f"memos the rules would touch {touched}")
-    teacher_rows = [r for r in ok_rows if r.get("excerpt_source") == "teacher"]
-    lines.append(_agreement_line(teacher_rows, "teacher-excerpt rows only"))
+    main_line, teacher_line = _confirmed_agreement_lines(confirmed_rows)
+    lines.append(main_line)
+    lines.append(teacher_line)
+    if proposed_rows:
+        lines.append("")
+        lines.append("## Awaiting confirmation")
+        lines.append("| Ticker | Proposed primary | Classifier primary | Agree |")
+        lines.append("|---|---|---|---|")
+        for r in sorted(proposed_rows, key=lambda r: r.get("ticker", "")):
+            lines.append(f"| {r.get('ticker', '')} | {r.get('gold', '')} | "
+                         f"{r.get('pred', '')} ({r.get('pred_p', 0.0):.2f}) | {'yes' if r.get('agree') else 'no'} |")
     if error_rows:
         lines.append("")
         lines.append("## Errors")
         for r in sorted(error_rows, key=lambda r: r.get("ticker", "")):
             lines.append(f"- {r.get('ticker', '')}: {r.get('error', '')}")
+    lines.append("")
+    lines.append(f"CONFIRMED {len(confirmed_rows)} of {len(ok_rows)} gold rows")
     return "\n".join(lines) + "\n"
 
 
@@ -151,9 +178,10 @@ def _classify_row(client, ticker, path, gold):
     g = gold[ticker]
     cmp = compare(pred, g)
     flags = would_flag(text, result["primary"])
-    return {"ticker": ticker, "pred": result["primary"], "gold": g.get("primary"), "also": g.get("also"),
+    pred_p = next((l["p"] for l in result["labels"] if l["label"] == result["primary"]), 0.0)
+    return {"ticker": ticker, "pred": result["primary"], "pred_p": pred_p, "gold": g.get("primary"), "also": g.get("also"),
             "agree": cmp["agree"], "false_financial": cmp["false_financial"], "flags": flags,
-            "excerpt_source": source}
+            "excerpt_source": source, "gold_status": g.get("status", "proposed")}
 
 
 def _classify_or_error(client, ticker, path, gold):

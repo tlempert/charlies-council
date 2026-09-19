@@ -32,6 +32,7 @@ from modules.config import SEC_HEADERS  # noqa: E402
 
 HERE = os.path.dirname(os.path.abspath(__file__))
 SIC_CACHE_DIR = os.path.join(HERE, "..", "tmp", "sic")
+GOLD_PATH = os.path.join(HERE, "..", "taxonomy", "gold_labels.json")
 
 SECTION_A = re.compile(r"^--- SECTION A:.*$", re.M)
 INDUSTRY_LINE = re.compile(r"^INDUSTRY:\s*(.*)$", re.M)
@@ -168,7 +169,23 @@ def classify(client, d, ticker):
     with open(os.path.join(d, "company_type.json"), "w", encoding="utf-8") as f:
         json.dump(out, f, indent=2)
     print(f"TYPE: {out['primary']} ({primary_p:.2f}) mixed={'yes' if out['mixed'] else 'no'} unknown={'yes' if out['unknown'] else 'no'}")
+    _propose_gold_label(out)
     return out
+
+
+def _propose_gold_label(out):
+    """Grows taxonomy/gold_labels.json with this run's finding, as a
+    *proposed* label — never on an unresolved (`unknown`) classification, and
+    `ct.propose` itself refuses to touch a ticker that's already there,
+    confirmed or not."""
+    if out["unknown"]:
+        return
+    also = [l["label"] for l in out["labels"] if l["label"] != out["primary"] and l["p"] >= ct.MIXED_MIN]
+    gold = ct.load_gold(GOLD_PATH)
+    source = f"run {datetime.now(timezone.utc).date().isoformat()}"
+    if ct.propose(gold, out["ticker"], out["primary"], also or None, source):
+        ct.save_gold(GOLD_PATH, gold)
+        print(f"gold: proposed {out['primary']}")
 
 
 def _run(client, ticker, d):

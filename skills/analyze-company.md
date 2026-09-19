@@ -70,6 +70,8 @@ Then keep the answer where Step 8's cleanup cannot reach it — the run folder i
 cd /Users/tallempert/src-tal/investor && ./venv/bin/python3 scripts/council_manifest.py note {TICKER} company_type "$(./venv/bin/python3 -c "import json;d=json.load(open('/tmp/silicon_council/{TICKER}/company_type.json'));print(d['primary'], d['labels'][0]['p'] if d['labels'] else 0)" 2>/dev/null || echo unknown)"
 ```
 
+The classifier also appends the ticker to `taxonomy/gold_labels.json` as a *proposed* label if it is new; confirm it after reading the report with `./venv/bin/python3 scripts/classify_corpus.py confirm {TICKER} <label>` — only confirmed rows count toward the taxonomy gate.
+
 ### Step 2: Forensic Interrogation
 
 Record the checkpoint: `./venv/bin/python3 scripts/council_manifest.py step {TICKER} forensic started`

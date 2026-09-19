@@ -282,8 +282,8 @@ class TestCorpusShadow:
 
     def test_summary_line(self):
         cs = _load("classify_corpus")
-        rows = [{"ticker": "KNSL", "pred": "insurer_pc", "gold": "insurer_pc", "agree": True, "false_financial": False, "flags": ["forbidden:owner yield"]},
-                {"ticker": "FAST", "pred": "operating_product", "gold": "operating_product", "agree": True, "false_financial": False, "flags": []}]
+        rows = [{"ticker": "KNSL", "pred": "insurer_pc", "gold": "insurer_pc", "agree": True, "false_financial": False, "flags": ["forbidden:owner yield"], "gold_status": "confirmed"},
+                {"ticker": "FAST", "pred": "operating_product", "gold": "operating_product", "agree": True, "false_financial": False, "flags": [], "gold_status": "confirmed"}]
         assert "AGREEMENT 2/2 (100%) — false financial labels 0 — memos the rules would touch 1" in cs.shadow_report(rows)
 
     def test_business_excerpt_reports_the_teacher_branch(self):
@@ -312,14 +312,14 @@ class TestCorpusShadow:
 
     def test_second_summary_line_counts_teacher_excerpt_rows_only(self):
         cs = _load("classify_corpus")
-        rows = [{"ticker": "KNSL", "pred": "insurer_pc", "gold": "insurer_pc", "agree": True, "false_financial": False, "flags": [], "excerpt_source": "teacher"},
-                {"ticker": "FAST", "pred": "software_subscription", "gold": "operating_product", "agree": False, "false_financial": False, "flags": [], "excerpt_source": "fallback"}]
+        rows = [{"ticker": "KNSL", "pred": "insurer_pc", "gold": "insurer_pc", "agree": True, "false_financial": False, "flags": [], "excerpt_source": "teacher", "gold_status": "confirmed"},
+                {"ticker": "FAST", "pred": "software_subscription", "gold": "operating_product", "agree": False, "false_financial": False, "flags": [], "excerpt_source": "fallback", "gold_status": "confirmed"}]
         report = cs.shadow_report(rows)
         assert "AGREEMENT (teacher-excerpt rows only) 1/1 (100%)" in report
 
     def test_an_error_row_is_excluded_from_the_agreement_denominator_and_listed(self):
         cs = _load("classify_corpus")
-        rows = [{"ticker": "KNSL", "pred": "insurer_pc", "gold": "insurer_pc", "agree": True, "false_financial": False, "flags": [], "excerpt_source": "teacher"},
+        rows = [{"ticker": "KNSL", "pred": "insurer_pc", "gold": "insurer_pc", "agree": True, "false_financial": False, "flags": [], "excerpt_source": "teacher", "gold_status": "confirmed"},
                 {"ticker": "BOOM", "pred": "error", "agree": False, "error": "RuntimeError: boom"}]
         report = cs.shadow_report(rows)
         assert "AGREEMENT 1/1 (100%)" in report
@@ -338,6 +338,47 @@ class TestCorpusShadow:
         row = cs._classify_or_error(BoomClient(), "X", str(report_path), {"X": {"primary": "operating_product"}})
         assert row["pred"] == "error" and row["agree"] is False
         assert row["error"] == "RuntimeError: boom"
+
+    def test_proposed_rows_are_excluded_from_agreement_and_listed_separately(self):
+        cs = _load("classify_corpus")
+        rows = [{"ticker": "KNSL", "pred": "insurer_pc", "gold": "insurer_pc", "agree": True, "false_financial": False, "flags": [], "excerpt_source": "teacher", "gold_status": "confirmed", "pred_p": 0.9},
+                {"ticker": "FAST", "pred": "operating_product", "gold": "distributor_wholesale", "agree": False, "false_financial": False, "flags": [], "excerpt_source": "teacher", "gold_status": "proposed", "pred_p": 0.6}]
+        report = cs.shadow_report(rows)
+        assert "AGREEMENT 1/1 (100%)" in report
+        assert "## Awaiting confirmation" in report
+        assert "FAST" in report.split("## Awaiting confirmation")[1]
+        assert "KNSL" not in report.split("## Awaiting confirmation")[1]
+        assert "distributor_wholesale" in report and "operating_product (0.60)" in report
+        assert "CONFIRMED 1 of 2 gold rows" in report
+
+    def test_zero_confirmed_rows_prints_the_no_confirmed_message_for_both_lines(self):
+        cs = _load("classify_corpus")
+        rows = [{"ticker": "FAST", "pred": "operating_product", "gold": "operating_product", "agree": True, "false_financial": False, "flags": [], "excerpt_source": "teacher", "gold_status": "proposed", "pred_p": 0.6}]
+        report = cs.shadow_report(rows)
+        assert report.count("AGREEMENT 0/0 (n/a) — no confirmed labels yet") == 2
+        assert "CONFIRMED 0 of 1 gold rows" in report
+
+    def test_classify_row_records_gold_status(self, tmp_path, monkeypatch):
+        cs = _load("classify_corpus")
+        report_path = tmp_path / "X_Analysis_2026-01-01.md"
+        report_path.write_text("### 🕵️ JEFF BEZOS REPORT\nThey run a widget business.\n")
+        monkeypatch.setattr(cs.cc, "sic_for", lambda t: None)
+        client = NS(system_one=lambda state, questions: NS(
+            choices={"model": NS(probabilities={"operating_product": 0.8})}))
+        gold = {"X": {"primary": "operating_product", "status": "confirmed"}}
+        row = cs._classify_row(client, "X", str(report_path), gold)
+        assert row["gold_status"] == "confirmed"
+
+    def test_classify_row_defaults_gold_status_to_proposed_when_absent(self, tmp_path, monkeypatch):
+        cs = _load("classify_corpus")
+        report_path = tmp_path / "X_Analysis_2026-01-01.md"
+        report_path.write_text("### 🕵️ JEFF BEZOS REPORT\nThey run a widget business.\n")
+        monkeypatch.setattr(cs.cc, "sic_for", lambda t: None)
+        client = NS(system_one=lambda state, questions: NS(
+            choices={"model": NS(probabilities={"operating_product": 0.8})}))
+        gold = {"X": {"primary": "operating_product"}}
+        row = cs._classify_row(client, "X", str(report_path), gold)
+        assert row["gold_status"] == "proposed"
 
     def test_gold_lookup_has_no_dead_default_for_a_ticker_not_in_gold(self):
         cs = _load("classify_corpus")
@@ -404,6 +445,66 @@ class TestCacheKey:
         cc._run(None, "KNSL", str(tmp_path))
         cc._run(None, "KNSL", str(tmp_path))
         assert runs == ["KNSL"]
+
+    def test_classify_proposes_the_gold_label_when_something_new(self, tmp_path, monkeypatch):
+        cc = _load_classify_company()
+        gold_path = tmp_path / "gold.json"
+        gold_path.write_text(json.dumps({"schema": 2, "generated": "2026-09-19"}))
+        monkeypatch.setattr(cc, "GOLD_PATH", str(gold_path))
+        (tmp_path / "initial_dossier.txt").write_text("INDUSTRY: Insurance - Property & Casualty\n--- SECTION A: BUSINESS ---\nKinsale writes E&S insurance.\n")
+        monkeypatch.setattr(cc, "sic_for", lambda ticker: "6331")
+        monkeypatch.setattr(cc, "xbrl_for", lambda d: {})
+        calls = iter([
+            NS(choices={"model": NS(choice="insurer_pc", confidence=0.85, probabilities={"insurer_pc": 0.85, "operating_product": 0.4})}, nouls={}, usage=NS(input_tokens=1), model="f"),
+            NS(choices={"regime": NS(choice="cyclical_timing", confidence=0.7, probabilities={"cyclical_timing": 0.7})}, nouls={}, usage=NS(input_tokens=1), model="f"),
+            NS(choices={"jurisdiction": NS(choice="developed", confidence=0.95, probabilities={"developed": 0.95})}, nouls={}, usage=NS(input_tokens=1), model="f"),
+            NS(choices={"capital": NS(choice="float_funded", confidence=0.9, probabilities={"float_funded": 0.9})}, nouls={}, usage=NS(input_tokens=1), model="f"),
+        ])
+        client = NS(system_one=lambda state, questions: next(calls))
+        out, printed = cc.classify(client, str(tmp_path), "KNSL"), None
+        gold = ct.load_gold(str(gold_path))
+        assert gold["KNSL"]["primary"] == "insurer_pc"
+        assert gold["KNSL"]["status"] == "proposed"
+        assert gold["KNSL"]["source"].startswith("run ")
+
+    def test_classify_never_overwrites_an_already_confirmed_gold_row(self, tmp_path, monkeypatch):
+        cc = _load_classify_company()
+        gold_path = tmp_path / "gold.json"
+        gold_path.write_text(json.dumps({"schema": 2, "generated": "2026-09-19",
+                                          "KNSL": {"primary": "operating_product", "status": "confirmed",
+                                                    "source": "user", "confirmed_by": "tal", "date": "2026-09-18"}}))
+        monkeypatch.setattr(cc, "GOLD_PATH", str(gold_path))
+        (tmp_path / "initial_dossier.txt").write_text("INDUSTRY: Insurance - Property & Casualty\n--- SECTION A: BUSINESS ---\nKinsale writes E&S insurance.\n")
+        monkeypatch.setattr(cc, "sic_for", lambda ticker: "6331")
+        monkeypatch.setattr(cc, "xbrl_for", lambda d: {})
+        calls = iter([
+            NS(choices={"model": NS(choice="insurer_pc", confidence=0.85, probabilities={"insurer_pc": 0.85})}, nouls={}, usage=NS(input_tokens=1), model="f"),
+            NS(choices={"regime": NS(choice="cyclical_timing", confidence=0.7, probabilities={"cyclical_timing": 0.7})}, nouls={}, usage=NS(input_tokens=1), model="f"),
+            NS(choices={"jurisdiction": NS(choice="developed", confidence=0.95, probabilities={"developed": 0.95})}, nouls={}, usage=NS(input_tokens=1), model="f"),
+            NS(choices={"capital": NS(choice="float_funded", confidence=0.9, probabilities={"float_funded": 0.9})}, nouls={}, usage=NS(input_tokens=1), model="f"),
+        ])
+        client = NS(system_one=lambda state, questions: next(calls))
+        cc.classify(client, str(tmp_path), "KNSL")
+        gold = ct.load_gold(str(gold_path))
+        assert gold["KNSL"]["status"] == "confirmed" and gold["KNSL"]["primary"] == "operating_product"
+
+    def test_classify_prints_the_proposed_line_only_when_something_was_added(self, tmp_path, monkeypatch, capsys):
+        cc = _load_classify_company()
+        gold_path = tmp_path / "gold.json"
+        gold_path.write_text(json.dumps({"schema": 2, "generated": "2026-09-19"}))
+        monkeypatch.setattr(cc, "GOLD_PATH", str(gold_path))
+        (tmp_path / "initial_dossier.txt").write_text("INDUSTRY: Insurance - Property & Casualty\n--- SECTION A: BUSINESS ---\nKinsale writes E&S insurance.\n")
+        monkeypatch.setattr(cc, "sic_for", lambda ticker: "6331")
+        monkeypatch.setattr(cc, "xbrl_for", lambda d: {})
+        calls = iter([
+            NS(choices={"model": NS(choice="insurer_pc", confidence=0.85, probabilities={"insurer_pc": 0.85})}, nouls={}, usage=NS(input_tokens=1), model="f"),
+            NS(choices={"regime": NS(choice="cyclical_timing", confidence=0.7, probabilities={"cyclical_timing": 0.7})}, nouls={}, usage=NS(input_tokens=1), model="f"),
+            NS(choices={"jurisdiction": NS(choice="developed", confidence=0.95, probabilities={"developed": 0.95})}, nouls={}, usage=NS(input_tokens=1), model="f"),
+            NS(choices={"capital": NS(choice="float_funded", confidence=0.9, probabilities={"float_funded": 0.9})}, nouls={}, usage=NS(input_tokens=1), model="f"),
+        ])
+        client = NS(system_one=lambda state, questions: next(calls))
+        cc.classify(client, str(tmp_path), "KNSL")
+        assert "gold: proposed insurer_pc" in capsys.readouterr().out
 
 
 class TestGoldCli:

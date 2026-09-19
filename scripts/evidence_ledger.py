@@ -69,10 +69,16 @@ def materiality(fs, ask, workers=WORKERS, company=""):
 
 
 def build(client, d):
-    fs = facts(open(os.path.join(d, "refined_dossier.md"), encoding="utf-8").read())
+    dossier_path = os.path.join(d, "refined_dossier.md")
+    out_path = os.path.join(d, "evidence_ledger.json")
+    if jev.cached(out_path, dossier_path):
+        print(f"jev: CACHED {out_path}")
+        return
+    fs = facts(open(dossier_path, encoding="utf-8").read())
     fs = materiality(fs, client.system_one, company=os.path.basename(os.path.normpath(d)))
-    with open(os.path.join(d, "evidence_ledger.json"), "w", encoding="utf-8") as f:
+    with open(out_path, "w", encoding="utf-8") as f:
         json.dump(fs, f, indent=1)
+    jev.stamp(out_path, dossier_path)
     print(f"evidence ledger: {len(fs)} facts, {sum(x['material'] for x in fs)} material")
 
 

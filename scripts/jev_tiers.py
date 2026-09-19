@@ -155,10 +155,17 @@ def report(findings, pairs, tokens):
 
 
 def check(client, directory, memo_name="verdict.md"):
-    memo = open(os.path.join(directory, memo_name), encoding="utf-8").read()
-    dossier = open(os.path.join(directory, "refined_dossier.md"), encoding="utf-8").read()
+    memo_path = os.path.join(directory, memo_name)
+    dossier_path = os.path.join(directory, "refined_dossier.md")
+    out_path = os.path.join(directory, "jev_tiers.md")
+    if jev.cached(out_path, memo_path, dossier_path):
+        print(f"jev: CACHED {out_path}")
+        return
+    memo = open(memo_path, encoding="utf-8").read()
+    dossier = open(dossier_path, encoding="utf-8").read()
     text = report(*run(memo, dossier, client.system_one))
-    open(os.path.join(directory, "jev_tiers.md"), "w", encoding="utf-8").write(text)
+    open(out_path, "w", encoding="utf-8").write(text)
+    jev.stamp(out_path, memo_path, dossier_path)
     print(text)
 
 

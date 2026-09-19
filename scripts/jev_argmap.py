@@ -189,6 +189,12 @@ def build(client, d):
     p = os.path.join(d, "evidence_ledger.json")
     if os.path.exists(p):
         facts = json.load(open(p, encoding="utf-8"))
+    expert_paths = [os.path.join(d, f"{k}.md") for k in EXPERTS if os.path.exists(os.path.join(d, f"{k}.md"))]
+    inputs = expert_paths + ([p] if os.path.exists(p) else [])
+    out_path = os.path.join(d, "argument_map.json")
+    if jev.cached(out_path, *inputs):
+        print(f"jev: CACHED {out_path}")
+        return
     cs = []
     for k in EXPERTS:
         fp = os.path.join(d, f"{k}.md")
@@ -201,8 +207,9 @@ def build(client, d):
     with open(os.path.join(d, "argument_map.md"), "w", encoding="utf-8") as f:
         f.write(text)
     findings_out = [{**f, "a": _trimmed(f["a"]), "b": _trimmed(f["b"])} for f in findings]
-    with open(os.path.join(d, "argument_map.json"), "w", encoding="utf-8") as f:
+    with open(out_path, "w", encoding="utf-8") as f:
         json.dump({"claims": cs, "contradictions": findings_out, "dependencies": deps}, f, indent=1)
+    jev.stamp(out_path, *inputs)
     conflicts = [x for x in findings if x["kind"] == "fact_conflict"]
     print(f"argument map: {len(cs)} claims, {pairs_examined} pair(s) examined, {tokens} input tokens, "
           f"{len(conflicts)} fact conflict(s), {len(deps['single_witness_facts'])} single-witness fact(s)")

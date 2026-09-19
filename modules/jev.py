@@ -9,9 +9,38 @@ for a verdict, a number or an explanation.
 Every check is advisory. No key, no SDK, no network, a rate limit mid-run:
 the check prints why, exits 0, and the pipeline continues on the raw file.
 """
+import hashlib
 import os
 
 TIMEOUT_SECONDS = 30
+
+
+def _hash(paths):
+    h = hashlib.sha256()
+    for p in paths:
+        with open(p, "rb") as f:
+            h.update(f.read())
+    return h.hexdigest()
+
+
+def cached(out_path, *input_paths):
+    """True when out_path exists and its sidecar (out_path + '.sha') matches
+    the sha256 of the inputs' current bytes, in order. A missing output or
+    sidecar, or a changed input, is never cached."""
+    sidecar = out_path + ".sha"
+    if not os.path.exists(out_path) or not os.path.exists(sidecar):
+        return False
+    try:
+        with open(sidecar, encoding="utf-8") as f:
+            return f.read().strip() == _hash(input_paths)
+    except OSError:
+        return False
+
+
+def stamp(out_path, *input_paths):
+    """Record the inputs' current hash beside out_path, after it is written."""
+    with open(out_path + ".sha", "w", encoding="utf-8") as f:
+        f.write(_hash(input_paths))
 
 
 def client():

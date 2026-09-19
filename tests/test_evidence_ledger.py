@@ -151,6 +151,23 @@ class TestMaterialityCompany:
         assert seen["company"] == "KNSL"
 
 
+class TestBuildCache:
+    def test_build_skips_a_second_call_with_unchanged_dossier(self, tmp_path):
+        (tmp_path / "refined_dossier.md").write_text(DOSSIER)
+        calls = []
+
+        def ask(state, q):
+            calls.append(1)
+            return _noul(0.9)
+
+        client = NS(system_one=ask)
+        led.build(client, str(tmp_path))
+        n = len(calls)
+        assert n > 0
+        led.build(client, str(tmp_path))
+        assert len(calls) == n
+
+
 class TestCoverageCheck:
     LEDGER = [{"id": "E001", "material": True, "numbers": [99.5], "text": "[SEC] x 99.5"}]
 

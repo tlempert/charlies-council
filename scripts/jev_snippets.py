@@ -143,13 +143,18 @@ def run(ticker, company, snippets, ask, workers=WORKERS):
 
 
 def triage(client, ticker, company, path):
+    base = path[:-4] if path.endswith(".txt") else path
+    kept_path = base + ".kept.txt"
+    if jev.cached(kept_path, path):
+        print(f"jev: CACHED {kept_path}")
+        return
     snippets = parse(open(path, encoding="utf-8").read())
     rows, tokens, model = run(ticker, company, snippets, client.system_one)
-    base = path[:-4] if path.endswith(".txt") else path
-    with open(base + ".kept.txt", "w", encoding="utf-8") as f:
+    with open(kept_path, "w", encoding="utf-8") as f:
         f.writelines(s["raw"] for s, r in zip(snippets, rows) if not r["drop"])
     text = report(ticker, rows, tokens, model)
     open(base + ".jev.md", "w", encoding="utf-8").write(text)
+    jev.stamp(kept_path, path)
     print(text[text.index("## Dropped"):])   # the table stays in the file; only the decisions reach the session
 
 

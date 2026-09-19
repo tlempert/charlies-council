@@ -159,6 +159,73 @@ class TestNeutrality:
 
 # --- modules/jev advisory boundary ------------------------------------------
 
+class TestCache:
+    def test_cached_only_when_inputs_unchanged(self, tmp_path):
+        from modules import jev
+        src, out = tmp_path / "in.md", tmp_path / "out.md"
+        src.write_text("v1"); out.write_text("result")
+        assert not jev.cached(str(out), str(src))
+        jev.stamp(str(out), str(src))
+        assert jev.cached(str(out), str(src))
+        src.write_text("v2")
+        assert not jev.cached(str(out), str(src))
+
+
+class TestSnippetsCache:
+    def test_triage_skips_a_second_call_with_unchanged_input(self, tmp_path):
+        p = tmp_path / "raw.txt"
+        p.write_text(RAW)
+        calls = []
+
+        def ask(state, qs):
+            calls.append(1)
+            return _answer({"about_company": 0.95, "has_figure": 0.9},
+                           {"category": ("accounting", 0.9), "status": ("enacted", 1), "role": ("neither", 1)})
+
+        client = NS(system_one=ask)
+        snippets.triage(client, "KNSL", "Kinsale", str(p))
+        n = len(calls)
+        assert n > 0
+        snippets.triage(client, "KNSL", "Kinsale", str(p))
+        assert len(calls) == n
+
+
+class TestNeutralityCache:
+    def test_read_skips_a_second_call_with_unchanged_dossier(self, tmp_path):
+        p = tmp_path / "refined_dossier.md"
+        p.write_text(DOSSIER)
+        calls = []
+
+        def ask(state, qs):
+            calls.append(1)
+            return _answer({"editorial": 0.1, "steers": 0.1})
+
+        client = NS(system_one=ask)
+        neutrality.read(client, str(p))
+        n = len(calls)
+        assert n > 0
+        neutrality.read(client, str(p))
+        assert len(calls) == n
+
+
+class TestSummariesCache:
+    def test_audit_skips_a_second_call_with_unchanged_input(self, tmp_path):
+        p = tmp_path / "all_summaries.md"
+        p.write_text(BLOCKS)
+        calls = []
+
+        def ask(state, q):
+            calls.append(1)
+            return _answer({}, {"basis": ("zero_growth_yield", 0.9), "metric": ("growth", 0.9)})
+
+        client = NS(system_one=ask)
+        summaries.audit(client, str(p))
+        n = len(calls)
+        assert n > 0
+        summaries.audit(client, str(p))
+        assert len(calls) == n
+
+
 class TestAdvisoryBoundary:
     def test_skips_with_exit_zero_when_there_is_no_key(self, monkeypatch, capsys):
         from modules import jev
@@ -246,6 +313,24 @@ class TestEvidenceTiers:
         assert "TAG UPGRADED" in text and text.strip().endswith("verify each before pass 1")
 
 
+class TestTiersCache:
+    def test_check_skips_a_second_call_with_unchanged_inputs(self, tmp_path):
+        (tmp_path / "verdict.md").write_text(MEMO_T)
+        (tmp_path / "refined_dossier.md").write_text(DOSSIER_T)
+        calls = []
+
+        def ask(state, q):
+            calls.append(1)
+            return _rel("not_the_source", 0.9)
+
+        client = NS(system_one=ask)
+        tiers.check(client, str(tmp_path))
+        n = len(calls)
+        assert n > 0
+        tiers.check(client, str(tmp_path))
+        assert len(calls) == n
+
+
 # --- jev_contradictions -----------------------------------------------------
 
 contra = _load("jev_contradictions")
@@ -289,6 +374,23 @@ class TestContradictions:
         assert not (tmp_path / "jev_contradictions.md").exists()
 
 
+class TestContradictionsCache:
+    def test_check_skips_a_second_call_with_unchanged_memo(self, tmp_path):
+        (tmp_path / "verdict.md").write_text(KNSL_MEMO)
+        calls = []
+
+        def ask(state, q):
+            calls.append(1)
+            return _answer(choices={"relation": ("unrelated", 0.9)})
+
+        client = NS(system_one=ask)
+        contra.check(client, str(tmp_path))
+        n = len(calls)
+        assert n > 0
+        contra.check(client, str(tmp_path))
+        assert len(calls) == n
+
+
 # --- jev_findings -----------------------------------------------------------
 
 jf = _load("jev_findings")
@@ -308,6 +410,25 @@ class TestFindings:
     def test_values_in_the_operation_clause_are_struck(self):
         body = "Quote: 'at 17x'. Operation: use an 18x–20x band and a $306 ceiling."
         assert jf.strip_values(body) == "Quote: 'at 17x'. Operation: use an [value struck]–[value struck] band and a [value struck] ceiling."
+
+
+class TestFindingsCache:
+    def test_classify_skips_a_second_call_with_unchanged_inputs(self, tmp_path):
+        import json
+        (tmp_path / "findings.json").write_text(json.dumps(TestFindings.F))
+        (tmp_path / "verdict.md").write_text(KNSL_VERDICT)
+        calls = []
+
+        def ask(state, q):
+            calls.append(1)
+            return _answer({"wording_only": 0.1, "prescribes_value": 0.05}, {"resolution": ("addressed", 0.9)})
+
+        client = NS(system_one=ask)
+        jf.classify(client, str(tmp_path))
+        n = len(calls)
+        assert n > 0
+        jf.classify(client, str(tmp_path))
+        assert len(calls) == n
 
 
 # KNSL-shaped: title, a decoy heading that merely mentions "correction" in

@@ -86,10 +86,16 @@ def correction_log_of(verdict_text):
 
 
 def classify(client, d):
-    fs = json.load(open(os.path.join(d, "findings.json"), encoding="utf-8"))
-    verdict = open(os.path.join(d, "verdict.md"), encoding="utf-8").read()
+    findings_path = os.path.join(d, "findings.json")
+    verdict_path = os.path.join(d, "verdict.md")
+    if jev.cached(findings_path, findings_path, verdict_path):
+        print(f"jev: CACHED {findings_path}")
+        return
+    fs = json.load(open(findings_path, encoding="utf-8"))
+    verdict = open(verdict_path, encoding="utf-8").read()
     fs = run(fs, correction_log_of(verdict), verdict, client.system_one)
-    json.dump(fs, open(os.path.join(d, "findings.json"), "w", encoding="utf-8"), indent=1)
+    json.dump(fs, open(findings_path, "w", encoding="utf-8"), indent=1)
+    jev.stamp(findings_path, findings_path, verdict_path)
     lines = ["| sev | finding | resolution | p | wording | prescribes |", "|---|---|---|--:|--:|--:|"]
     lines += [f"| {f['severity']} | {f['name'][:50]} | {f['resolution']} | {f['resolution_p']} | {f['wording_only']} | {f['prescribes_value']} |" for f in fs]
     open(os.path.join(d, "findings.md"), "w", encoding="utf-8").write("\n".join(lines) + "\n")

@@ -73,9 +73,15 @@ def report(findings, pairs, tokens):
 
 
 def check(client, directory, memo_name="verdict.md", out_name="jev_contradictions.md"):
-    text = open(os.path.join(directory, memo_name), encoding="utf-8").read()
+    memo_path = os.path.join(directory, memo_name)
+    out_path = os.path.join(directory, out_name)
+    if jev.cached(out_path, memo_path):
+        print(f"jev: CACHED {out_path}")
+        return
+    text = open(memo_path, encoding="utf-8").read()
     out = report(*run(text, client.system_one))
-    open(os.path.join(directory, out_name), "w", encoding="utf-8").write(out)
+    open(out_path, "w", encoding="utf-8").write(out)
+    jev.stamp(out_path, memo_path)
     print(out)
 
 

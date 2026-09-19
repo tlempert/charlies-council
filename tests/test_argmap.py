@@ -107,3 +107,20 @@ class TestConflictsAndDependencies:
         text = am.report(self.C, [{"kind": "fact_conflict", "p": 0.8, "a": self.C[0], "b": self.C[1]}],
                          {"load_bearing_facts": {}, "single_witness_facts": {"E020": "lynch"}, "unused_material_facts": []})
         assert "fact_conflict" in text and "E020" in text and "## moat" in text
+
+
+class TestBuildCache:
+    def test_build_skips_a_second_call_with_unchanged_experts(self, tmp_path):
+        (tmp_path / "lynch.md").write_text(LYNCH)
+        calls = []
+
+        def ask(state, q):
+            calls.append(1)
+            return _ans("moat", "bear", 0.8)
+
+        client = NS(system_one=ask)
+        am.build(client, str(tmp_path))
+        n = len(calls)
+        assert n > 0
+        am.build(client, str(tmp_path))
+        assert len(calls) == n

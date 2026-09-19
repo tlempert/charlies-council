@@ -104,7 +104,14 @@ def report(read, steering, tokens):
 
 
 def read(client, path):
-    print(report(*run(open(path, encoding="utf-8").read(), client.system_one)))
+    out_path = os.path.join(os.path.dirname(path), "jev_neutrality.md")
+    if jev.cached(out_path, path):
+        print(f"jev: CACHED {out_path}")
+        return
+    text = report(*run(open(path, encoding="utf-8").read(), client.system_one))
+    open(out_path, "w", encoding="utf-8").write(text)
+    jev.stamp(out_path, path)
+    print(text)
 
 
 if __name__ == "__main__":

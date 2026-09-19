@@ -212,6 +212,66 @@ class TestCorpusShadow:
                 {"ticker": "FAST", "pred": "operating_product", "gold": "operating_product", "agree": True, "false_financial": False, "flags": []}]
         assert "AGREEMENT 2/2 (100%) — false financial labels 0 — memos the rules would touch 1" in cs.shadow_report(rows)
 
+    def test_business_excerpt_reports_the_teacher_branch(self):
+        cs = _load("classify_corpus")
+        text = "intro\n## 1. What This Company Actually Does\nThey sell widgets.\n## 2. Next heading\nmore"
+        excerpt, source = cs.business_excerpt(text)
+        assert source == "teacher" and "They sell widgets." in excerpt and "Next heading" not in excerpt
+
+    def test_business_excerpt_reports_the_fallback_branch(self):
+        cs = _load("classify_corpus")
+        text = "### 🕵️ JEFF BEZOS REPORT\nThey sell widgets to businesses.\n"
+        excerpt, source = cs.business_excerpt(text)
+        assert source == "fallback" and "They sell widgets" in excerpt
+
+    def test_business_excerpt_reports_none_for_a_report_with_no_markers(self):
+        cs = _load("classify_corpus")
+        excerpt, source = cs.business_excerpt("")
+        assert source == "none" and excerpt == ""
+
+    def test_teacher_excerpt_is_capped_at_excerpt_chars(self):
+        cs = _load("classify_corpus")
+        body = "x" * (cs.EXCERPT_CHARS + 500)
+        text = f"## 1. What This Company Actually Does\n{body}\n## 2. Next\nmore"
+        excerpt, source = cs.business_excerpt(text)
+        assert source == "teacher" and len(excerpt) == cs.EXCERPT_CHARS
+
+    def test_second_summary_line_counts_teacher_excerpt_rows_only(self):
+        cs = _load("classify_corpus")
+        rows = [{"ticker": "KNSL", "pred": "insurer_pc", "gold": "insurer_pc", "agree": True, "false_financial": False, "flags": [], "excerpt_source": "teacher"},
+                {"ticker": "FAST", "pred": "software_subscription", "gold": "operating_product", "agree": False, "false_financial": False, "flags": [], "excerpt_source": "fallback"}]
+        report = cs.shadow_report(rows)
+        assert "AGREEMENT (teacher-excerpt rows only) 1/1 (100%)" in report
+
+    def test_an_error_row_is_excluded_from_the_agreement_denominator_and_listed(self):
+        cs = _load("classify_corpus")
+        rows = [{"ticker": "KNSL", "pred": "insurer_pc", "gold": "insurer_pc", "agree": True, "false_financial": False, "flags": [], "excerpt_source": "teacher"},
+                {"ticker": "BOOM", "pred": "error", "agree": False, "error": "RuntimeError: boom"}]
+        report = cs.shadow_report(rows)
+        assert "AGREEMENT 1/1 (100%)" in report
+        assert "## Errors" in report and "BOOM" in report and "RuntimeError: boom" in report
+
+    def test_a_raising_ticker_becomes_an_error_row_not_a_crash(self, tmp_path, monkeypatch):
+        cs = _load("classify_corpus")
+        report_path = tmp_path / "X_Analysis_2026-01-01.md"
+        report_path.write_text("### 🕵️ JEFF BEZOS REPORT\nSome text about the business.\n")
+        monkeypatch.setattr(cs.cc, "sic_for", lambda t: None)
+
+        class BoomClient:
+            def system_one(self, *a, **k):
+                raise RuntimeError("boom")
+
+        row = cs._classify_or_error(BoomClient(), "X", str(report_path), {"X": {"primary": "operating_product"}})
+        assert row["pred"] == "error" and row["agree"] is False
+        assert row["error"] == "RuntimeError: boom"
+
+    def test_gold_lookup_has_no_dead_default_for_a_ticker_not_in_gold(self):
+        cs = _load("classify_corpus")
+        # tickers reaching _classify_row are already filtered to gold in _main;
+        # a ticker missing from gold is a programming error, not a silent default.
+        import inspect
+        assert "operating_product" not in inspect.getsource(cs._classify_row)
+
 
 class TestOfflineHelpers:
     def test_xbrl_for_returns_empty_dict_without_a_file(self, tmp_path):

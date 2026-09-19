@@ -664,7 +664,12 @@
   "guard": "type rules (shadow)",
   "test": "",
   "coverage": "new",
-  "mentions": [],
+  "mentions": [
+   {
+    "file": "skills/analyze-company.md",
+    "needle": "registry F40: shadow until the taxonomy gate"
+   }
+  ],
   "evidence": []
  },
  {

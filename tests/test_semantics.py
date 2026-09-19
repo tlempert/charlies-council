@@ -206,3 +206,30 @@ class TestTypeMetricCheck:
         monkeypatch.setenv("TYPE_RULES_MODE", "strict")
         st = _statuses(sem.type_metric_check("nothing", LEDGER, self.KNSL_TYPE))
         assert "FAIL" in st.values()
+
+    def test_a_label_missing_p_is_skipped_not_raised(self):
+        malformed = {"primary": "insurer_pc", "labels": [{"label": "insurer_pc"}]}
+        assert sem.type_metric_check("nothing", LEDGER, malformed) == []
+
+    def test_a_label_missing_its_name_is_skipped_not_raised(self):
+        malformed = {"primary": "insurer_pc", "labels": [{"p": 0.97}]}
+        assert sem.type_metric_check("nothing", LEDGER, malformed) == []
+
+
+class TestRunChecksTypeWiring:
+    def test_a_company_type_file_adds_type_metric_rows(self, tmp_path):
+        (tmp_path / "verdict.md").write_text("Prose with no valuation frame at all.\n```json model_ledger\n" + json.dumps(LEDGER) + "\n```\n")
+        (tmp_path / "company_type.json").write_text(json.dumps({"primary": "insurer_pc", "labels": [{"label": "insurer_pc", "p": 0.97}]}))
+        st = _statuses(sem.run_checks(str(tmp_path)))
+        assert st.get("type:insurer_pc:missing:price-to-book") == "WARN"
+
+    def test_no_company_type_file_means_no_type_rows(self, tmp_path):
+        (tmp_path / "verdict.md").write_text("Prose.\n```json model_ledger\n" + json.dumps(LEDGER) + "\n```\n")
+        results = sem.run_checks(str(tmp_path))
+        assert not any(n.startswith("type:") for _, n, _ in results)
+
+    def test_a_malformed_but_parseable_company_type_file_does_not_raise(self, tmp_path):
+        (tmp_path / "verdict.md").write_text("Prose.\n```json model_ledger\n" + json.dumps(LEDGER) + "\n```\n")
+        (tmp_path / "company_type.json").write_text(json.dumps({"primary": "insurer_pc", "labels": [{"label": "insurer_pc"}]}))
+        results = sem.run_checks(str(tmp_path))
+        assert isinstance(results, list) and not any(n.startswith("type:") for _, n, _ in results)

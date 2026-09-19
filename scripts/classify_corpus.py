@@ -56,16 +56,22 @@ def latest_reports():
 
 def business_excerpt(report_text):
     """The Munger 'What this company does' teacher section, or the first
-    4,000 chars after the first expert heading (### ... REPORT)."""
+    4,000 chars after the first expert heading (### ... REPORT).
+
+    Returns (excerpt, source) with source one of "teacher" (the dedicated
+    section was found), "fallback" (only the expert-heading window), or
+    "none" (neither marker exists — the excerpt is whatever the report has,
+    capped at EXCERPT_CHARS). Every branch caps at EXCERPT_CHARS."""
     m = BUSINESS_HEADING.search(report_text)
     if m:
         rest = report_text[m.end():]
         nxt = NEXT_HEADING.search(rest)
-        return rest[:nxt.start()] if nxt else rest[:EXCERPT_CHARS]
+        end = min(nxt.start(), EXCERPT_CHARS) if nxt else EXCERPT_CHARS
+        return rest[:end], "teacher"
     m = bci._EXPERT_BLOCK.search(report_text)
     if m:
-        return report_text[m.end():m.end() + EXCERPT_CHARS]
-    return report_text[:EXCERPT_CHARS]
+        return report_text[m.end():m.end() + EXCERPT_CHARS], "fallback"
+    return report_text[:EXCERPT_CHARS], "none"
 
 
 def compare(pred, gold):
@@ -95,29 +101,46 @@ def would_flag(report_text, primary):
     return out
 
 
-def shadow_report(rows):
+def _agreement_line(rows, label=None):
     total = len(rows)
     agreed = sum(1 for r in rows if r.get("agree"))
     pct = round(100 * agreed / total) if total else 0
-    false_financial = sum(1 for r in rows if r.get("false_financial"))
-    touched = sum(1 for r in rows if r.get("flags"))
+    prefix = f"AGREEMENT ({label}) " if label else "AGREEMENT "
+    return f"{prefix}{agreed}/{total} ({pct}%)"
+
+
+def shadow_report(rows):
+    ok_rows = [r for r in rows if not r.get("error")]
+    error_rows = [r for r in rows if r.get("error")]
+    false_financial = sum(1 for r in ok_rows if r.get("false_financial"))
+    touched = sum(1 for r in ok_rows if r.get("flags"))
 
     lines = ["# Taxonomy corpus shadow classification", "",
-             "| Ticker | Pred | Gold | Also | Agree | Rules would flag |",
-             "|---|---|---|---|---|---|"]
+             "| Ticker | Pred | Gold | Also | Agree | Excerpt | Rules would flag |",
+             "|---|---|---|---|---|---|---|"]
     for r in sorted(rows, key=lambda r: r.get("ticker", "")):
         also = ", ".join(r.get("also") or [])
         lines.append(f"| {r.get('ticker', '')} | {r.get('pred', '')} | {r.get('gold', '')} | {also} | "
-                     f"{'yes' if r.get('agree') else 'no'} | {', '.join(r.get('flags') or [])} |")
+                     f"{'yes' if r.get('agree') else 'no'} | {r.get('excerpt_source') or ''} | {', '.join(r.get('flags') or [])} |")
     lines.append("")
-    lines.append(f"AGREEMENT {agreed}/{total} ({pct}%) — false financial labels {false_financial} — "
+    lines.append(f"{_agreement_line(ok_rows)} — false financial labels {false_financial} — "
                  f"memos the rules would touch {touched}")
+    teacher_rows = [r for r in ok_rows if r.get("excerpt_source") == "teacher"]
+    lines.append(_agreement_line(teacher_rows, "teacher-excerpt rows only"))
+    if error_rows:
+        lines.append("")
+        lines.append("## Errors")
+        for r in sorted(error_rows, key=lambda r: r.get("ticker", "")):
+            lines.append(f"- {r.get('ticker', '')}: {r.get('error', '')}")
     return "\n".join(lines) + "\n"
 
 
 def _classify_row(client, ticker, path, gold):
+    """gold[ticker] is required — callers only reach here for tickers
+    `_main` already filtered to the gold set, so a missing entry is a
+    programming error, not something to paper over with a default."""
     text = open(path, encoding="utf-8").read()
-    excerpt = business_excerpt(text)
+    excerpt, source = business_excerpt(text)
     sic = cc.sic_for(ticker)
     state = {"ticker": ticker, "industry": None, "item1_excerpt": excerpt}
     label_ans = client.system_one(state, cc._label_questions())
@@ -125,11 +148,22 @@ def _classify_row(client, ticker, path, gold):
     evidence = ct.deterministic_evidence(sic, {}, None)
     result = ct.combine(jev_probs, evidence)
     pred = {"primary": result["primary"]}
-    g = gold.get(ticker, {"primary": "operating_product"})
+    g = gold[ticker]
     cmp = compare(pred, g)
     flags = would_flag(text, result["primary"])
     return {"ticker": ticker, "pred": result["primary"], "gold": g.get("primary"), "also": g.get("also"),
-            "agree": cmp["agree"], "false_financial": cmp["false_financial"], "flags": flags}
+            "agree": cmp["agree"], "false_financial": cmp["false_financial"], "flags": flags,
+            "excerpt_source": source}
+
+
+def _classify_or_error(client, ticker, path, gold):
+    """Isolate one ticker's failure from the rest of the corpus run — a bad
+    fetch, a Jev hiccup or a malformed report becomes a row with pred
+    "error", not a run that produces nothing for 66 other tickers."""
+    try:
+        return _classify_row(client, ticker, path, gold)
+    except Exception as e:
+        return {"ticker": ticker, "pred": "error", "agree": False, "error": f"{type(e).__name__}: {e}"}
 
 
 def _main(client):
@@ -139,7 +173,7 @@ def _main(client):
     tickers = [t for t in reports if t in gold]
     rows = []
     with ThreadPoolExecutor(max_workers=4) as ex:
-        futures = {ex.submit(_classify_row, client, t, reports[t], gold): t for t in tickers}
+        futures = {ex.submit(_classify_or_error, client, t, reports[t], gold): t for t in tickers}
         for fut in as_completed(futures):
             rows.append(fut.result())
     report = shadow_report(rows)

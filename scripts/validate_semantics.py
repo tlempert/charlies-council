@@ -311,19 +311,20 @@ def type_metric_check(text, ledger, company_type=None):
     out = []
     checked = False
     for lab in company_type.get("labels", []):
-        if lab["p"] < 0.7 or lab["label"] not in LABELS:
+        label = lab.get("label")
+        if lab.get("p", 0) < 0.7 or label not in LABELS:
             continue
         checked = True
-        rules = LABELS[lab["label"]]
+        rules = LABELS[label]
         for pat in rules["required"]:
             key = rule_key(pat)
             if not re.search(pat, text, re.I):
-                out.append((status, f"type:{lab['label']}:missing:{key}", f"a {lab['label']} memo without {key}"))
+                out.append((status, f"type:{label}:missing:{key}", f"a {label} memo without {key}"))
         for pat in rules["forbidden"]:
             key = rule_key(pat, forbidden=True)
             for sent in _sentences(text):
                 if re.search(pat, sent, re.I):
-                    out.append((status, f"type:{lab['label']}:forbidden:{key}", f"«{sent[:140]}»"))
+                    out.append((status, f"type:{label}:forbidden:{key}", f"«{sent[:140]}»"))
                     break
     if out:
         return out

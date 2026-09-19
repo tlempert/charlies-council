@@ -811,3 +811,12 @@ class TestVerifyVerdict:
         (tmp_path / "refined_dossier.md").write_text(DOSSIER)
         results = _load("verify_verdict").deterministic(str(tmp_path))
         assert ("INFO", "evidence_coverage", "no evidence_ledger.json — coverage not checked") in results
+
+    def test_unacknowledged_fact_conflicts_are_warned(self, tmp_path):
+        (tmp_path / "verdict.md").write_text(f"Prose.\n```json model_ledger\n{json.dumps(_ledger())}\n```\n")
+        (tmp_path / "all_summaries.md").write_text(SUMMARIES)
+        (tmp_path / "refined_dossier.md").write_text(DOSSIER)
+        (tmp_path / "argument_map.json").write_text(json.dumps({"claims": [], "dependencies": {}, "contradictions": [
+            {"kind": "fact_conflict", "p": 0.8, "a": {"expert": "lynch", "text": "x"}, "b": {"expert": "warren_buffett", "text": "y"}}]}))
+        results = _load("verify_verdict").deterministic(str(tmp_path))
+        assert ("WARN", "argument_conflicts", "1 fact conflict(s) between experts not named in the verdict: lynch vs warren_buffett") in results

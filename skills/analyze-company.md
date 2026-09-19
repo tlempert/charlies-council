@@ -427,10 +427,12 @@ If any block is missing here, the validation loop above was skipped — go back 
 **Then count the witnesses.** Twelve verdicts are twelve opinions only if they were reached twelve ways. Jev classifies each block's trigger-price basis and KEY METRIC family; code counts how many distinct bases the council actually used:
 
 ```bash
-cd /Users/tallempert/src-tal/investor && ./venv/bin/python3 scripts/jev_summaries.py /tmp/silicon_council/{TICKER}/all_summaries.md
+D=/tmp/silicon_council/{TICKER}; cd /Users/tallempert/src-tal/investor && (./venv/bin/python3 scripts/jev_summaries.py $D/all_summaries.md & ./venv/bin/python3 scripts/jev_argmap.py $D & wait)
 ```
 
 It writes `jev_independence.md` and prints it. The pre-gate's regex catches the literal owner-EPS ÷ hurdle figure; this catches the same reasoning under another hurdle or base (registry F19: cross-hurdle echoes need catching too). A `WARN` does not change any verdict; it tells Munger how many independent reads the tally contains and tells the gate where to look. Experts it lists under "Read by hand" have a trigger line the classifier could not place — read those two blocks yourself. `jev: SKIPPED` → no audit this run; say so.
+
+Alongside it, `jev_argmap.py` writes `argument_map.md`: an index for Munger and the gate — claims by topic and stance, fact conflicts between experts, facts only one expert relies on, material facts nobody cites. Munger cites the expert's file; the gate uses the fact-conflict list as a Check 0/2 starting list.
 
 ### Step 5: Munger Synthesis (Opus 4.7)
 
@@ -474,7 +476,7 @@ It runs the pre-gate (ledger sourcing, geometry, tally, required-growth arithmet
 
 Record the checkpoint: `./venv/bin/python3 scripts/council_manifest.py step {TICKER} gate started`
 
-Launch the Reality Check subagent (Opus, `model: "opus"`) **by itself** and wait for it before launching anything else. Read `/Users/tallempert/src-tal/investor/skills/reality-check.md`. Pass it the Munger verdict, all 12 expert `---SUMMARY---` blocks, `jev_independence.md` and `jev_tiers.md` if they exist (starting lists for Check 0 and Check 2, alongside the pre-gate output), every known data-quality defect, and the strongest available counter-argument to the verdict (e.g. a superinvestor who acted the other way, with their cost basis).
+Launch the Reality Check subagent (Opus, `model: "opus"`) **by itself** and wait for it before launching anything else. Read `/Users/tallempert/src-tal/investor/skills/reality-check.md`. Pass it the Munger verdict, all 12 expert `---SUMMARY---` blocks, `jev_independence.md`, `jev_tiers.md` and `argument_map.md` if they exist (starting lists for Check 0 and Check 2, alongside the pre-gate output), every known data-quality defect, and the strongest available counter-argument to the verdict (e.g. a superinvestor who acted the other way, with their cost basis).
 
 **VIC pitch guard (only when `/tmp/vic_scan/{TICKER}/pitch.md` exists).** Pass the pitch to the Reality Check too, with its job set by which way Munger went:
 

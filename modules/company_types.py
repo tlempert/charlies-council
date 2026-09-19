@@ -1,0 +1,81 @@
+"""Company taxonomy for the council — multi-label, mixed and unknown allowed.
+
+Runs in shadow (Part A §3.4): classify_company.py writes company_type.json;
+the type-metric check in validate_semantics reads it in WARN mode; nothing in
+production branches on it until the corpus and live shadow gates are met.
+Deterministic facts (SIC, XBRL) outrank the text classifier.
+"""
+MIXED_MIN, KNOWN_MIN, FACT_P, CONFLICT_CAP = 0.35, 0.5, 0.9, 0.5
+
+LABELS = {
+    "operating_product": {"frame": "ROIC/FCF/owner earnings", "required": [], "forbidden": []},
+    "software_subscription": {"frame": "recurring revenue", "required": [r"\bARR\b|remaining performance|net revenue retention|NRR"], "forbidden": []},
+    "insurer_pc": {"frame": "float-funded underwriting",
+                   "required": [r"combined ratio", r"price[- ]to[- ]book|P/B\b|tangible book", r"operating ROE|return on equity", r"reserve development|prior[- ]year development"],
+                   "forbidden": [r"owner yield", r"free cash flow yield|FCF yield", r"operating cash flow (fell|rose|grew|declined|dropped)", r"EV/EBITDA"]},
+    "insurer_life": {"frame": "embedded value", "required": [r"book value|embedded value"], "forbidden": [r"FCF yield", r"operating cash flow (fell|rose|grew|declined)"]},
+    "insurance_broker": {"frame": "fee-based", "required": [r"organic growth"], "forbidden": [r"combined ratio"]},
+    "lender_bank": {"frame": "balance-sheet driven",
+                    "required": [r"net interest margin|\bNIM\b", r"non-?performing|\bNPL\b", r"CET1|tier 1|leverage ratio", r"tangible book|P/TBV|ROTE"],
+                    "forbidden": [r"EV/EBITDA", r"FCF yield", r"operating cash flow (fell|rose|grew|declined)"]},
+    "asset_manager": {"frame": "AUM fees", "required": [r"\bAUM\b|assets under management"], "forbidden": [r"operating cash flow (fell|rose|grew|declined)"]},
+    "exchange_marketplace": {"frame": "two-sided platform", "required": [r"take rate|GMV|volume"], "forbidden": []},
+    "holding_conglomerate": {"frame": "sum of parts", "required": [r"look-through|sum[- ]of[- ]the[- ]parts|SOTP|book value"], "forbidden": []},
+    "reit_property": {"frame": "asset yield", "required": [r"\bFFO\b|AFFO|\bNAV\b"], "forbidden": [r"\bP/E\b"]},
+    "regulated_utility_infra": {"frame": "allowed return", "required": [r"rate base|allowed return|regulat"], "forbidden": []},
+    "resource_commodity": {"frame": "price-taker", "required": [r"spot price|realized price|AISC|reserve life"], "forbidden": [r"trailing (peak )?margins? (are|is) durable"]},
+    "royalty_streaming": {"frame": "asset-light price exposure", "required": [r"attributable|ounces|royalt"], "forbidden": []},
+    "biotech_pharma_binary": {"frame": "event-driven", "required": [r"pipeline|approval|Phase [123]"], "forbidden": []},
+    "homebuilder_cyclical": {"frame": "land/cycle", "required": [r"backlog|book value|land"], "forbidden": []},
+    "distributor_wholesale": {"frame": "working capital", "required": [r"inventory turn|gross margin"], "forbidden": []},
+    "consumer_brand": {"frame": "brand-led", "required": [r"pricing power|volume"], "forbidden": []},
+    "unknown": {"frame": "operating_product by default", "required": [], "forbidden": []},
+}
+
+SIC_HINTS = {"6331": "insurer_pc", "6311": "insurer_life", "6321": "insurer_life", "6411": "insurance_broker",
+             "602": "lender_bank", "603": "lender_bank", "6141": "lender_bank", "6798": "reit_property",
+             "1311": "resource_commodity", "1040": "resource_commodity", "1000": "resource_commodity",
+             "2834": "biotech_pharma_binary", "2836": "biotech_pharma_binary", "1531": "homebuilder_cyclical",
+             "5000": "distributor_wholesale", "5010": "distributor_wholesale", "6211": "asset_manager", "6282": "asset_manager",
+             "4911": "regulated_utility_infra", "6770": "unknown", "7372": "software_subscription", "7370": "software_subscription"}
+XBRL_HINTS = {"insurer_pc": ["UnearnedPremiums", "PremiumsEarnedNet", "LiabilityForClaimsAndClaimsAdjustmentExpense"],
+              "lender_bank": ["LoansAndLeasesReceivableNetReportedAmount", "InterestAndDividendIncomeOperating", "DepositsTotal"],
+              "reit_property": ["RealEstateInvestmentPropertyNet"]}
+FINANCIAL = {"insurer_pc", "insurer_life", "lender_bank"}
+
+
+def deterministic_evidence(sic, xbrl_latest, industry):
+    ev = {}
+    sic = str(sic or "")
+    for prefix, label in SIC_HINTS.items():
+        if sic.startswith(prefix):
+            ev.setdefault(label, []).append(f"SIC {sic}")
+            break
+    for label, facts in XBRL_HINTS.items():
+        for f in facts:
+            if (xbrl_latest or {}).get(f):
+                ev.setdefault(label, []).append(f"xbrl:{f}")
+    ind = (industry or "").lower()
+    if "property & casualty" in ind or "specialty" in ind and "insur" in ind:
+        ev.setdefault("insurer_pc", []).append(f"industry:{industry}")
+    return ev
+
+
+def combine(jev_probs, evidence):
+    labels = []
+    for label in LABELS:
+        if label == "unknown":
+            continue
+        p = float(jev_probs.get(label, 0.0))
+        ev = [f"jev {p:.2f}"] if p else []
+        if evidence.get(label):
+            p = max(p, FACT_P)
+            ev += evidence[label]
+        elif label in FINANCIAL and p >= 0.6 and evidence and label not in evidence:
+            p, ev = min(p, CONFLICT_CAP), ev + ["conflict: no supporting SIC/XBRL fact"]
+        if p >= MIXED_MIN:
+            labels.append({"label": label, "p": round(p, 2), "evidence": ev})
+    labels.sort(key=lambda l: -l["p"])
+    primary = labels[0]["label"] if labels else "operating_product"
+    return {"primary": primary if labels and labels[0]["p"] >= KNOWN_MIN else "operating_product",
+            "labels": labels, "mixed": len(labels) >= 2, "unknown": not labels or labels[0]["p"] < KNOWN_MIN}

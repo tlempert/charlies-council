@@ -228,6 +228,21 @@ def run_checks(d):
                     else:
                         add("FAIL", "trigger_echo_claim", "memo claims council agreement on value while most triggers are one E÷r calculation")
                     break
+
+    # 7. pass-through blocks: present verbatim or declared absent (NXPI 2026-08-21, registry F14)
+    for block in ("FORENSIC BLOCK", "BUYBACK ANALYSIS", "WORKING CAPITAL", "LATEST QUARTER", "CASH CONVERSION"):
+        if re.search(rf"--- .*{re.escape(block)}", dossier) or re.search(rf"{re.escape(block)}: not present", dossier, re.I):
+            add("OK", f"passthrough:{block}", "present or declared absent")
+        else:
+            add("FAIL", f"passthrough:{block}", "neither passed through nor declared 'not present in the raw dossier'")
+
+    # 8. every expert engaged by name in the prose (KNSL 2026-09-17: three reports on the moat's other sides went unread)
+    prose = re.sub(r"```.*?```", "", verdict, flags=re.S)
+    names = {"jeff_bezos": r"bezos", "warren_buffett": r"buffett", "michael_burry": r"burry", "tim_cook": r"\bcook\b",
+             "steve_jobs": r"\bjobs\b", "psychologist": r"psychologist", "sherlock": r"sherlock", "futurist": r"futurist",
+             "biologist": r"biologist", "historian": r"historian", "anthropologist": r"anthropologist", "lynch": r"lynch"}
+    silent = [k for k, pat in names.items() if not re.search(pat, prose, re.I)]
+    add("WARN" if silent else "OK", "expert_engagement", f"never named in the prose: {silent}" if silent else "all 12 experts engaged")
     return results
 
 

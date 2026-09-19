@@ -237,6 +237,9 @@ DOSSIER = ("CURRENT PRICE: $292.79\n| 2025 | $1.94B | 8.2% | $2.34B | 413M |\n"
            "FY2026 guidance: ending ARR growth 10.2%\n| TTM | 54.2% | 28.7% | $7.23B | $10.28B | $7.69B |\n"
            "P/E Ratio | 16.8x | ... | 24.6x |\n")
 
+PASSTHROUGH_BLOCKS = ("--- FORENSIC BLOCK ---\n--- BUYBACK ANALYSIS ---\n--- WORKING CAPITAL ---\n"
+                       "--- LATEST QUARTER (8-K Ex.99.1 filed 2026-06-12) ---\n--- CASH CONVERSION ---\n")
+
 TALLY = {"BUY": 3, "HOLD": 6, "PASS": 2, "SELL": 1}
 
 
@@ -277,7 +280,7 @@ def _run(tmp_path, ledger, prose="Prose.", summaries=SUMMARIES, dossier=DOSSIER)
 
 class TestPregate:
     def test_clean_draft_passes(self, tmp_path):
-        status, _ = _run(tmp_path, _ledger())
+        status, _ = _run(tmp_path, _ledger(), dossier=DOSSIER + PASSTHROUGH_BLOCKS)
         assert "FAIL" not in status.values(), status
 
     def test_missing_ledger_fails(self, tmp_path):
@@ -360,6 +363,24 @@ class TestPregateRequiredGrowth:
         led["required_growth"]["rows"][0]["required_eps"] = 31.44 * 1.05  # 15x row
         status, _ = _run(tmp_path, led)
         assert status["required_growth:15x"] == "FAIL"
+
+
+class TestPregatePassthroughAndEngagement:
+    BLOCKS = "--- FORENSIC BLOCK ---\n--- BUYBACK ANALYSIS ---\n--- WORKING CAPITAL ---\n--- LATEST QUARTER (8-K Ex.99.1 filed 2026-06-12) ---\n--- CASH CONVERSION ---\n"
+
+    def test_a_missing_passthrough_block_fails(self, tmp_path):
+        status, _ = _run(tmp_path, _ledger(), dossier=DOSSIER + self.BLOCKS.replace("--- CASH CONVERSION ---\n", ""))
+        assert status["passthrough:CASH CONVERSION"] == "FAIL"
+
+    def test_a_declared_absent_block_passes(self, tmp_path):
+        status, _ = _run(tmp_path, _ledger(), dossier=DOSSIER + self.BLOCKS.replace("--- CASH CONVERSION ---", "CASH CONVERSION: not present in the raw dossier"))
+        assert status["passthrough:CASH CONVERSION"] == "OK"
+
+    def test_an_expert_never_engaged_is_warned(self, tmp_path):
+        prose = "Bezos, Buffett, Burry, Cook, Jobs, the Psychologist, Sherlock, the Futurist, the Biologist, the Historian and the Anthropologist agree."
+        status, results = _run(tmp_path, _ledger(), prose=prose)
+        assert status["expert_engagement"] == "WARN"
+        assert "lynch" in [d for s, n, d in results if n == "expert_engagement"][0]
 
 
 # --- council_manifest.py timestamps -------------------------------------------

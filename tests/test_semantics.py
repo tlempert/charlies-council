@@ -188,3 +188,21 @@ class TestSizingCheck:
         led = dict(LEDGER, position_pct="a lot")
         st = _statuses(sem.sizing_check("Verdict: BUY.", led))
         assert st["sizing:position_unreadable"] == "FAIL"
+
+
+class TestTypeMetricCheck:
+    KNSL_TYPE = {"primary": "insurer_pc", "labels": [{"label": "insurer_pc", "p": 0.97}]}
+
+    def test_insurer_memo_without_pb_and_roe_is_warned(self):
+        text = "Combined ratio 75.9%. Reserve development 4.3 points. Operating cash flow fell 10.1% while revenue rose."
+        st = _statuses(sem.type_metric_check(text, LEDGER, self.KNSL_TYPE))
+        assert st["type:insurer_pc:missing:price-to-book"] == "WARN"
+        assert st["type:insurer_pc:forbidden:operating cash flow"] == "WARN"
+
+    def test_low_confidence_label_is_ignored(self):
+        assert sem.type_metric_check("anything", LEDGER, {"primary": "insurer_pc", "labels": [{"label": "insurer_pc", "p": 0.5}]}) == []
+
+    def test_strict_mode_fails(self, monkeypatch):
+        monkeypatch.setenv("TYPE_RULES_MODE", "strict")
+        st = _statuses(sem.type_metric_check("nothing", LEDGER, self.KNSL_TYPE))
+        assert "FAIL" in st.values()

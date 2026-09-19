@@ -44,6 +44,14 @@ def run_checks(d, target_name="verdict.md"):
         return [("INFO", "ledger", "no model_ledger in verdict.md — semantic checks that need it are skipped")]
     for name, fn in CHECKS:
         results.extend((emit(s), n, det) for s, n, det in fn(text, ledger))
+    ct_path = os.path.join(d, "company_type.json")
+    if os.path.exists(ct_path):
+        try:
+            company_type = json.load(open(ct_path, encoding="utf-8"))
+        except (OSError, json.JSONDecodeError):
+            company_type = None
+        if company_type:
+            results.extend(type_metric_check(text, ledger, company_type))
     return results or [("OK", "semantics", "no checks registered")]
 
 
@@ -292,6 +300,36 @@ def sizing_check(text, ledger):
 
 
 CHECKS.append(("sizing", sizing_check))
+
+
+# --- company-type metric frame (shadow until the taxonomy gate) ----------------
+def type_metric_check(text, ledger, company_type=None):
+    if not company_type:
+        return []
+    from modules.company_types import LABELS
+    status = "FAIL" if os.environ.get("TYPE_RULES_MODE", "warn") == "strict" else "WARN"
+    out = []
+    checked = False
+    for lab in company_type.get("labels", []):
+        if lab["p"] < 0.7 or lab["label"] not in LABELS:
+            continue
+        checked = True
+        rules = LABELS[lab["label"]]
+        for pat in rules["required"]:
+            key = pat.split("|")[0].replace("\\b", "").replace("[- ]", "-").strip()
+            if not re.search(pat, text, re.I):
+                out.append((status, f"type:{lab['label']}:missing:{key}", f"a {lab['label']} memo without {key}"))
+        for pat in rules["forbidden"]:
+            key = pat.split(" (")[0].split("|")[0].replace("\\b", "").strip()
+            for sent in _sentences(text):
+                if re.search(pat, sent, re.I):
+                    out.append((status, f"type:{lab['label']}:forbidden:{key}", f"«{sent[:140]}»"))
+                    break
+    if out:
+        return out
+    if checked:
+        return [("OK", "type_metrics", f"frame for {company_type.get('primary')} present")]
+    return []
 
 
 if __name__ == "__main__":

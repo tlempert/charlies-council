@@ -280,3 +280,23 @@ class TestContradictions:
         contra.check(client, str(tmp_path), memo_name="memo.md", out_name="jev_contradictions.memo.md")
         assert (tmp_path / "jev_contradictions.memo.md").exists()
         assert not (tmp_path / "jev_contradictions.md").exists()
+
+
+# --- jev_findings -----------------------------------------------------------
+
+jf = _load("jev_findings")
+
+
+class TestFindings:
+    F = [{"severity": "FATAL", "prose_only": False, "name": "Reserve risk charged twice", "body": "Operation: charge it once."},
+         {"severity": "MODERATE", "prose_only": True, "name": "Terminal price label", "body": "Operation: relabel the column."}]
+
+    def test_classes_are_attached_from_jev(self):
+        a1 = _answer({"wording_only": 0.1, "prescribes_value": 0.05}, {"resolution": ("addressed", 0.9)})
+        a2 = _answer({"wording_only": 0.9, "prescribes_value": 0.05}, {"resolution": ("unaddressed", 0.8)})
+        out = jf.run(self.F, "B — removed the IBNR haircut from the multiple", "verdict", _fake_ask([a1, a2]), workers=1)
+        assert out[0]["resolution"] == "addressed" and out[1]["wording_only"] == 0.9
+
+    def test_values_in_the_operation_clause_are_struck(self):
+        body = "Quote: 'at 17x'. Operation: use an 18x–20x band and a $306 ceiling."
+        assert jf.strip_values(body) == "Quote: 'at 17x'. Operation: use an [value struck]–[value struck] band and a [value struck] ceiling."

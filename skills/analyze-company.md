@@ -179,7 +179,7 @@ CX=/Applications/ChatGPT.app/Contents/Resources/codex; D=/tmp/silicon_council/{T
 
 **Fallback** (`CODEX_OK=1`, or `narrative_brief.md` empty): read `dossier_narrative.md` directly with the Read tool, paginated. Tell the user.
 
-**3c — Refine (Claude, this session):** Read `dossier_blocks.md` in full, `narrative_brief.md`, and `forensic_brief.md` (or `raw_forensic.txt` if Step 2.5 was skipped). Write the refined dossier per refine-dossier.md. Strip the pipeline's own `📝 VERDICT:` label from the VALUATION ANCHORS block when you copy it — the numbers pass through verbatim, the label is a conclusion and violates Step 3.4.
+**3c — Refine (Claude, this session):** Read `dossier_blocks.md` in full, `narrative_brief.md`, and `forensic_brief.md` (or `raw_forensic.txt` if Step 2.5 was skipped). Write the refined dossier per refine-dossier.md. Strip the pipeline's own `📝 VERDICT:` label from the VALUATION ANCHORS block when you copy it — the numbers pass through verbatim, the label is a conclusion and violates Step 3.4. Read the `MOAT TYPES:` line from the refined dossier — Step 3.5 needs it.
 
 ### Step 3.4: DOSSIER NEUTRALITY CHECK (do this before Step 3.5)
 
@@ -209,7 +209,9 @@ Strip or rewrite each section and paragraph it lists, then re-run. Proceed when 
 
 Record the checkpoint: `./venv/bin/python3 scripts/council_manifest.py step {TICKER} threats started`
 
-Read the `MOAT TYPES:` line from the refined dossier. Then execute three layers of threat queries to surface non-obvious risks the experts would otherwise miss.
+Execute three layers of threat queries to surface non-obvious risks the experts would otherwise miss.
+
+**Overlap with Step 3.4.** Write the 3.5a–c queries and run 3.5d–e as **one foreground Bash call** immediately, then do the 3.4 neutrality loop while it runs; 3.5f (append) happens after both finish. In a headless run the Bash call is foreground with a 600000 ms timeout, as Step 4 already requires; the neutrality loop's Jev call runs in the same turn after it returns, so the overlap is between the Tavily/Codex leg and this session's own re-read and edit of the dossier, not two Bash calls running at once.
 
 **3.5a — Static template queries (LLM-adapted):**
 
@@ -350,10 +352,12 @@ cd /Users/tallempert/src-tal/investor && ./venv/bin/python3 scripts/council_mani
 
 A non-zero exit means `refined_dossier.md` changed since it was hashed: stop, re-run `council_manifest.py evidence {TICKER}` only if the change was deliberate, and restart the step.
 
+The dossier comes first in the piped prompt below, before the persona and the tail, so all six calls share it as a common prefix — the effect on the Codex CLI's prompt cache is expected, not measured.
+
 Then launch all six in one call. Run this batch in the foreground with a 600000 ms timeout, not as a background task: in a headless run, a turn that ends while a background task is outstanding ends the session.
 
 ```bash
-CX=/Applications/ChatGPT.app/Contents/Resources/codex; D=/tmp/silicon_council/{TICKER}; E=/Users/tallempert/src-tal/investor/skills/experts; for x in bezos:jeff_bezos buffett:warren_buffett burry:michael_burry cook:tim_cook jobs:steve_jobs psychologist:psychologist; do f=${x%%:*}; k=${x##*:}; { echo "You are analyzing {TICKER} for the Silicon Council."; echo; cat $E/$f.md; echo; echo "## DOSSIER DATA:"; cat $D/refined_dossier.md; echo; cat $D/expert_tail.txt; } | $CX exec - -m gpt-5.6-sol -c model_reasoning_effort=high --sandbox read-only --skip-git-repo-check --output-last-message $D/$k.md >$D/$k.log 2>&1 & done; wait; wc -c $D/jeff_bezos.md $D/warren_buffett.md $D/michael_burry.md $D/tim_cook.md $D/steve_jobs.md $D/psychologist.md
+CX=/Applications/ChatGPT.app/Contents/Resources/codex; D=/tmp/silicon_council/{TICKER}; E=/Users/tallempert/src-tal/investor/skills/experts; for x in bezos:jeff_bezos buffett:warren_buffett burry:michael_burry cook:tim_cook jobs:steve_jobs psychologist:psychologist; do f=${x%%:*}; k=${x##*:}; { echo "You are analyzing {TICKER} for the Silicon Council."; echo "## DOSSIER DATA:"; cat $D/refined_dossier.md; echo; cat $E/$f.md; echo; cat $D/expert_tail.txt; } | $CX exec - -m gpt-5.6-sol -c model_reasoning_effort=high --sandbox read-only --skip-git-repo-check --output-last-message $D/$k.md >$D/$k.log 2>&1 & done; wait; wc -c $D/jeff_bezos.md $D/warren_buffett.md $D/michael_burry.md $D/tim_cook.md $D/steve_jobs.md $D/psychologist.md
 ```
 
 **Group B — Claude subagents (6).** Launch all six in a SINGLE message using the Agent tool, each with `model: "sonnet"` and `run_in_background: true`:

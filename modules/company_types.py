@@ -47,10 +47,12 @@ FINANCIAL = {"insurer_pc", "insurer_life", "lender_bank"}
 def deterministic_evidence(sic, xbrl_latest, industry):
     ev = {}
     sic = str(sic or "")
-    for prefix, label in SIC_HINTS.items():
-        if sic.startswith(prefix):
-            ev.setdefault(label, []).append(f"SIC {sic}")
-            break
+    matches = [(prefix, label) for prefix, label in SIC_HINTS.items() if sic.startswith(prefix)]
+    if matches:
+        # The most specific (longest) matching prefix wins, not whichever
+        # happens to come first in SIC_HINTS' iteration order.
+        _, label = max(matches, key=lambda pl: len(pl[0]))
+        ev.setdefault(label, []).append(f"SIC {sic}")
     for label, facts in XBRL_HINTS.items():
         for f in facts:
             if (xbrl_latest or {}).get(f):
@@ -66,13 +68,22 @@ def combine(jev_probs, evidence):
     for label in LABELS:
         if label == "unknown":
             continue
-        p = float(jev_probs.get(label, 0.0))
-        ev = [f"jev {p:.2f}"] if p else []
-        if evidence.get(label):
+        orig_p = float(jev_probs.get(label, 0.0))
+        p = orig_p
+        facts = evidence.get(label) or []
+        ev = list(facts)
+        if facts:
             p = max(p, FACT_P)
-            ev += evidence[label]
-        elif label in FINANCIAL and p >= 0.6 and evidence and label not in evidence:
-            p, ev = min(p, CONFLICT_CAP), ev + ["conflict: no supporting SIC/XBRL fact"]
+        else:
+            # A conflict flag only makes sense when the evidence names some
+            # OTHER real label — a shell-company SIC that lands on "unknown"
+            # carries no information about this label and must not cap it.
+            other_labels = {l for l in evidence if l not in (label, "unknown")}
+            if label in FINANCIAL and orig_p >= 0.6 and other_labels:
+                p = min(orig_p, CONFLICT_CAP)
+                ev.append("conflict: no supporting SIC/XBRL fact")
+        if orig_p:
+            ev.append(f"jev {orig_p:.2f}")
         if p >= MIXED_MIN:
             labels.append({"label": label, "p": round(p, 2), "evidence": ev})
     labels.sort(key=lambda l: -l["p"])

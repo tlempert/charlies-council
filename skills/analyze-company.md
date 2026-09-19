@@ -49,6 +49,21 @@ Replace `{TICKER}` with the actual ticker. **The raw dossier goes to a file, nev
 
 If the DATA WARNING count is non-zero or the build errored, inform the user and stop.
 
+Cache the XBRL facts the dossier already fetched, for the shadow classifier below (a second fetch is acceptable here and is removed once T6 lands the cache in `build_initial_dossier`):
+
+```bash
+cd /Users/tallempert/src-tal/investor && D=/tmp/silicon_council/{TICKER} && ./venv/bin/python3 -c "
+import json, sys
+from modules.tools import get_cik, get_xbrl_facts, normalize_ticker
+try:
+    json.dump(get_xbrl_facts(get_cik(normalize_ticker(sys.argv[1]))) or {}, open(sys.argv[2].replace('initial_dossier.txt', 'xbrl.json'), 'w'), default=str)
+except Exception:
+    pass
+" {TICKER} $D/initial_dossier.txt
+```
+
+Then classify the company against the shadow taxonomy (Part A §3): `cd /Users/tallempert/src-tal/investor && ./venv/bin/python3 scripts/classify_company.py {TICKER}`. It's advisory; prints `TYPE: insurer_pc (0.97) mixed=no` and writes `company_type.json`. Nothing downstream branches on it (registry F40: shadow until the taxonomy gate).
+
 ### Step 2: Forensic Interrogation
 
 Record the checkpoint: `./venv/bin/python3 scripts/council_manifest.py step {TICKER} forensic started`
@@ -700,5 +715,6 @@ Display a summary:
 2. The reality check scorecard
 3. The file paths where reports were saved, including the investor memo and which leg wrote it (Codex gpt-5.6-sol or Claude sonnet) — or that Step 7 failed on both, with the validator's lines
 4. The GitHub Pages URLs: the interactive dashboard and the standalone memo page
+5. The company type Step 1 classified (`company_type.json`'s `primary`, shadow only) and the count of `type:` WARN lines in `verification.md`, so each live run leaves the evidence the taxonomy gate needs
 
 Done.

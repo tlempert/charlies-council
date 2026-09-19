@@ -340,13 +340,17 @@ The expert prompts live in `/Users/tallempert/src-tal/investor/skills/experts/`.
 | 5 | Steve Jobs | `jobs.md` | `steve_jobs` |
 | 6 | Psychologist | `psychologist.md` | `psychologist` |
 
-Write `expert_tail.txt` first (see below), then launch all six in one call:
+Write `expert_tail.txt` first (see below).
+
+First confirm the evidence pack is unchanged:
 
 ```bash
-cd /Users/tallempert/src-tal/investor && ./venv/bin/python3 scripts/council_manifest.py evidence {TICKER} --check || { echo "refined dossier changed since it was hashed — re-record and restart Step 4"; }
+cd /Users/tallempert/src-tal/investor && ./venv/bin/python3 scripts/council_manifest.py evidence {TICKER} --check
 ```
 
-Run this batch in the foreground with a 600000 ms timeout, not as a background task: in a headless run, a turn that ends while a background task is outstanding ends the session.
+A non-zero exit means `refined_dossier.md` changed since it was hashed: stop, re-run `council_manifest.py evidence {TICKER}` only if the change was deliberate, and restart the step.
+
+Then launch all six in one call. Run this batch in the foreground with a 600000 ms timeout, not as a background task: in a headless run, a turn that ends while a background task is outstanding ends the session.
 
 ```bash
 CX=/Applications/ChatGPT.app/Contents/Resources/codex; D=/tmp/silicon_council/{TICKER}; E=/Users/tallempert/src-tal/investor/skills/experts; for x in bezos:jeff_bezos buffett:warren_buffett burry:michael_burry cook:tim_cook jobs:steve_jobs psychologist:psychologist; do f=${x%%:*}; k=${x##*:}; { echo "You are analyzing {TICKER} for the Silicon Council."; echo; cat $E/$f.md; echo; echo "## DOSSIER DATA:"; cat $D/refined_dossier.md; echo; cat $D/expert_tail.txt; } | $CX exec - -m gpt-5.6-sol -c model_reasoning_effort=high --sandbox read-only --skip-git-repo-check --output-last-message $D/$k.md >$D/$k.log 2>&1 & done; wait; wc -c $D/jeff_bezos.md $D/warren_buffett.md $D/michael_burry.md $D/tim_cook.md $D/steve_jobs.md $D/psychologist.md
@@ -433,14 +437,16 @@ It writes `jev_independence.md` and prints it. The pre-gate's regex catches the 
 Record the checkpoint: `./venv/bin/python3 scripts/council_manifest.py step {TICKER} synthesis started`
 
 ```bash
-cd /Users/tallempert/src-tal/investor && ./venv/bin/python3 scripts/council_manifest.py evidence {TICKER} --check || { echo "refined dossier changed since it was hashed — re-record and restart Step 4"; }
+cd /Users/tallempert/src-tal/investor && ./venv/bin/python3 scripts/council_manifest.py evidence {TICKER} --check
 ```
+
+A non-zero exit means `refined_dossier.md` changed since it was hashed: stop, re-run `council_manifest.py evidence {TICKER}` only if the change was deliberate, and restart the step.
 
 Read `/Users/tallempert/src-tal/investor/skills/munger-synthesis.md`. Launch a **single subagent using the latest Opus model (Opus 4.7, `model: "opus"` via the Agent tool)** with `run_in_background: true`:
 - **All twelve expert reports, read in full with the Read tool**, from `/tmp/silicon_council/{TICKER}/{jeff_bezos,warren_buffett,michael_burry,tim_cook,steve_jobs,psychologist,sherlock,futurist,biologist,historian,anthropologist,lynch}.md`. `all_summaries.md` is an index of them, not a substitute: the Moat Tribunal reads the MOAT FLAG lines, the synthesis reads the reports. On KNSL the synthesis called the moat "entirely broker-side" from twelve one-line summaries while three full reports named underwriting culture, data and discipline.
 - The refined dossier and the full raw dossier (Munger needs the raw numbers)
 - `evidence_ledger.json` — every material fact must appear in your prose or under `## Evidence considered and set aside`
-- `jev_independence.md` if it exists
+- `jev_independence.md` if it exists — the count of distinct trigger bases behind the tally. A vote is not corroboration when eight experts ran one division; weigh the tally by how many ways it was reached, not by its size
 - `argument_map.md` if it exists (Phase 3) — an index of claims, conflicts and single-witness facts; cite the expert's own file, never the map
 - The Munger synthesis instructions, today's date and the ticker
 - the VIC pitch, if present (unchanged)
@@ -452,7 +458,7 @@ Read `/Users/tallempert/src-tal/investor/skills/munger-synthesis.md`. Launch a *
 
 Munger is the first and only council member to see it. Do **not** merge it into the refined dossier, and do **not** pass it to the 12 experts — their value is 12 independent reads, and a persuasive pitch shared across all of them produces 12 echoes of one argument instead.
 
-The prompt should include all expert ---SUMMARY--- blocks labeled by expert name. Add this instruction:
+The prompt names the twelve report files to Read in full and includes `all_summaries.md` as a labelled index of them, not as a substitute. Add this instruction:
 
 "IMPORTANT: Produce your synthesis immediately. Read each expert's ---SUMMARY--- block to run the Moat Tribunal before starting valuation. Emit the ```json model_ledger``` block specified in munger-synthesis.md immediately above the EXECUTIVE SUMMARY — a memo without it is rejected unread. AFTER completing your synthesis, save your FULL output to /tmp/silicon_council/{TICKER}/verdict.md using the Write tool."
 

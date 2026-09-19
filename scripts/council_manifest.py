@@ -7,6 +7,7 @@ workers succeeded, and where a failed worker goes next.
     council_manifest.py worker TICKER KEY POOL STATUS [REASON]
     council_manifest.py pending TICKER                       # keys that still need a run
     council_manifest.py status TICKER
+    council_manifest.py evidence TICKER [--check]             # record/verify refined_dossier.md's hash
 
 A crash at Step 6 restarts at Step 6, not Step 1, because every step checks
 `step` before doing work. A failed worker is re-dispatched on its own, to the
@@ -149,11 +150,22 @@ def main(argv):
         print("\n".join(pending(m)))
     elif cmd == "evidence":
         if "--check" in argv:
-            ok = check_evidence(ticker)
+            if not m.get("evidence_sha"):
+                print(f"EVIDENCE NOT RECORDED — run: council_manifest.py evidence {ticker}")
+                return 1
+            try:
+                ok = m["evidence_sha"] == evidence_sha(ticker)
+            except OSError:
+                print(f"no refined_dossier.md for {ticker}")
+                return 1
             print("EVIDENCE OK" if ok else "EVIDENCE CHANGED — refined_dossier.md differs from what the experts read")
             return 0 if ok else 1
         else:
-            print(record_evidence(ticker))
+            try:
+                print(record_evidence(ticker))
+            except OSError:
+                print(f"no refined_dossier.md for {ticker}")
+                return 1
     elif cmd == "status":
         print(json.dumps(m, indent=1))
     else:

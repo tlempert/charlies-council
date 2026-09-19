@@ -173,6 +173,60 @@ class TestManifest:
         (tmp_path / "T" / "refined_dossier.md").write_text("facts v2")
         assert not cm.check_evidence("T")
 
+    def test_evidence_check_cli_reports_changed_and_exits_1(self, tmp_path):
+        env = dict(os.environ, COUNCIL_ROOT=str(tmp_path))
+        script = os.path.join(_SCRIPTS, "council_manifest.py")
+        subprocess.run([sys.executable, script, "init", "ADBE"], env=env, check=True)
+        (tmp_path / "ADBE" / "refined_dossier.md").write_text("v1")
+        subprocess.run([sys.executable, script, "evidence", "ADBE"], env=env, check=True)
+        (tmp_path / "ADBE" / "refined_dossier.md").write_text("v2")
+        result = subprocess.run([sys.executable, script, "evidence", "ADBE", "--check"],
+                                 env=env, capture_output=True, text=True)
+        assert result.returncode == 1
+        assert "EVIDENCE CHANGED" in result.stdout
+
+    def test_evidence_check_reports_not_recorded_when_no_hash_exists(self, tmp_path, monkeypatch):
+        monkeypatch.setenv("COUNCIL_ROOT", str(tmp_path))
+        cm = _load("council_manifest")
+        cm.init("T")
+        (tmp_path / "T" / "refined_dossier.md").write_text("facts")
+        rc = cm.main(["council_manifest.py", "evidence", "T", "--check"])
+        assert rc == 1
+
+    def test_evidence_check_cli_names_not_recorded(self, tmp_path):
+        env = dict(os.environ, COUNCIL_ROOT=str(tmp_path))
+        script = os.path.join(_SCRIPTS, "council_manifest.py")
+        subprocess.run([sys.executable, script, "init", "ADBE"], env=env, check=True)
+        (tmp_path / "ADBE" / "refined_dossier.md").write_text("facts")
+        result = subprocess.run([sys.executable, script, "evidence", "ADBE", "--check"],
+                                 env=env, capture_output=True, text=True)
+        assert result.returncode == 1
+        assert "EVIDENCE NOT RECORDED" in result.stdout
+        assert "council_manifest.py evidence ADBE" in result.stdout
+
+    def test_evidence_check_reports_missing_dossier_instead_of_a_traceback(self, tmp_path):
+        env = dict(os.environ, COUNCIL_ROOT=str(tmp_path))
+        script = os.path.join(_SCRIPTS, "council_manifest.py")
+        subprocess.run([sys.executable, script, "init", "ADBE"], env=env, check=True)
+        (tmp_path / "ADBE" / "refined_dossier.md").write_text("facts")
+        subprocess.run([sys.executable, script, "evidence", "ADBE"], env=env, check=True)
+        os.remove(tmp_path / "ADBE" / "refined_dossier.md")  # deleted after hashing
+        result = subprocess.run([sys.executable, script, "evidence", "ADBE", "--check"],
+                                 env=env, capture_output=True, text=True)
+        assert result.returncode == 1
+        assert "no refined_dossier.md for ADBE" in result.stdout
+        assert "Traceback" not in result.stderr
+
+    def test_evidence_record_reports_missing_dossier_instead_of_a_traceback(self, tmp_path):
+        env = dict(os.environ, COUNCIL_ROOT=str(tmp_path))
+        script = os.path.join(_SCRIPTS, "council_manifest.py")
+        subprocess.run([sys.executable, script, "init", "ADBE"], env=env, check=True)
+        result = subprocess.run([sys.executable, script, "evidence", "ADBE"],
+                                 env=env, capture_output=True, text=True)
+        assert result.returncode == 1
+        assert "no refined_dossier.md for ADBE" in result.stdout
+        assert "Traceback" not in result.stderr
+
 
 # --- extract_dossier_blocks.py ------------------------------------------------
 
@@ -391,6 +445,25 @@ class TestPregatePassthroughAndEngagement:
         status, results = _run(tmp_path, _ledger(), prose=prose)
         assert status["expert_engagement"] == "WARN"
         assert "lynch" in [d for s, n, d in results if n == "expert_engagement"][0]
+
+    def test_a_declared_absent_block_with_a_parenthetical_passes(self, tmp_path):
+        status, _ = _run(tmp_path, _ledger(), dossier=DOSSIER + self.BLOCKS.replace(
+            "--- LATEST QUARTER (8-K Ex.99.1 filed 2026-06-12) ---",
+            "LATEST QUARTER (8-K Ex.99.1): not present in the raw dossier"))
+        assert status["passthrough:LATEST QUARTER"] == "OK"
+
+    def test_a_real_emoji_header_from_the_raw_dossier_passes(self, tmp_path):
+        status, _ = _run(tmp_path, _ledger(), dossier=RAW + self.BLOCKS.replace(
+            "--- FORENSIC BLOCK ---\n", ""))
+        assert status["passthrough:FORENSIC BLOCK"] == "OK"
+
+    def test_job_cuts_does_not_engage_jobs(self, tmp_path):
+        prose = ("Bezos, Buffett, Burry, Cook, the Psychologist, Sherlock, the Futurist, "
+                  "the Biologist, the Historian, the Anthropologist and Lynch agree the layoffs "
+                  "will cut thousands of jobs.")
+        status, results = _run(tmp_path, _ledger(), prose=prose)
+        assert status["expert_engagement"] == "WARN"
+        assert "steve_jobs" in [d for s, n, d in results if n == "expert_engagement"][0]
 
 
 # --- council_manifest.py timestamps -------------------------------------------

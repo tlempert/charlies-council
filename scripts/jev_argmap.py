@@ -74,3 +74,112 @@ def link_evidence(cs, facts):
         nums = set(c["numbers"])
         c["evidence_ids"] = [f["id"] for f in facts if nums & set(f.get("numbers", []))]
     return cs
+
+
+RELATION = {
+    "fact_conflict": "The two claims cannot both be true as statements of fact about the company",
+    "judgment_difference": "The claims agree on the facts and differ in what they make of them",
+    "compatible": "The claims are about different things or do not disagree",
+}
+
+
+def candidate_pairs(cs):
+    out = []
+    by_topic = defaultdict(list)
+    for c in cs:
+        by_topic[c["topic"]].append(c)
+    for group in by_topic.values():
+        for i, a in enumerate(group):
+            for b in group[i + 1:]:
+                if a["expert"] == b["expert"] or a["stance"] == b["stance"]:
+                    continue
+                shared_n = set(a["numbers"]) & set(b["numbers"])
+                shared_w = words(a["text"]) & words(b["text"])
+                if shared_n or len(shared_w) >= 3 or (shared_w and {"broker", "moat"} & shared_w):
+                    out.append((a, b))
+    return out
+
+
+def pair_question():
+    from typesafe_sdk import Choice
+    return {"relation": Choice(instructions="How do `claim_a` and `claim_b`, by different experts on the same topic, relate?", criteria=RELATION)}
+
+
+def judge_pair(pair, answer):
+    rel = answer.choices["relation"]
+    p = rel.probabilities.get(rel.choice, 0)
+    if rel.choice == "fact_conflict" and p >= CONFLICT_MIN:
+        return {"kind": "fact_conflict", "p": round(p, 2), "a": pair[0], "b": pair[1]}
+    if rel.choice == "judgment_difference" and p >= CONFLICT_MIN:
+        return {"kind": "judgment_difference", "p": round(p, 2), "a": pair[0], "b": pair[1]}
+    return None
+
+
+def contradictions(cs, ask, workers=WORKERS):
+    q = pair_question()
+    pairs = candidate_pairs(cs)
+    with ThreadPoolExecutor(max_workers=workers) as ex:
+        answers = list(ex.map(lambda p: ask({"claim_a": p[0]["text"], "expert_a": p[0]["expert"], "claim_b": p[1]["text"], "expert_b": p[1]["expert"]}, q), pairs))
+    return [f for f in map(judge_pair, pairs, answers) if f]
+
+
+def dependencies(cs, facts):
+    cited = defaultdict(list)
+    for c in cs:
+        if c["load_bearing"] >= 0.5:
+            for e in c["evidence_ids"]:
+                if c["expert"] not in cited[e]:
+                    cited[e].append(c["expert"])
+    material = [f["id"] for f in facts if f.get("material")]
+    return {"load_bearing_facts": {e: x for e, x in cited.items() if len(x) >= 3},
+            "single_witness_facts": {e: x[0] for e, x in cited.items() if len(x) == 1},
+            "unused_material_facts": [e for e in material if e not in cited]}
+
+
+def report(cs, findings, deps):
+    lines = ["# Argument map (Jev) — an index, not a source", ""]
+    by_topic = defaultdict(list)
+    for c in cs:
+        by_topic[c["topic"]].append(c)
+    for topic in TOPICS:
+        group = by_topic.get(topic)
+        if not group:
+            continue
+        lines += [f"## {topic}", ""]
+        for stance in ("bull", "bear", "neutral"):
+            for c in sorted((x for x in group if x["stance"] == stance), key=lambda x: -x["load_bearing"]):
+                lb = " **(load-bearing)**" if c["load_bearing"] >= 0.5 else ""
+                lines.append(f"- [{stance}] {c['expert']}{lb}: {c['text'][:200]} {' '.join(c['evidence_ids'])}")
+        lines.append("")
+    lines += ["## Contradictions", ""]
+    for f in sorted(findings, key=lambda x: (x["kind"] != "fact_conflict", -x["p"])):
+        lines += [f"- **{f['kind']}** p {f['p']}: {f['a']['expert']} — {f['a']['text'][:160]}", f"  vs {f['b']['expert']} — {f['b']['text'][:160]}"]
+    lines += ["", "## Load-bearing facts (cited by ≥ 3 experts)", ""] + [f"- {e}: {', '.join(x)}" for e, x in deps["load_bearing_facts"].items()]
+    lines += ["", "## Single-witness facts", ""] + [f"- {e}: {x}" for e, x in deps["single_witness_facts"].items()]
+    lines += ["", "## Material facts no load-bearing claim cites", ""] + [f"- {e}" for e in deps["unused_material_facts"]]
+    return "\n".join(lines) + "\n"
+
+
+def build(client, d):
+    facts = []
+    p = os.path.join(d, "evidence_ledger.json")
+    if os.path.exists(p):
+        facts = json.load(open(p, encoding="utf-8"))
+    cs = []
+    for k in EXPERTS:
+        fp = os.path.join(d, f"{k}.md")
+        if os.path.exists(fp):
+            cs += claims_for(k, open(fp, encoding="utf-8").read())
+    cs = link_evidence(classify(cs, client.system_one), facts)
+    findings = contradictions(cs, client.system_one)
+    deps = dependencies(cs, facts)
+    text = report(cs, findings, deps)
+    open(os.path.join(d, "argument_map.md"), "w", encoding="utf-8").write(text)
+    with open(os.path.join(d, "argument_map.json"), "w", encoding="utf-8") as f:
+        json.dump({"claims": cs, "contradictions": findings, "dependencies": deps}, f, indent=1)
+    conflicts = [x for x in findings if x["kind"] == "fact_conflict"]
+    print(f"argument map: {len(cs)} claims, {len(conflicts)} fact conflict(s), {len(deps['single_witness_facts'])} single-witness fact(s)")
+
+
+if __name__ == "__main__":
+    sys.exit(jev.advisory(lambda c: build(c, sys.argv[1])))

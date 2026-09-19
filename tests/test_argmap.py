@@ -43,3 +43,33 @@ class TestClaims:
         facts = [{"id": "E009", "numbers": [75.9, 2025.0], "material": True}]
         out = am.link_evidence(c, facts)
         assert any(x["evidence_ids"] == ["E009"] for x in out)
+
+
+class TestConflictsAndDependencies:
+    C = [{"expert": "lynch", "text": "The moat is entirely broker-side: brokers buy speed.", "numbers": [], "topic": "moat", "stance": "bear", "load_bearing": 0.8, "evidence_ids": []},
+         {"expert": "warren_buffett", "text": "The strongest defenses are underwriting culture, data and broker service.", "numbers": [], "topic": "moat", "stance": "bull", "load_bearing": 0.7, "evidence_ids": []},
+         {"expert": "lynch", "text": "Combined ratio 75.9% in 2025.", "numbers": [75.9, 2025.0], "topic": "unit_economics", "stance": "bull", "load_bearing": 0.9, "evidence_ids": ["E009"]},
+         {"expert": "michael_burry", "text": "Combined ratio 75.9% flatters.", "numbers": [75.9], "topic": "unit_economics", "stance": "bear", "load_bearing": 0.9, "evidence_ids": ["E009"]},
+         {"expert": "sherlock", "text": "Combined ratio 75.9% is a record.", "numbers": [75.9], "topic": "unit_economics", "stance": "bull", "load_bearing": 0.9, "evidence_ids": ["E009"]}]
+
+    def test_pairs_need_shared_words_or_numbers_across_experts(self):
+        pairs = am.candidate_pairs(self.C)
+        assert (self.C[0], self.C[1]) in pairs      # "broker" shared, different stance
+        assert (self.C[2], self.C[3]) in pairs      # 75.9 shared
+
+    def test_fact_conflict_needs_confidence(self):
+        sure = NS(choices={"relation": NS(choice="fact_conflict", probabilities={"fact_conflict": 0.8})})
+        weak = NS(choices={"relation": NS(choice="fact_conflict", probabilities={"fact_conflict": 0.5})})
+        assert am.judge_pair((self.C[0], self.C[1]), sure)["kind"] == "fact_conflict"
+        assert am.judge_pair((self.C[0], self.C[1]), weak) is None
+
+    def test_dependencies_count_witnesses_per_fact(self):
+        facts = [{"id": "E009", "material": True}, {"id": "E010", "material": True}, {"id": "E011", "material": False}]
+        d = am.dependencies(self.C, facts)
+        assert d["load_bearing_facts"]["E009"] == ["lynch", "michael_burry", "sherlock"]
+        assert d["unused_material_facts"] == ["E010"]
+
+    def test_report_lists_conflicts_and_single_witness_facts(self):
+        text = am.report(self.C, [{"kind": "fact_conflict", "p": 0.8, "a": self.C[0], "b": self.C[1]}],
+                         {"load_bearing_facts": {}, "single_witness_facts": {"E020": "lynch"}, "unused_material_facts": []})
+        assert "fact_conflict" in text and "E020" in text and "## moat" in text

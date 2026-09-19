@@ -44,6 +44,16 @@ XBRL_HINTS = {"insurer_pc": ["UnearnedPremiums", "PremiumsEarnedNet", "Liability
 FINANCIAL = {"insurer_pc", "insurer_life", "lender_bank"}
 
 
+def rule_key(pattern, forbidden=False):
+    """The human-readable name for a required/forbidden regex, shared by
+    validate_semantics.type_metric_check and classify_corpus.would_flag so
+    the two never drift into naming the same rule two different ways."""
+    key = pattern
+    if forbidden:
+        key = key.split(" (")[0]
+    return key.split("|")[0].replace("\\b", "").replace("[- ]", "-").strip()
+
+
 def deterministic_evidence(sic, xbrl_latest, industry):
     ev = {}
     sic = str(sic or "")

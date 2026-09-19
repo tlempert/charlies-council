@@ -18,6 +18,27 @@ def _load_classify_company():
     return mod
 
 
+_SCRIPTS_DIR = os.path.join(os.path.dirname(__file__), "..", "scripts")
+
+
+def _load(name):
+    spec = importlib.util.spec_from_file_location(name, os.path.join(_SCRIPTS_DIR, f"{name}.py"))
+    mod = importlib.util.module_from_spec(spec)
+    spec.loader.exec_module(mod)
+    return mod
+
+
+class TestRuleKey:
+    def test_a_required_pattern_renders_its_hyphenated_name(self):
+        assert ct.rule_key(r"price[- ]to[- ]book|P/B\b|tangible book") == "price-to-book"
+
+    def test_a_forbidden_pattern_drops_its_parenthetical(self):
+        assert ct.rule_key(r"operating cash flow (fell|rose|grew|declined|dropped)", forbidden=True) == "operating cash flow"
+
+    def test_a_forbidden_pattern_without_a_parenthetical_is_unchanged(self):
+        assert ct.rule_key(r"owner yield", forbidden=True) == "owner yield"
+
+
 class TestEvidence:
     def test_sic_and_xbrl_facts_support_an_insurer(self):
         ev = ct.deterministic_evidence("6331", {"UnearnedPremiums": 1.2e9, "PremiumsEarnedNet": 1.9e9}, "Insurance - Property & Casualty")
@@ -172,6 +193,24 @@ class TestCli:
         cc._main(client)
         assert "usage" in capsys.readouterr().out.lower()
         assert touched == []
+
+
+class TestCorpusShadow:
+    def test_compare_flags_a_financial_label_on_a_non_financial_gold(self):
+        cs = _load("classify_corpus")
+        assert cs.compare({"primary": "insurer_pc"}, {"primary": "operating_product"}) == {"agree": False, "false_financial": True}
+
+    def test_would_flag_names_forbidden_and_missing_required(self):
+        cs = _load("classify_corpus")
+        text = "Owner yield is 12.2%. Operating cash flow fell 10.1%."
+        out = cs.would_flag(text, "insurer_pc")
+        assert "forbidden:owner yield" in out and any(r.startswith("missing:combined ratio") for r in out)
+
+    def test_summary_line(self):
+        cs = _load("classify_corpus")
+        rows = [{"ticker": "KNSL", "pred": "insurer_pc", "gold": "insurer_pc", "agree": True, "false_financial": False, "flags": ["forbidden:owner yield"]},
+                {"ticker": "FAST", "pred": "operating_product", "gold": "operating_product", "agree": True, "false_financial": False, "flags": []}]
+        assert "AGREEMENT 2/2 (100%) — false financial labels 0 — memos the rules would touch 1" in cs.shadow_report(rows)
 
 
 class TestOfflineHelpers:

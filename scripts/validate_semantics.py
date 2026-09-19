@@ -306,7 +306,7 @@ CHECKS.append(("sizing", sizing_check))
 def type_metric_check(text, ledger, company_type=None):
     if not company_type:
         return []
-    from modules.company_types import LABELS
+    from modules.company_types import LABELS, rule_key
     status = "FAIL" if os.environ.get("TYPE_RULES_MODE", "warn") == "strict" else "WARN"
     out = []
     checked = False
@@ -316,11 +316,11 @@ def type_metric_check(text, ledger, company_type=None):
         checked = True
         rules = LABELS[lab["label"]]
         for pat in rules["required"]:
-            key = pat.split("|")[0].replace("\\b", "").replace("[- ]", "-").strip()
+            key = rule_key(pat)
             if not re.search(pat, text, re.I):
                 out.append((status, f"type:{lab['label']}:missing:{key}", f"a {lab['label']} memo without {key}"))
         for pat in rules["forbidden"]:
-            key = pat.split(" (")[0].split("|")[0].replace("\\b", "").strip()
+            key = rule_key(pat, forbidden=True)
             for sent in _sentences(text):
                 if re.search(pat, sent, re.I):
                     out.append((status, f"type:{lab['label']}:forbidden:{key}", f"«{sent[:140]}»"))

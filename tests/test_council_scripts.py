@@ -163,6 +163,16 @@ class TestManifest:
         out = subprocess.run([sys.executable, script, "pending", "ADBE"], env=env, capture_output=True, text=True).stdout
         assert "sherlock" in out
 
+    def test_evidence_hash_is_recorded_and_checked(self, tmp_path, monkeypatch):
+        monkeypatch.setenv("COUNCIL_ROOT", str(tmp_path))
+        cm = _load("council_manifest")
+        cm.init("T")
+        (tmp_path / "T" / "refined_dossier.md").write_text("facts v1")
+        assert cm.record_evidence("T") == cm.evidence_sha("T")
+        assert cm.check_evidence("T")
+        (tmp_path / "T" / "refined_dossier.md").write_text("facts v2")
+        assert not cm.check_evidence("T")
+
 
 # --- extract_dossier_blocks.py ------------------------------------------------
 

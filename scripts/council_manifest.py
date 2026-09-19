@@ -13,6 +13,7 @@ A crash at Step 6 restarts at Step 6, not Step 1, because every step checks
 next pool in LADDER, instead of the whole batch being re-run.
 """
 import glob
+import hashlib
 import json
 import os
 import sys
@@ -102,6 +103,24 @@ def pending(m):
     return [k for k, w in m["workers"].items() if w.get("status") != "ok"]
 
 
+def evidence_sha(ticker):
+    p = os.path.join(ROOT, ticker, "refined_dossier.md")
+    with open(p, "rb") as f:
+        return hashlib.sha256(f.read()).hexdigest()
+
+
+def record_evidence(ticker):
+    m = load(ticker)
+    m["evidence_sha"] = evidence_sha(ticker)
+    save(ticker, m)
+    return m["evidence_sha"]
+
+
+def check_evidence(ticker):
+    m = load(ticker) or {}
+    return bool(m.get("evidence_sha")) and m["evidence_sha"] == evidence_sha(ticker)
+
+
 def main(argv):
     if len(argv) < 3:
         print(__doc__)
@@ -128,6 +147,13 @@ def main(argv):
             print(f"{argv[3]}: ladder exhausted — abort, name the key")
     elif cmd == "pending":
         print("\n".join(pending(m)))
+    elif cmd == "evidence":
+        if "--check" in argv:
+            ok = check_evidence(ticker)
+            print("EVIDENCE OK" if ok else "EVIDENCE CHANGED — refined_dossier.md differs from what the experts read")
+            return 0 if ok else 1
+        else:
+            print(record_evidence(ticker))
     elif cmd == "status":
         print(json.dumps(m, indent=1))
     else:

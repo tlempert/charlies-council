@@ -170,6 +170,10 @@ class TestTheCommand:
         command = make_runner().command(ANALYSIS, "sess-1")
         assert shlex.split(command)[shlex.split(command).index("-p") + 1] == "/analyze-company ADBE"
 
+    def test_the_prompt_carries_the_explainers_flag_only_when_configured(self, make_runner):
+        assert "--explainers" in make_runner(explainers=True).command(ANALYSIS, "sess-1")
+        assert "--explainers" not in make_runner().command(ANALYSIS, "sess-1")
+
 
 class TestTheDiscoveryCommand:
     """A discovery job runs a different skill entirely, off the same queue."""

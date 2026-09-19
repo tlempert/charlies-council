@@ -41,6 +41,7 @@ class Runner(threading.Thread):
         super().__init__(daemon=True, name="council-runner")
         config = config or {}
         self.store = store
+        self.config = config
         self.claude_bin = config.get("claude_bin") or "claude"
         self.repo_root = Path(config.get("repo_root") or REPO_ROOT)
         self.max_turns = config.get("max_turns") or DEFAULT_MAX_TURNS
@@ -74,7 +75,7 @@ class Runner(threading.Thread):
 
     def command(self, job, session_id):
         """The shell line handed to `zsh -lic`."""
-        parts = [self.claude_bin, "-p", _prompt(job),
+        parts = [self.claude_bin, "-p", _prompt(job, self.config),
                  "--session-id", session_id,
                  "--output-format", "stream-json", "--verbose",
                  "--permission-mode", "bypassPermissions",
@@ -217,9 +218,10 @@ class Runner(threading.Thread):
             if (self.repo_root / "investor-reports" / f"{ticker}.html").exists() else None
 
 
-def _prompt(job):
+def _prompt(job, config=None):
     """Which skill this job is: an analysis of a ticker, or a scan for names."""
     if job.get("kind") != "discover":
-        return f"/analyze-company {job['ticker']}"
+        flag = " --explainers" if (config or {}).get("explainers") else ""
+        return f"/analyze-company {job['ticker']}{flag}"
     theme = job["ticker"]
     return "/find-candidates" if theme == store_mod.BROAD_SCAN else f"/find-candidates {theme}"

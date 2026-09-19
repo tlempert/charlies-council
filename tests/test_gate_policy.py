@@ -37,3 +37,38 @@ class TestParseFindings:
     def test_result_line_is_read(self):
         assert gp.result_line(REVIEW) == ("REJECT", 1)
         assert gp.result_line("### Result\n`PASS — 0 FATAL. 2 MAJOR, 1 MODERATE, 0 MINOR.`") == ("PASS", 0)
+
+
+class TestDecide:
+    L1 = {"verdict": "WAIT", "ceiling": 306.0, "position_pct": 0}
+
+    def _f(self, sev, res, wording=0.1):
+        return {"severity": sev, "prose_only": False, "name": "n", "body": "", "resolution": res, "resolution_p": 0.9, "wording_only": wording, "prescribes_value": 0.0}
+
+    def test_all_addressed_and_stable_ledger_passes_by_verification(self):
+        d, why = gp.decide([self._f("FATAL", "addressed")], self.L1, dict(self.L1), 0, 1, True)
+        assert d == "PASS_BY_VERIFICATION", why
+
+    def test_unaddressed_fatal_triggers_pass_2(self):
+        d, why = gp.decide([self._f("FATAL", "unaddressed")], self.L1, dict(self.L1), 0, 1, True)
+        assert d == "PREMIUM_PASS_2" and "unaddressed FATAL" in " ".join(why)
+
+    def test_wording_only_never_triggers(self):
+        d, _ = gp.decide([self._f("FATAL", "unaddressed", wording=0.9)], self.L1, dict(self.L1), 0, 1, True)
+        assert d == "PASS_BY_VERIFICATION"
+
+    def test_verdict_flip_without_attribution_triggers(self):
+        d, why = gp.decide([], self.L1, dict(self.L1, verdict="BUY", position_pct=2), 0, 1, False)
+        assert d == "PREMIUM_PASS_2" and any("flip" in w for w in why)
+
+    def test_ceiling_move_over_ten_percent_triggers(self):
+        d, _ = gp.decide([], self.L1, dict(self.L1, ceiling=345.0), 0, 1, True)
+        assert d == "PREMIUM_PASS_2"
+
+    def test_second_pass_is_the_last(self):
+        d, _ = gp.decide([self._f("FATAL", "unaddressed")], self.L1, dict(self.L1), 0, 2, True)
+        assert d == "PUBLISH_WITH_CORRECTIONS"
+
+    def test_verification_that_will_not_clear_triggers(self):
+        d, _ = gp.decide([], self.L1, dict(self.L1), gp.MAX_FIX_ROUNDS, 1, True)
+        assert d == "PREMIUM_PASS_2"

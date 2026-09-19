@@ -8,6 +8,7 @@ workers succeeded, and where a failed worker goes next.
     council_manifest.py pending TICKER                       # keys that still need a run
     council_manifest.py status TICKER
     council_manifest.py evidence TICKER [--check]             # record/verify refined_dossier.md's hash
+    council_manifest.py counter TICKER NAME VALUE             # set an integer counter, e.g. verify_fail_rounds
 
 A crash at Step 6 restarts at Step 6, not Step 1, because every step checks
 `step` before doing work. A failed worker is re-dispatched on its own, to the
@@ -74,6 +75,8 @@ def mark_step(m, name, status):
     s["status"] = status
     s["ts"] = now
     m["steps"][name] = s
+    if name in ("gate_pass1", "gate_pass2") and status == "done":
+        m["premium_passes"] = m.get("premium_passes", 0) + 1
     return s
 
 
@@ -166,6 +169,9 @@ def main(argv):
             except OSError:
                 print(f"no refined_dossier.md for {ticker}")
                 return 1
+    elif cmd == "counter":
+        m[argv[3]] = int(argv[4])
+        save(ticker, m)
     elif cmd == "status":
         print(json.dumps(m, indent=1))
     else:

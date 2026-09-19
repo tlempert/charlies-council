@@ -227,6 +227,24 @@ class TestManifest:
         assert "no refined_dossier.md for ADBE" in result.stdout
         assert "Traceback" not in result.stderr
 
+    def test_counter_sets_an_integer_field(self, manifest):
+        m = manifest.init("ADBE")
+        manifest.save("ADBE", m)
+        manifest.main(["council_manifest.py", "counter", "ADBE", "verify_fail_rounds", "2"])
+        assert manifest.load("ADBE")["verify_fail_rounds"] == 2
+
+    def test_gate_pass_marked_done_increments_premium_passes(self, manifest):
+        m = manifest.init("ADBE")
+        manifest.mark_step(m, "gate_pass1", "done")
+        assert m["premium_passes"] == 1
+        manifest.mark_step(m, "gate_pass2", "done")
+        assert m["premium_passes"] == 2
+
+    def test_marking_a_gate_pass_started_does_not_increment(self, manifest):
+        m = manifest.init("ADBE")
+        manifest.mark_step(m, "gate_pass1", "started")
+        assert m.get("premium_passes", 0) == 0
+
 
 # --- extract_dossier_blocks.py ------------------------------------------------
 

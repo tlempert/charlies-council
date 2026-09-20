@@ -111,16 +111,38 @@ class Runner(threading.Thread):
 
     def _pursue(self, job, session_id, carrying_on):
         """Run the job, then keep asking the session to carry on for as long as
-        its own manifest says the pipeline stopped short of the end."""
+        its own manifest says the pipeline stopped short of the end.
+
+        A resume that leaves the manifest exactly as it found it made no
+        progress, and a session that changes nothing will change nothing next
+        time either — so that resume is the last one, even under the limit."""
         exit_code, result_event, resumes = 0, None, 0
         if not carrying_on:
             exit_code, result_event = self._execute(job, self.command(job, session_id))
         while self._stopped_short(job, exit_code, result_event) and resumes < self.resume_limit:
+            before = self._manifest_snapshot(job["ticker"])
             resumes += 1
             self.store.record_resume(job["id"])
             exit_code, event = self._execute(job, self.resume_command(job, session_id), append=True)
             result_event = event or result_event
+            if self._manifest_snapshot(job["ticker"]) == before:
+                break
         return exit_code, result_event, resumes
+
+    @staticmethod
+    def _manifest_snapshot(ticker):
+        """The status of every step, ignoring timing — a stable fingerprint of
+        how far the manifest has gotten."""
+        manifest = progress.read_manifest(ticker)
+        recorded = (manifest or {}).get("steps") or {}
+
+        def status_of(name):
+            entry = recorded.get(name)
+            if isinstance(entry, str):
+                return entry
+            return (entry or {}).get("status")
+
+        return tuple((name, status_of(name)) for name in progress.STEP_NAMES)
 
     def _stopped_short(self, job, exit_code, result_event):
         """An analysis that ended on its own terms but never reached `assemble`.

@@ -74,6 +74,31 @@ printf '%s\n' 'RESULT_JSON'
 exit EXIT_CODE
 """
 
+#: A claude whose manifest always shows more done than the invocation before,
+#: but which never marks `assemble` done — so it never finishes and its
+#: progress never stalls either. Used to exercise resume-limit exhaustion
+#: without tripping the no-progress stop.
+PROGRESSING_CLAUDE = r"""#!/bin/sh
+COUNT=$(cat '@COUNTER@' 2>/dev/null || echo 0)
+COUNT=$((COUNT + 1))
+echo "$COUNT" > '@COUNTER@'
+echo "$@" >> '@ARGS@'
+mkdir -p '@ROOT@/ADBE'
+python3 -c "
+import json
+steps = ['dossier','forensic','condense','refine','threats','experts','synthesis','gate','memo','reports','assemble']
+count = $COUNT
+done = steps[:min(count, len(steps) - 1)]
+manifest = {'ticker': 'ADBE', 'steps': {s: {'status': 'done'} for s in done}}
+for s in steps:
+    manifest['steps'].setdefault(s, {'status': 'pending'})
+with open('@ROOT@/ADBE/manifest.json', 'w') as f:
+    json.dump(manifest, f)
+"
+printf '%s\n' 'RESULT_JSON'
+exit EXIT_CODE
+"""
+
 #: The same, but the resume hangs, so cancel has something to interrupt.
 HANGING_RESUME = r"""#!/bin/sh
 COUNT=$(cat '@COUNTER@' 2>/dev/null || echo 0)
@@ -365,14 +390,39 @@ class TestARunThatStoppedShortOfTheEnd:
 
     def test_a_pipeline_that_will_not_finish_fails_saying_where_it_stopped(
             self, make_runner, store, tmp_path):
-        runner = make_runner(fake={"body": SCRIPTED_CLAUDE, "finish_on": 99}, resume_limit=2)
+        runner = make_runner(fake={"body": PROGRESSING_CLAUDE}, resume_limit=2)
         job_id = store.enqueue("ADBE")
         runner.run_next()
         job = store.get_job(job_id)
         assert job["state"] == "failed"
-        assert job["error"] == "pipeline stopped at experts after 2 resumes"
+        assert job["error"] == "pipeline stopped at refine after 2 resumes"
         assert job["resumes"] == 2
         assert invocations(tmp_path) == 3
+
+    def test_a_resume_that_advances_the_manifest_is_allowed_to_continue(
+            self, make_runner, store, tmp_path):
+        """Progress each time means no resume is wasted, so the runner keeps
+        going up to the limit rather than stopping early."""
+        runner = make_runner(fake={"body": PROGRESSING_CLAUDE}, resume_limit=3)
+        job_id = store.enqueue("ADBE")
+        runner.run_next()
+        job = store.get_job(job_id)
+        assert job["resumes"] == 3
+        assert invocations(tmp_path) == 4
+
+    def test_two_consecutive_resumes_with_no_progress_stop_after_the_first(
+            self, make_runner, store, tmp_path):
+        """A resume that changes nothing in the manifest will change nothing
+        next time either, so the runner gives up instead of burning the rest
+        of the resume limit."""
+        runner = make_runner(fake={"body": SCRIPTED_CLAUDE, "finish_on": 99}, resume_limit=4)
+        job_id = store.enqueue("ADBE")
+        runner.run_next()
+        job = store.get_job(job_id)
+        assert job["state"] == "failed"
+        assert job["resumes"] == 1
+        assert job["error"] == "pipeline stopped at experts after 1 resume"
+        assert invocations(tmp_path) == 2
 
     def test_a_run_that_stopped_short_publishes_no_report(self, make_runner, store, repo):
         (repo / "investor-reports" / "ADBE.html").write_text("<h1>ADBE</h1>", encoding="utf-8")
@@ -382,7 +432,7 @@ class TestARunThatStoppedShortOfTheEnd:
         assert store.get_job(job_id)["report_url"] is None
 
     def test_four_resumes_is_where_the_runner_gives_up_by_default(self, make_runner, store, tmp_path):
-        runner = make_runner(fake={"body": SCRIPTED_CLAUDE, "finish_on": 99})
+        runner = make_runner(fake={"body": PROGRESSING_CLAUDE})
         store.enqueue("ADBE")
         runner.run_next()
         assert invocations(tmp_path) == 5

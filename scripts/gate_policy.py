@@ -5,6 +5,7 @@
     gate_policy.py decide    /tmp/silicon_council/TICKER   -> PASS_BY_VERIFICATION | PREMIUM_PASS_2 | PUBLISH_WITH_CORRECTIONS
     gate_policy.py snapshot  /tmp/silicon_council/TICKER   -> verdict.pass1.json, verdict.pass1.md
     gate_policy.py style-notes /tmp/silicon_council/TICKER -> style_notes.md
+    gate_policy.py majors     /tmp/silicon_council/TICKER -> count of substantive MAJORs (exit 1 if 0)
 
 ADBE 2026-09-01 ran four Opus review passes; two were the reviewer's own
 pressure being unwound. KNSL 2026-09-17 ran three, and several findings were
@@ -153,6 +154,18 @@ def style_notes_cli(d):
     return 0
 
 
+def majors_cli(d):
+    """The count of substantive MAJOR findings — wording-only ones (and
+    MODERATE/FATAL/etc.) don't count, and a MAJOR jev_findings.py never
+    classified fails closed as substantive, same as decide()'s FATAL rule.
+    Exits 1 when that count is zero, so the skill can branch on it directly:
+    `gate_policy.py majors $D && <revision path> || <straight to Step 7>`."""
+    fs = json.load(open(os.path.join(d, "findings.json"), encoding="utf-8"))
+    substantive = [f for f in fs if f["severity"] == "MAJOR" and f.get("wording_only", 0) < WORDING_MIN]
+    print(len(substantive))
+    return 0 if substantive else 1
+
+
 def decide_cli(d):
     fs = json.load(open(os.path.join(d, "findings.json"), encoding="utf-8"))
     after_text = open(os.path.join(d, "verdict.md"), encoding="utf-8").read()
@@ -175,5 +188,7 @@ if __name__ == "__main__":
         sys.exit(snapshot_cli(sys.argv[2]))
     if len(sys.argv) >= 3 and sys.argv[1] == "style-notes":
         sys.exit(style_notes_cli(sys.argv[2]))
+    if len(sys.argv) >= 3 and sys.argv[1] == "majors":
+        sys.exit(majors_cli(sys.argv[2]))
     print(__doc__)
     sys.exit(2)

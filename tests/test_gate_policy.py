@@ -191,3 +191,44 @@ class TestStyleNotesCLI:
         rc = gp.style_notes_cli(str(tmp_path))
         assert rc == 0
         assert (tmp_path / "style_notes.md").read_text() == ""
+
+
+class TestMajorsCLI:
+    """gate_policy.py majors DIR: the count of substantive MAJOR findings
+    (wording_only < WORDING_MIN, or never classified at all), printed for a
+    human and exit-coded for a shell `&&`/`||` branch in the skill."""
+
+    def _write(self, tmp_path, findings):
+        json.dump(findings, open(tmp_path / "findings.json", "w", encoding="utf-8"))
+
+    def test_counts_only_substantive_majors(self, tmp_path, capsys):
+        self._write(tmp_path, [
+            {"severity": "MAJOR", "name": "a", "body": "b", "wording_only": 0.1},
+            {"severity": "MAJOR", "name": "c", "body": "d", "wording_only": 0.9},
+            {"severity": "FATAL", "name": "e", "body": "f", "wording_only": 0.0},
+            {"severity": "MODERATE", "name": "g", "body": "h", "wording_only": 0.0},
+        ])
+        rc = gp.majors_cli(str(tmp_path))
+        assert capsys.readouterr().out.strip() == "1"
+        assert rc == 0
+
+    def test_an_unclassified_major_counts_as_substantive(self, tmp_path, capsys):
+        self._write(tmp_path, [{"severity": "MAJOR", "name": "a", "body": "b"}])
+        rc = gp.majors_cli(str(tmp_path))
+        assert capsys.readouterr().out.strip() == "1"
+        assert rc == 0
+
+    def test_zero_substantive_majors_exits_1(self, tmp_path, capsys):
+        self._write(tmp_path, [
+            {"severity": "MAJOR", "name": "a", "body": "b", "wording_only": 0.9},
+            {"severity": "FATAL", "name": "c", "body": "d", "wording_only": 0.1},
+        ])
+        rc = gp.majors_cli(str(tmp_path))
+        assert capsys.readouterr().out.strip() == "0"
+        assert rc == 1
+
+    def test_no_findings_at_all_exits_1(self, tmp_path, capsys):
+        self._write(tmp_path, [])
+        rc = gp.majors_cli(str(tmp_path))
+        assert capsys.readouterr().out.strip() == "0"
+        assert rc == 1

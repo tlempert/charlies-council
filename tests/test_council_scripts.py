@@ -1191,3 +1191,61 @@ class TestStep5RecordsSynthesisDone:
         assert "verify_verdict.py" in step5
         assert "synthesis done" in step5
         assert step5.index("verify_verdict.py") < step5.index("synthesis done")
+
+
+class TestStep6Item2RevisesOnSubstantiveMajors:
+    """A PASS with a MAJOR finding used to go straight to Step 7 even though
+    reality-check.md says a MAJOR must be fixed before publication. Item 2
+    now branches on gate_policy.py majors: zero substantive MAJORs still
+    goes straight through, but any MAJOR that survives wording-only
+    filtering earns one cheap revision, verified the same way item 5 verifies
+    a pass-2 revision."""
+
+    SKILL = os.path.join(_ROOT, "skills", "analyze-company.md")
+
+    def _step6(self):
+        text = open(self.SKILL, encoding="utf-8").read()
+        return text.split("### Step 6:", 1)[1].split("### Step 7:", 1)[0]
+
+    def _item2(self):
+        step6 = self._step6()
+        return step6.split("2. **PASS", 1)[1].split("3. **REJECT", 1)[0]
+
+    def test_item2_branches_on_gate_policy_majors(self):
+        item2 = self._item2()
+        assert "gate_policy.py majors $D" in item2
+
+    def test_the_zero_majors_path_still_goes_straight_to_step_7(self):
+        item2 = self._item2()
+        assert "style-notes" in item2
+        assert "gate done" in item2
+        assert "Step 7" in item2
+
+    def test_the_revision_path_never_instructs_a_verdict(self):
+        item2 = self._item2()
+        assert "SendMessage" in item2
+        assert "never instructing a verdict" in item2
+
+    def test_the_revision_is_verified_and_decided_like_a_pass_2_revision(self):
+        item2 = self._item2()
+        assert "verify_verdict.py" in item2
+        assert "jev_findings.py" in item2
+        assert "gate_policy.py decide" in item2
+        assert "PREMIUM_PASS_2" in item2
+        assert "PASS_BY_VERIFICATION" in item2
+
+    def test_the_two_paths_are_unambiguous(self):
+        item2 = self._item2()
+        assert "&&" in item2 and "||" in item2
+
+
+class TestGatePolicyMajorsSubcommand:
+    """scripts/gate_policy.py gains a `majors DIR` subcommand for Step 6
+    item 2's branch."""
+
+    SCRIPT = os.path.join(_ROOT, "scripts", "gate_policy.py")
+
+    def test_majors_is_documented_and_wired_into_the_cli(self):
+        text = open(self.SCRIPT, encoding="utf-8").read()
+        assert "majors" in text
+        assert '"majors"' in text

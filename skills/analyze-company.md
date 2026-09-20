@@ -509,6 +509,8 @@ cd /Users/tallempert/src-tal/investor && ./venv/bin/python3 scripts/verify_verdi
 
 It runs the pre-gate (ledger sourcing, geometry, tally, required-growth arithmetic, trigger echo), the semantic checks (formula prose, table labels, units, argument weights vs scenario weights, sizing basis — WARN while `SEMANTICS_MODE=warn`), and, concurrently and advisory, the evidence-tier and internal-consistency readers. Everything lands in `verification.md`. **If it prints `VERIFY: FAIL`, send the FAIL lines to the Munger agent via SendMessage and have it fix those items; re-run; at most three rounds.** Pass `verification.md` to the Reality Check as its starting list. (registry F16–F19: seven of ADBE's ten FATAL findings were mechanical.) On ADBE, "[MEDIA] reportedly" becoming "legally required since the consent decree" cost ~$100/share and was found on pass 3; this exists so it is on the table before pass 1.
 
+Record the checkpoint: `./venv/bin/python3 scripts/council_manifest.py step {TICKER} synthesis done` once the bundle prints `VERIFY: PASS` (or after the third fix round).
+
 ### Step 6: Reality Check GATE (runs ALONE and FIRST)
 
 Record the checkpoint: `./venv/bin/python3 scripts/council_manifest.py step {TICKER} gate started`

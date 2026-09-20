@@ -1134,3 +1134,21 @@ class TestExpertsFullFileReplacesTwelveIndividualReads:
     def test_step_6_item_1_names_experts_full_for_the_reviewer(self):
         step6 = self._step6()
         assert "experts_full.md" in step6
+
+
+class TestStep5RecordsSynthesisDone:
+    """Step 5 recorded `synthesis started` but never `synthesis done`, so a
+    resumed or watching orchestrator could not tell the step had finished
+    until the whole pipeline ended."""
+
+    SKILL = os.path.join(_ROOT, "skills", "analyze-company.md")
+
+    def _step5(self):
+        text = open(self.SKILL, encoding="utf-8").read()
+        return text.split("### Step 5:", 1)[1].split("### Step 6:", 1)[0]
+
+    def test_synthesis_done_is_recorded_after_verify_verdict(self):
+        step5 = self._step5()
+        assert "verify_verdict.py" in step5
+        assert "synthesis done" in step5
+        assert step5.index("verify_verdict.py") < step5.index("synthesis done")

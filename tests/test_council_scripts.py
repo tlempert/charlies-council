@@ -1136,6 +1136,45 @@ class TestExpertsFullFileReplacesTwelveIndividualReads:
         assert "experts_full.md" in step6
 
 
+class TestStep6BuildsOneGateBundleForTheReviewer:
+    """Step 6 item 1 used to hand the Reality Check five separate files by
+    name; one `gate_bundle.md` concatenation lets it Read them in one call."""
+
+    SKILL = os.path.join(_ROOT, "skills", "analyze-company.md")
+
+    def _step6(self):
+        text = open(self.SKILL, encoding="utf-8").read()
+        return text.split("### Step 6:", 1)[1].split("### Step 7:", 1)[0]
+
+    def test_gate_bundle_is_written_before_launching_the_reality_check(self):
+        step6 = self._step6()
+        item1 = step6.split("1. **Pass 1.**", 1)[1]
+        assert "gate_bundle.md" in item1
+        assert item1.index("gate_bundle.md") < item1.index("Launch the Reality Check (Opus) with:")
+
+    def test_the_bundle_concatenates_the_expected_files_with_guards(self):
+        step6 = self._step6()
+        bundle_cmd = step6.split("```bash", 1)[1].split("```", 1)[0]
+        for name in ("verification.md", "argument_map.md", "all_summaries.md"):
+            assert name in bundle_cmd
+        assert "[ -f" in bundle_cmd
+        assert ": >" in bundle_cmd
+        assert "=== FILE:" in bundle_cmd
+
+    def test_the_reviewer_input_sentence_names_verdict_bundle_and_experts_full(self):
+        step6 = self._step6()
+        item1 = step6.split("1. **Pass 1.**", 1)[1].split("2. **PASS", 1)[0]
+        assert "verdict.md" in item1
+        assert "gate_bundle.md" in item1
+        assert "experts_full.md" in item1
+        assert "every known data-quality defect" in item1
+        assert "strongest available counter-argument" in item1
+
+    def test_the_f21_adbe_needle_survives(self):
+        step6 = self._step6()
+        assert 'on ADBE pass 3 found its own "18x–20x band" copied into the memo verbatim' in step6
+
+
 class TestStep5RecordsSynthesisDone:
     """Step 5 recorded `synthesis started` but never `synthesis done`, so a
     resumed or watching orchestrator could not tell the step had finished

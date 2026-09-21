@@ -208,7 +208,11 @@ CX=/Applications/ChatGPT.app/Contents/Resources/codex; D=/tmp/silicon_council/{T
 
 **Fallback** (`CODEX_OK=1`, or `narrative_brief.md` empty): read `dossier_narrative.md` directly with the Read tool, paginated. Tell the user.
 
-**3c — Refine (Claude, this session):** Read `dossier_blocks.md` in full, `narrative_brief.md`, and `forensic_brief.md` (or `raw_forensic.txt` if Step 2.5 was skipped). Write the refined dossier per refine-dossier.md. Strip the pipeline's own `📝 VERDICT:` label from the VALUATION ANCHORS block when you copy it — the numbers pass through verbatim, the label is a conclusion and violates Step 3.4. Read the `MOAT TYPES:` line from the refined dossier — Step 3.5 needs it.
+**3c — Refine (Sonnet subagent, foreground):** launch ONE subagent (Agent tool, `model: "sonnet"`, `run_in_background: false`) with this prompt:
+
+"Read `/Users/tallempert/src-tal/investor/skills/refine-dossier.md`, then read `dossier_blocks.md` in full, `narrative_brief.md` (or `dossier_narrative.md` if `narrative_brief.md` is absent), and `forensic_brief.md` (or `raw_forensic.txt` if Step 2.5 was skipped), all from `/tmp/silicon_council/{TICKER}/`. Write the refined dossier to `/tmp/silicon_council/{TICKER}/refined_dossier.md` per refine-dossier.md, including the STEP 0 net-income cross-check — that needs one Tavily search, which you may run with `cd /Users/tallempert/src-tal/investor && ./venv/bin/python3 -c` using `modules.config.tavily`. Strip the pipeline's own `📝 VERDICT:` label from the VALUATION ANCHORS block when you copy it — the numbers pass through verbatim, the label is a conclusion and violates Step 3.4. Before writing, run refine-dossier.md's own Step 3.4 self-check on your draft and fix anything it flags. Report back only the byte count of the file you wrote and the `MOAT TYPES:` line."
+
+Note the reported `MOAT TYPES:` line for Step 3.5, then continue to Step 3.4 below — the neutrality pass re-reads the file the subagent wrote.
 
 Record the checkpoint: `./venv/bin/python3 scripts/council_manifest.py step {TICKER} refine done`
 

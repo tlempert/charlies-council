@@ -1259,3 +1259,57 @@ class TestGatePolicyMajorsSubcommand:
         text = open(self.SCRIPT, encoding="utf-8").read()
         assert "majors" in text
         assert '"majors"' in text
+
+
+class TestStep3cIsASonnetSubagent:
+    """BF-B, 2026-09-20: the orchestrator's own context peaked at 234K tokens,
+    re-sent on ~64 turns, because Step 3c had it read ~30K tokens of dossier
+    material and write the refined dossier itself. Moving that write into a
+    backgroundless Sonnet subagent keeps the carrying off the orchestrator
+    while the judgment work (Step 3.4's neutrality pass) stays in this
+    session, on the text the subagent reports back."""
+
+    SKILL = os.path.join(_ROOT, "skills", "analyze-company.md")
+
+    def _step3(self):
+        text = open(self.SKILL, encoding="utf-8").read()
+        return text.split("### Step 3: Refine Dossier", 1)[1].split("### Step 3.4:", 1)[0]
+
+    def test_3c_launches_one_sonnet_subagent(self):
+        step3 = self._step3()
+        threec = step3.split("**3c", 1)[1]
+        assert 'model: "sonnet"' in threec
+        assert "run_in_background: false" in threec or "run_in_background: False" in threec
+
+    def test_3c_no_longer_has_the_orchestrator_write_the_dossier_in_this_session(self):
+        step3 = self._step3()
+        threec = step3.split("**3c", 1)[1]
+        assert "Claude, this session" not in threec
+
+    def test_3c_tells_the_subagent_which_files_to_read_and_write(self):
+        step3 = self._step3()
+        threec = step3.split("**3c", 1)[1]
+        assert "refine-dossier.md" in threec
+        assert "dossier_blocks.md" in threec
+        assert "narrative_brief.md" in threec
+        assert "dossier_narrative.md" in threec
+        assert "forensic_brief.md" in threec
+        assert "raw_forensic.txt" in threec
+        assert "refined_dossier.md" in threec
+
+    def test_3c_still_strips_the_verdict_label_and_keeps_the_net_income_cross_check(self):
+        step3 = self._step3()
+        threec = step3.split("**3c", 1)[1]
+        assert "📝 VERDICT:" in threec
+        assert "net-income cross-check" in threec or "net income cross-check" in threec
+
+    def test_3c_reports_back_only_the_byte_count_and_the_moat_types_line(self):
+        step3 = self._step3()
+        threec = step3.split("**3c", 1)[1]
+        assert "byte count" in threec
+        assert "MOAT TYPES:" in threec
+
+    def test_step_3_4_keeps_the_acn_registry_needle_intact(self):
+        text = open(self.SKILL, encoding="utf-8").read()
+        step34 = text.split("### Step 3.4:", 1)[1].split("### Step 3.5:", 1)[0]
+        assert 'On ACN the dossier said *"the current data favours the bull"*' in step34

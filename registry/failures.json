@@ -11,7 +11,7 @@
   "coverage": "advisory",
   "mentions": [
    {
-    "file": "skills/analyze-company.md",
+    "file": "skills/analyze-company/02-forensic.md",
     "needle": "On KSPI two experts asserted management \"never rebutted\" the Culper report"
    }
   ],
@@ -29,7 +29,7 @@
   "coverage": "prose",
   "mentions": [
    {
-    "file": "skills/analyze-company.md",
+    "file": "skills/analyze-company/02-forensic.md",
     "needle": "On ADBE the 10.2% ARR guide was a cut, and the dossier carried it as neutral"
    }
   ],
@@ -47,7 +47,7 @@
   "coverage": "prose",
   "mentions": [
    {
-    "file": "skills/analyze-company.md",
+    "file": "skills/analyze-company/02-forensic.md",
     "needle": "On ADBE, Semrush contributed ~$480M of the $27.10B ARR total, so organic growth was ~10.5%"
    },
    {
@@ -69,7 +69,7 @@
   "coverage": "script",
   "mentions": [
    {
-    "file": "skills/analyze-company.md",
+    "file": "skills/analyze-company/01-dossier.md",
     "needle": "on ADBE it took three paginated reads into the main session"
    }
   ],
@@ -87,7 +87,7 @@
   "coverage": "advisory",
   "mentions": [
    {
-    "file": "skills/analyze-company.md",
+    "file": "skills/analyze-company/03-refine.md",
     "needle": "On ACN the dossier said *\"the current data favours the bull\"*"
    }
   ],
@@ -118,7 +118,7 @@
   "coverage": "advisory",
   "mentions": [
    {
-    "file": "skills/analyze-company.md",
+    "file": "skills/analyze-company/04-threats.md",
     "needle": "On KNSL it put two threat-register entries at the top of the list (0.84 and 0.80)"
    }
   ],
@@ -339,7 +339,7 @@
   "coverage": "advisory",
   "mentions": [
    {
-    "file": "skills/analyze-company.md",
+    "file": "skills/analyze-company/06-synthesis.md",
     "needle": "On ADBE, \"[MEDIA] reportedly\" becoming \"legally required since the consent decree\" cost ~$100/share"
    },
    {
@@ -361,7 +361,7 @@
   "coverage": "prose",
   "mentions": [
    {
-    "file": "skills/analyze-company.md",
+    "file": "skills/analyze-company/07-gate.md",
     "needle": "on ADBE pass 3 found its own \"18x–20x band\" copied into the memo verbatim"
    },
    {
@@ -383,7 +383,7 @@
   "coverage": "guarded",
   "mentions": [
    {
-    "file": "skills/analyze-company.md",
+    "file": "skills/analyze-company/07-gate.md",
     "needle": "ADBE ran four passes, two of them the reviewer's own pressure being unwound"
    }
   ],
@@ -401,15 +401,15 @@
   "coverage": "guarded",
   "mentions": [
    {
-    "file": "skills/analyze-company.md",
+    "file": "skills/analyze-company/07-gate.md",
     "needle": "GTT's rewrite carried six new FATALs that only a review of the *replacement* caught"
    },
    {
-    "file": "skills/analyze-company.md",
+    "file": "skills/analyze-company/07-gate.md",
     "needle": "on GTT that the Korean antitrust remedy had been in force since Dec-2022"
    },
    {
-    "file": "skills/analyze-company.md",
+    "file": "skills/analyze-company/07-gate.md",
     "needle": "on ACN, pass 1 found 2 FATAL plus a Check 0 violation, and the corrected memo changed verdict from WAIT/0% to BUY/2%"
    }
   ],
@@ -427,7 +427,7 @@
   "coverage": "prose",
   "mentions": [
    {
-    "file": "skills/analyze-company.md",
+    "file": "skills/analyze-company/07-gate.md",
     "needle": "On ACN the instruction \"keep WAIT\" was issued and the synthesist correctly refused"
    }
   ],
@@ -445,7 +445,7 @@
   "coverage": "prose",
   "mentions": [
    {
-    "file": "skills/analyze-company.md",
+    "file": "skills/analyze-company/07-gate.md",
     "needle": "That is what happened on KSPI."
    }
   ],
@@ -670,7 +670,7 @@
   "coverage": "new",
   "mentions": [
    {
-    "file": "skills/analyze-company.md",
+    "file": "skills/analyze-company/01-dossier.md",
     "needle": "registry F40: shadow until the taxonomy gate"
    }
   ],
@@ -706,7 +706,7 @@
   "coverage": "new",
   "mentions": [
    {
-    "file": "skills/analyze-company.md",
+    "file": "skills/analyze-company/06-synthesis.md",
     "needle": "On KNSL the synthesis called the moat \"entirely broker-side\""
    }
   ],

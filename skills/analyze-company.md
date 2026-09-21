@@ -180,9 +180,9 @@ Rules:
 - Target 800-1200 words."; echo; cat $D/raw_forensic.kept.txt 2>/dev/null || cat $D/raw_forensic.txt; } | $CX exec - -m gpt-5.6-luna -c model_reasoning_effort=low --sandbox read-only --skip-git-repo-check --output-last-message $D/forensic_brief.md >$D/forensic_brief.log 2>&1; wc -c $D/forensic_brief.md
 ```
 
-Record the checkpoint: `./venv/bin/python3 scripts/council_manifest.py step {TICKER} condense done`
-
 **Fallback:** if `$CX` is missing or `forensic_brief.md` is empty (check the byte count, not the exit code), skip this step and let Step 3 read `raw_forensic.txt` directly. Tell the user the Codex leg was skipped — never continue silently with a missing brief.
+
+Record the checkpoint: `./venv/bin/python3 scripts/council_manifest.py step {TICKER} condense done`
 
 **Codex condenses; it does not decide.** It must not drop a finding for seeming unimportant — that judgment belongs to Step 3.
 

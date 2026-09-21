@@ -548,6 +548,7 @@ class TestTheSkillMarksEveryStepTwice:
     def test_the_manifest_paragraph_says_a_step_is_recorded_at_both_ends(self):
         text = open(self.SKILL, encoding="utf-8").read()
         assert "records itself twice" in text
+        assert "step {TICKER} <step-name> started" in text
 
     @pytest.mark.parametrize("name", ["dossier", "forensic", "condense", "refine",
                                        "threats", "experts", "gate", "assemble"])
@@ -558,7 +559,6 @@ class TestTheSkillMarksEveryStepTwice:
         assert started in text
         assert done in text
         assert text.index(started) < text.index(done)
-        assert "step {TICKER} <step-name> started" in text
 
     def test_assemble_records_done_after_a_cleanup_that_keeps_the_manifest(self):
         """KNSL 2026-09-17: the assembly block ended by removing the whole tmp dir,

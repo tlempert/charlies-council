@@ -83,6 +83,23 @@ class TestAFullRow:
     def test_unreached_steps_are_absent_rather_than_zero(self, run_folder):
         assert "assemble" not in metrics.compute("ADBE", JOB, RESULT_EVENT)["step_seconds"]
 
+    def test_a_step_stuck_on_started_is_timed_from_the_next_steps_own_start(self, run_folder):
+        """The orchestrator recorded `forensic started` and never `done`, but
+        `condense started` proves it finished — the inferred `done` from
+        `progress.steps` must produce a sane, non-negative, non-doubled
+        duration rather than propagating a stale or missing clock."""
+        manifest = {"steps": {
+            "dossier": {"status": "done", "started": 1000, "ts": 1060},
+            "forensic": {"status": "started", "started": 1060, "ts": 1060},
+            "condense": {"status": "started", "started": 1150, "ts": 1150},
+        }}
+        (run_folder / "manifest.json").write_text(json.dumps(manifest), encoding="utf-8")
+        step_seconds = metrics.compute("ADBE", JOB, RESULT_EVENT)["step_seconds"]
+        assert step_seconds["forensic"] == 90          # 1060 -> inferred 1150
+        assert step_seconds["dossier"] == 60
+        assert all(v >= 0 for v in step_seconds.values())
+        assert sum(step_seconds.values()) <= 1150 - JOB["started_at"]
+
 
 class TestFallbacks:
     def test_a_worker_that_moved_down_the_ladder_is_a_fallback_even_though_it_succeeded(self, run_folder):

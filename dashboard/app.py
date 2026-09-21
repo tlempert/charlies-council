@@ -141,6 +141,7 @@ ol.track li.done i { background: #1a8f4c; border-color: #1a8f4c; }
 ol.track li.started i, ol.track li.partial i { background: #b8860b; border-color: #b8860b; }
 ol.track li.failed i { background: #c0392b; border-color: #c0392b; }
 ol.track li.skipped i, ol.track li.skipped .lbl, ol.track li.skipped .t { opacity: .35; }
+ol.track li.inferred i, ol.track li.inferred .lbl, ol.track li.inferred .t { opacity: .55; }
 .experts { display: grid; grid-template-columns: repeat(6, 1fr); gap: .3rem; font-size: .75rem;
            margin: 0 0 1rem; }
 .experts span { padding: .25rem .1rem; border-radius: .3rem; text-align: center;
@@ -172,7 +173,7 @@ form.inline button { padding: .2rem .5rem; font-size: .75rem; font-weight: 500;
 .d-wait, td.running, a.running { color: #b8860b; }
 .d-hold { color: #6b7f99; }
 .d-pass, .d-sell, td.failed, a.failed { color: #c0392b; }
-td.queued, a.queued, td.cancelled, a.cancelled, td.skipped { opacity: .6; }
+td.queued, a.queued, td.cancelled, a.cancelled, td.skipped, td.inferred { opacity: .6; }
 .held::before { content: ""; display: inline-block; width: .45em; height: .45em;
                 border-radius: 50%; background: #2e9e5b; margin-right: .4em;
                 vertical-align: .12em; }
@@ -491,12 +492,22 @@ def job_page(store, job):
 def _pipeline_body(snapshot):
     """Ten checkpoints on one track, then the twelve seats, then the raw clock."""
     gate = snapshot["gate_passes"]
-    track = "".join(f'<li id="step-{e(s["name"])}" class="{e(s["status"])}"><i></i>'
+    track = "".join(f'<li id="step-{e(s["name"])}" class="{_step_class(s)}"{_step_title(s)}><i></i>'
                     f'<span class=lbl>{e(s["label"])}</span>'
                     f'<span class=t>{e(_step_time(s, gate))}</span></li>'
                     for s in snapshot["steps"])
     return ("<h2>Pipeline</h2><ol class=track>" + track + "</ol>"
             + _experts_grid(snapshot) + _timings(snapshot["steps"], gate))
+
+
+def _step_class(step):
+    """A step the orchestrator never marked done, but a later step proves
+    finished, still says `done` — `inferred` renders it subtly."""
+    return e(step["status"]) + (" inferred" if step.get("inferred") else "")
+
+
+def _step_title(step):
+    return ' title="finished inferred from the next step"' if step.get("inferred") else ""
 
 
 def _step_time(step, gate_passes):
@@ -526,7 +537,7 @@ def _expert_cell(key, worker):
 
 def _timings(steps, gate_passes):
     rows = "".join(
-        f"<tr><td>{e(s['label'])}</td><td class={e(s['status'])}>{e(s['status'])}</td>"
+        f'<tr><td>{e(s["label"])}</td><td class="{_step_class(s)}"{_step_title(s)}>{e(s["status"])}</td>'
         f"<td class=nw>{_clock(s['started'])}</td><td class=nw>{e(_step_time(s, gate_passes))}</td></tr>"
         for s in steps)
     return ("<details><summary>Timings</summary>"

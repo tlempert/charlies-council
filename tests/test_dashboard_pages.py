@@ -151,6 +151,19 @@ class TestTheJobPage:
         assert "Reports (optional)" in body
         assert "ol.track li.skipped" in body
 
+    def test_an_inferred_step_is_marked_subtly_and_a_recorded_one_is_not(
+            self, client, job_id, council_root):
+        (council_root / "ADBE" / "manifest.json").write_text(json.dumps(
+            {"ticker": "ADBE",
+             "steps": {"dossier": {"status": "done", "started": 90, "ts": 100},
+                       "forensic": {"status": "started", "started": 100, "ts": 100},
+                       "condense": {"status": "started", "started": 200, "ts": 200}}}),
+            encoding="utf-8")
+        body = client.get(f"/jobs/{job_id}")[1]
+        assert 'id="step-forensic" class="done inferred" title="finished inferred from the next step"' in body
+        assert 'id="step-dossier" class="done"' in body
+        assert "ol.track li.inferred" in body
+
     def test_the_timings_are_kept_but_folded_away(self, client, job_id):
         body = client.get(f"/jobs/{job_id}")[1]
         assert "<summary>Timings</summary>" in body

@@ -40,7 +40,7 @@ LABELS = {
 SIC_HINTS = {"6331": "insurer_pc", "6311": "insurer_life", "6321": "insurer_life", "6411": "insurance_broker",
              "602": "lender_bank", "603": "lender_bank", "6141": "lender_bank", "6798": "reit_property",
              "1311": "resource_commodity", "1040": "resource_commodity", "1000": "resource_commodity",
-             "2834": "biotech_pharma_binary", "2836": "biotech_pharma_binary", "1531": "homebuilder_cyclical",
+             "208": "consumer_brand", "204": "consumer_brand", "206": "consumer_brand", "209": "consumer_brand", "2834": "biotech_pharma_binary", "2836": "biotech_pharma_binary", "1531": "homebuilder_cyclical",
              "5000": "distributor_wholesale", "5010": "distributor_wholesale", "6211": "asset_manager", "6282": "asset_manager",
              "4911": "regulated_utility_infra", "6770": "unknown", "7372": "software_subscription", "7370": "software_subscription"}
 XBRL_HINTS = {"insurer_pc": ["UnearnedPremiums", "PremiumsEarnedNet", "LiabilityForClaimsAndClaimsAdjustmentExpense"],

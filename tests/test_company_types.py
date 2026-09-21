@@ -598,3 +598,14 @@ class TestGoldCli:
         assert "KNSL" in result.stdout
         gold = ct.load_gold(str(gold_path))
         assert gold["KNSL"]["confirmed_by"] == "tal"
+
+
+class TestConsumerStaplesSicCodes:
+    def test_beverage_and_food_sic_codes_support_consumer_brand(self):
+        for sic in ("2080", "2082", "2085", "2086", "2040", "2060", "2066", "2090"):
+            ev = ct.deterministic_evidence(sic, {}, "")
+            assert "consumer_brand" in ev and f"SIC {sic}" in ev["consumer_brand"], sic
+
+    def test_brown_forman_reaches_the_fact_floor(self):
+        out = ct.combine({"consumer_brand": 0.49}, ct.deterministic_evidence("2080", {}, ""))
+        assert out["primary"] == "consumer_brand" and not out["unknown"] and out["labels"][0]["p"] == 0.9

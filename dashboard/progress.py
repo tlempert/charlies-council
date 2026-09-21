@@ -48,7 +48,11 @@ def steps(manifest, now=None):
     """Every step with its clock: when it began, when it ended, how long it has had.
 
     A step still running is timed against `now`, so the stepper on the job page
-    counts up while the run is in it."""
+    counts up while the run is in it. The orchestrator often records `started`
+    for a step and forgets `done` once it moves on — a later step's own
+    `started` (or `ts`) is proof the earlier one finished, so a `started` step
+    followed by any recorded activity on a later step is reported as `done`,
+    `inferred: True`, finished at that later mark."""
     recorded = (manifest or {}).get("steps") or {}
     now = time.time() if now is None else now
     out = []
@@ -69,7 +73,29 @@ def steps(manifest, now=None):
             "ts": ts,
             "elapsed": _elapsed(status, started, finished, now),
         })
+    _infer_completion(out, recorded)
     return out
+
+
+def _infer_completion(out, recorded):
+    """A step recorded `started` with no `done` is reported `done` once any
+    later step shows recorded activity of its own — never the last step."""
+    for i, step in enumerate(out[:-1]):
+        if step["status"] != "started":
+            continue
+        for later in out[i + 1:]:
+            later_entry = recorded.get(later["name"])
+            if isinstance(later_entry, str):
+                later_entry = {"status": later_entry}
+            later_entry = later_entry or {}
+            mark = later_entry.get("started") or later_entry.get("ts")
+            if mark is not None:
+                step["status"] = "done"
+                step["finished"] = mark
+                step["ts"] = mark
+                step["elapsed"] = mark - step["started"] if step["started"] else None
+                step["inferred"] = True
+                break
 
 
 def _elapsed(status, started, finished, now):

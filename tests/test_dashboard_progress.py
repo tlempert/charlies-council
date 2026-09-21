@@ -84,6 +84,52 @@ class TestTheClockOnAStep:
         assert (step["started"], step["finished"], step["elapsed"]) == (None, None, None)
 
 
+class TestInferredCompletion:
+    """The orchestrator often records `started` for a step and forgets `done`
+    once it moves on. A later step's own `started` is proof the earlier one
+    finished, even though nobody said so."""
+
+    def test_a_started_step_is_inferred_done_once_the_next_step_has_started(self):
+        manifest = {"steps": {"forensic": {"status": "started", "started": 100, "ts": 100},
+                              "condense": {"status": "started", "started": 200, "ts": 200}}}
+        by_name = {s["name"]: s for s in progress.steps(manifest, now=250)}
+        forensic = by_name["forensic"]
+        assert forensic["status"] == "done"
+        assert forensic["inferred"] is True
+        assert forensic["finished"] == 200
+
+    def test_a_later_step_recorded_only_by_ts_still_proves_the_earlier_one_done(self):
+        manifest = {"steps": {"forensic": {"status": "started", "started": 100, "ts": 100},
+                              "condense": {"status": "done", "started": 200, "ts": 260}}}
+        forensic = {s["name"]: s for s in progress.steps(manifest, now=300)}["forensic"]
+        assert forensic["status"] == "done"
+        assert forensic["finished"] == 200
+
+    def test_the_last_step_is_never_inferred_done(self):
+        manifest = {"steps": {"assemble": {"status": "started", "started": 100, "ts": 100}}}
+        assemble = progress.steps(manifest, now=250)[-1]
+        assert assemble["status"] == "started"
+        assert assemble.get("inferred") is not True
+
+    def test_a_started_step_with_no_later_activity_stays_started(self):
+        manifest = {"steps": {"forensic": {"status": "started", "started": 100, "ts": 100}}}
+        forensic = {s["name"]: s for s in progress.steps(manifest, now=250)}["forensic"]
+        assert forensic["status"] == "started"
+        assert forensic.get("inferred") is not True
+
+    def test_a_step_that_already_finished_on_its_own_is_not_marked_inferred(self):
+        manifest = {"steps": {"dossier": {"status": "done", "started": 100, "ts": 160},
+                              "forensic": {"status": "started", "started": 160, "ts": 160}}}
+        dossier = {s["name"]: s for s in progress.steps(manifest, now=250)}["dossier"]
+        assert dossier.get("inferred") is not True
+
+    def test_is_complete_never_treats_an_inferred_assemble_as_finished(self):
+        manifest = {"steps": {name: {"status": "done"} for name in progress.STEP_NAMES
+                              if name != "assemble"}}
+        manifest["steps"]["assemble"] = {"status": "started", "started": 100, "ts": 100}
+        assert progress.is_complete(manifest) is False
+
+
 class TestCurrentStep:
     def test_the_current_step_is_the_first_one_not_finished(self):
         manifest = {"steps": {"dossier": {"status": "done"}, "forensic": {"status": "done"}}}

@@ -5,6 +5,7 @@ ADBE 2026-09-01: the Munger/Reality-Check loop ran four passes and five drafts,
 FATAL findings were mechanically detectable. The Codex fallback fired only on
 an empty file, so a quota-truncated worker would have entered the tribunal.
 """
+import glob
 import importlib.util
 import json
 import os
@@ -17,6 +18,18 @@ import pytest
 
 _ROOT = os.path.abspath(os.path.join(os.path.dirname(__file__), ".."))
 _SCRIPTS = os.path.join(_ROOT, "scripts")
+_STEP_DIR = os.path.join(_ROOT, "skills", "analyze-company")
+_STEP_FILES = ["01-dossier.md", "02-forensic.md", "03-refine.md", "04-threats.md",
+               "05-experts.md", "06-synthesis.md", "07-gate.md", "08-memo.md",
+               "09-assemble.md"]
+
+
+def skill_text():
+    """The skill as the orchestrator reads it across a run: the resident index
+    followed by every step file it Reads when it reaches that step."""
+    paths = [os.path.join(_ROOT, "skills", "analyze-company.md")]
+    paths += sorted(glob.glob(os.path.join(_STEP_DIR, "*.md")))
+    return "\n\n".join(open(f, encoding="utf-8").read() for f in paths)
 
 
 def _load(name):
@@ -536,24 +549,23 @@ class TestTheSkillMarksEveryStepTwice:
     """The stepper on the job page is only as honest as the skill's checkpoints:
     without a `started` mark a step has no clock until the moment it ends."""
 
-    SKILL = os.path.join(_ROOT, "skills", "analyze-company.md")
 
     def test_every_pipeline_step_records_itself_as_started_exactly_once(self):
-        text = open(self.SKILL, encoding="utf-8").read()
+        text = skill_text()
         names = ["dossier", "forensic", "condense", "refine", "threats",
                  "experts", "synthesis", "gate", "reports", "assemble"]
         counts = {n: text.count(f"council_manifest.py step {{TICKER}} {n} started") for n in names}
         assert counts == {n: 1 for n in names}
 
     def test_the_manifest_paragraph_says_a_step_is_recorded_at_both_ends(self):
-        text = open(self.SKILL, encoding="utf-8").read()
+        text = skill_text()
         assert "records itself twice" in text
         assert "step {TICKER} <step-name> started" in text
 
     @pytest.mark.parametrize("name", ["dossier", "forensic", "condense", "refine",
                                        "threats", "experts", "gate", "assemble"])
     def test_every_step_also_records_its_own_done_checkpoint(self, name):
-        text = open(self.SKILL, encoding="utf-8").read()
+        text = skill_text()
         started = f"council_manifest.py step {{TICKER}} {name} started"
         done = f"step {{TICKER}} {name} done"
         assert started in text
@@ -564,11 +576,11 @@ class TestTheSkillMarksEveryStepTwice:
         """KNSL 2026-09-17: the assembly block ended by removing the whole tmp dir,
         manifest included, and `assemble done` was never recorded — so the runner
         saw every finished run as stopped short and resumed it five times."""
-        text = open(self.SKILL, encoding="utf-8").read()
+        text = skill_text()
         done = "council_manifest.py step {TICKER} assemble done"
         assert text.count(done) == 1
         assert "shutil.rmtree(tmp" not in text
-        step8 = text.split("### Step 8: Assemble", 1)[1].split("### Step 8.5", 1)[0]
+        step8 = text.split("# Step 8 — Assemble", 1)[1].split("### Step 8.5", 1)[0]
         assert 'name == "manifest.json"' in step8
         assert step8.index("PYEOF") < step8.index(done)
 
@@ -578,16 +590,15 @@ class TestTheCodexBatchRunsInTheForeground:
     orchestrator wrote "Waiting on the Codex batch." and ended its turn, and the
     headless session ended there with the manifest stuck on `experts`."""
 
-    SKILL = os.path.join(_ROOT, "skills", "analyze-company.md")
     SENTENCE = ("Run this batch in the foreground with a 600000 ms timeout, not as a background "
                 "task: in a headless run, a turn that ends while a background task is outstanding "
                 "ends the session.")
 
     def test_the_batch_is_told_to_run_in_the_foreground_exactly_once(self):
-        assert open(self.SKILL, encoding="utf-8").read().count(self.SENTENCE) == 1
+        assert skill_text().count(self.SENTENCE) == 1
 
     def test_the_instruction_stands_immediately_before_the_batch_it_governs(self):
-        after = open(self.SKILL, encoding="utf-8").read().split(self.SENTENCE, 1)[1]
+        after = skill_text().split(self.SENTENCE, 1)[1]
         assert after.lstrip().startswith("```bash")
         assert "for x in bezos:jeff_bezos" in after.split("```", 2)[1]
 
@@ -983,12 +994,11 @@ class TestTheGateStrikesValuesBeforeItBranches:
     the memo writer a review still carrying the reviewer's own numbers (ADBE
     pass 3 found its "18x-20x band" copied in verbatim)."""
 
-    SKILL = os.path.join(_ROOT, "skills", "analyze-company.md")
 
     @property
     def step6(self):
-        text = open(self.SKILL, encoding="utf-8").read()
-        return text.split("### Step 6: Reality Check GATE", 1)[1].split("### Step 7:", 1)[0]
+        text = skill_text()
+        return text.split("# Step 6 — Reality Check GATE", 1)[1].split("# Step 7 —", 1)[0]
 
     def test_jev_findings_runs_in_item_1_before_either_branch(self):
         item1 = self.step6.split("\n2. **PASS", 1)[0]
@@ -1021,12 +1031,11 @@ class TestGateDoneIsRecordedOnEveryEndingBranch:
     """`decide` can still call for pass 2, so recording `gate done` next to it
     marked a gate finished that had not finished."""
 
-    SKILL = os.path.join(_ROOT, "skills", "analyze-company.md")
 
     @property
     def step6(self):
-        text = open(self.SKILL, encoding="utf-8").read()
-        return text.split("### Step 6: Reality Check GATE", 1)[1].split("### Step 7:", 1)[0]
+        text = skill_text()
+        return text.split("# Step 6 — Reality Check GATE", 1)[1].split("# Step 7 —", 1)[0]
 
     def test_item_4_does_not_record_the_gate_as_done(self):
         item4 = self.step6.split("\n4. **Verify", 1)[1].split("\n5. **`PASS_BY_VERIFICATION`", 1)[0]
@@ -1044,18 +1053,17 @@ class TestTheShadowEvidenceOutlivesTheRunFolder:
     """Step 8 empties /tmp/silicon_council/{TICKER}, so Step 9 reporting out of
     company_type.json and verification.md reported nothing at all."""
 
-    SKILL = os.path.join(_ROOT, "skills", "analyze-company.md")
 
     def test_step_1_notes_the_company_type_after_classifying(self):
-        text = open(self.SKILL, encoding="utf-8").read()
-        step1 = text.split("### Step 1: Build Dossier", 1)[1].split("### Step 2:", 1)[0]
+        text = skill_text()
+        step1 = text.split("# Step 1 — Build Dossier", 1)[1].split("# Step 2 —", 1)[0]
         assert "classify_company.py {TICKER}" in step1
         assert "council_manifest.py note {TICKER} company_type" in step1
         assert step1.index("classify_company.py {TICKER}") < step1.index("note {TICKER} company_type")
 
     def test_step_7_notes_the_type_warning_count_from_the_memo_bundle(self):
-        text = open(self.SKILL, encoding="utf-8").read()
-        step7 = text.split("### Step 7: Investor Memo", 1)[1].split("### Step 7b:", 1)[0]
+        text = skill_text()
+        step7 = text.split("# Step 7 — Investor Memo", 1)[1].split("### Step 7b:", 1)[0]
         assert "council_manifest.py note {TICKER} type_warns" in step7
         assert "grep -c '^- WARN .type:'" in step7
         # `grep -c || echo 0` prints "0\n0" on a zero match, because grep -c prints
@@ -1063,7 +1071,7 @@ class TestTheShadowEvidenceOutlivesTheRunFolder:
         assert '"${N:-0}"' in step7 and "|| echo 0" not in step7
 
     def test_step_9_reads_both_notes_from_the_manifest_not_the_deleted_files(self):
-        text = open(self.SKILL, encoding="utf-8").read()
+        text = skill_text()
         step9 = text.split("### Step 9: Report to User", 1)[1]
         assert "council_manifest.py status {TICKER}" in step9
         assert "notes.company_type" in step9 and "notes.type_warns" in step9
@@ -1075,11 +1083,10 @@ class TestCodexMemoGetsARetryBeforeFallingToClaude:
     Codex draft is worth a second try with the validator's own feedback
     before paying for the Claude leg."""
 
-    SKILL = os.path.join(_ROOT, "skills", "analyze-company.md")
 
     def _step7(self):
-        text = open(self.SKILL, encoding="utf-8").read()
-        return text.split("### Step 7: Investor Memo", 1)[1].split("### Step 7b:", 1)[0]
+        text = skill_text()
+        return text.split("# Step 7 — Investor Memo", 1)[1].split("### Step 7b:", 1)[0]
 
     def test_the_failed_first_draft_is_moved_aside_before_retrying(self):
         step7 = self._step7()
@@ -1103,22 +1110,21 @@ class TestExpertsFullFileReplacesTwelveIndividualReads:
     reports individually, re-sending the whole context on every call. One
     concatenated file lets both read everything with one Read call."""
 
-    SKILL = os.path.join(_ROOT, "skills", "analyze-company.md")
 
     def _text(self):
-        return open(self.SKILL, encoding="utf-8").read()
+        return skill_text()
 
     def _step4(self):
         text = self._text()
-        return text.split("### Step 4:", 1)[1].split("### Step 5:", 1)[0]
+        return text.split("# Step 4 —", 1)[1].split("# Step 5 —", 1)[0]
 
     def _step5(self):
         text = self._text()
-        return text.split("### Step 5:", 1)[1].split("### Step 6:", 1)[0]
+        return text.split("# Step 5 —", 1)[1].split("# Step 6 —", 1)[0]
 
     def _step6(self):
         text = self._text()
-        return text.split("### Step 6:", 1)[1].split("### Step 7:", 1)[0]
+        return text.split("# Step 6 —", 1)[1].split("# Step 7 —", 1)[0]
 
     def test_step_4_writes_the_concatenated_experts_file_after_all_summaries(self):
         step4 = self._step4()
@@ -1150,11 +1156,10 @@ class TestStep6BuildsOneGateBundleForTheReviewer:
     """Step 6 item 1 used to hand the Reality Check five separate files by
     name; one `gate_bundle.md` concatenation lets it Read them in one call."""
 
-    SKILL = os.path.join(_ROOT, "skills", "analyze-company.md")
 
     def _step6(self):
-        text = open(self.SKILL, encoding="utf-8").read()
-        return text.split("### Step 6:", 1)[1].split("### Step 7:", 1)[0]
+        text = skill_text()
+        return text.split("# Step 6 —", 1)[1].split("# Step 7 —", 1)[0]
 
     def test_gate_bundle_is_written_before_launching_the_reality_check(self):
         step6 = self._step6()
@@ -1190,11 +1195,10 @@ class TestStep5RecordsSynthesisDone:
     resumed or watching orchestrator could not tell the step had finished
     until the whole pipeline ended."""
 
-    SKILL = os.path.join(_ROOT, "skills", "analyze-company.md")
 
     def _step5(self):
-        text = open(self.SKILL, encoding="utf-8").read()
-        return text.split("### Step 5:", 1)[1].split("### Step 6:", 1)[0]
+        text = skill_text()
+        return text.split("# Step 5 —", 1)[1].split("# Step 6 —", 1)[0]
 
     def test_synthesis_done_is_recorded_after_verify_verdict(self):
         step5 = self._step5()
@@ -1211,11 +1215,10 @@ class TestStep6Item2RevisesOnSubstantiveMajors:
     filtering earns one cheap revision, verified the same way item 5 verifies
     a pass-2 revision."""
 
-    SKILL = os.path.join(_ROOT, "skills", "analyze-company.md")
 
     def _step6(self):
-        text = open(self.SKILL, encoding="utf-8").read()
-        return text.split("### Step 6:", 1)[1].split("### Step 7:", 1)[0]
+        text = skill_text()
+        return text.split("# Step 6 —", 1)[1].split("# Step 7 —", 1)[0]
 
     def _item2(self):
         step6 = self._step6()
@@ -1269,11 +1272,10 @@ class TestStep3cIsASonnetSubagent:
     while the judgment work (Step 3.4's neutrality pass) stays in this
     session, on the text the subagent reports back."""
 
-    SKILL = os.path.join(_ROOT, "skills", "analyze-company.md")
 
     def _step3(self):
-        text = open(self.SKILL, encoding="utf-8").read()
-        return text.split("### Step 3: Refine Dossier", 1)[1].split("### Step 3.4:", 1)[0]
+        text = skill_text()
+        return text.split("# Step 3 — Refine Dossier", 1)[1].split("### Step 3.4:", 1)[0]
 
     def test_3c_launches_one_sonnet_subagent(self):
         step3 = self._step3()
@@ -1310,8 +1312,8 @@ class TestStep3cIsASonnetSubagent:
         assert "MOAT TYPES:" in threec
 
     def test_step_3_4_keeps_the_acn_registry_needle_intact(self):
-        text = open(self.SKILL, encoding="utf-8").read()
-        step34 = text.split("### Step 3.4:", 1)[1].split("### Step 3.5:", 1)[0]
+        text = skill_text()
+        step34 = text.split("### Step 3.4:", 1)[1].split("# Step 3.5 —", 1)[0]
         assert 'On ACN the dossier said *"the current data favours the bull"*' in step34
 class TestSubagentsRunInTheForeground:
     """BF-B: subagents launched with run_in_background: true never report their
@@ -1319,35 +1321,64 @@ class TestSubagentsRunInTheForeground:
     needs are never captured, and in a headless run a turn that ends while a
     background task is outstanding ends the whole session."""
 
-    SKILL = os.path.join(_ROOT, "skills", "analyze-company.md")
 
     def test_the_skill_contains_no_backgrounded_subagent_launch(self):
-        text = open(self.SKILL, encoding="utf-8").read()
+        text = skill_text()
         assert "run_in_background: true" not in text
 
     def test_step_4_group_b_runs_in_the_foreground(self):
-        text = open(self.SKILL, encoding="utf-8").read()
-        step4 = text.split("### Step 4:", 1)[1].split("### Step 5:", 1)[0]
+        text = skill_text()
+        step4 = text.split("# Step 4 —", 1)[1].split("# Step 5 —", 1)[0]
         group_b = step4.split("**Group B", 1)[1]
         assert "run_in_background: false" in group_b.split("\n\n", 1)[0]
 
     def test_step_4_explains_why_foreground_calls_matter(self):
-        text = open(self.SKILL, encoding="utf-8").read()
-        step4 = text.split("### Step 4:", 1)[1].split("### Step 5:", 1)[0]
+        text = skill_text()
+        step4 = text.split("# Step 4 —", 1)[1].split("# Step 5 —", 1)[0]
         assert "usage in the tool result" in step4
         assert "ends a headless session" in step4
 
     def test_step_5_munger_runs_in_the_foreground(self):
-        text = open(self.SKILL, encoding="utf-8").read()
-        step5 = text.split("### Step 5:", 1)[1].split("### Step 6:", 1)[0]
+        text = skill_text()
+        step5 = text.split("# Step 5 —", 1)[1].split("# Step 6 —", 1)[0]
         assert "run_in_background: false" in step5
 
     def test_step_7_claude_leg_runs_in_the_foreground(self):
-        text = open(self.SKILL, encoding="utf-8").read()
-        step7 = text.split("### Step 7: Investor Memo", 1)[1].split("### Step 7b:", 1)[0]
+        text = skill_text()
+        step7 = text.split("# Step 7 — Investor Memo", 1)[1].split("### Step 7b:", 1)[0]
         assert "run_in_background: false" in step7
 
     def test_step_7b_explainers_run_in_the_foreground(self):
-        text = open(self.SKILL, encoding="utf-8").read()
-        step7b = text.split("### Step 7b:", 1)[1].split("### Step 8:", 1)[0]
+        text = skill_text()
+        step7b = text.split("### Step 7b:", 1)[1].split("# Step 8 —", 1)[0]
         assert "run_in_background: false" in step7b
+
+
+class TestTheSkillIsAnIndexPlusOneFilePerStep:
+    """BF-B, 2026-09-20: the whole 73KB skill was loaded at invocation and
+    carried on every one of ~64 turns. The index stays resident; each step
+    file is Read only when the orchestrator reaches that step."""
+
+    INDEX = os.path.join(_ROOT, "skills", "analyze-company.md")
+
+    def test_the_resident_index_fits_in_twelve_kilobytes(self):
+        assert os.path.getsize(self.INDEX) <= 12 * 1024
+
+    @pytest.mark.parametrize("name", _STEP_FILES)
+    def test_each_step_file_exists_and_opens_with_its_step_heading(self, name):
+        path = os.path.join(_STEP_DIR, name)
+        assert os.path.exists(path), path
+        assert open(path, encoding="utf-8").read().startswith("# Step "), name
+
+    @pytest.mark.parametrize("name", _STEP_FILES)
+    def test_the_index_pipeline_table_names_every_step_file(self, name):
+        assert name in open(self.INDEX, encoding="utf-8").read()
+
+    def test_the_step_directory_holds_nothing_the_index_does_not_name(self):
+        found = sorted(os.path.basename(p) for p in glob.glob(os.path.join(_STEP_DIR, "*.md")))
+        assert found == _STEP_FILES
+
+    def test_the_index_tells_the_orchestrator_to_read_a_step_file_when_it_reaches_it(self):
+        text = open(self.INDEX, encoding="utf-8").read()
+        assert "Read the step file with the Read tool when you reach it" in text
+        assert "never read ahead" in text

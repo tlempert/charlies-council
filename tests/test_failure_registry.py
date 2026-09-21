@@ -15,7 +15,9 @@ SCANNED = ["skills/analyze-company.md", "skills/munger-synthesis.md", "skills/re
            "skills/refine-dossier.md", "skills/investor-memo.md", "modules/tools.py",
            "scripts/pregate_check.py", "scripts/jev_snippets.py", "scripts/jev_summaries.py",
            "scripts/jev_tiers.py", "scripts/jev_neutrality.py"] + sorted(
-    os.path.relpath(p, ROOT) for p in glob.glob(os.path.join(ROOT, "skills", "experts", "*.md")))
+    os.path.relpath(p, ROOT) for p in glob.glob(os.path.join(ROOT, "skills", "experts", "*.md"))
+) + sorted(
+    os.path.relpath(p, ROOT) for p in glob.glob(os.path.join(ROOT, "skills", "analyze-company", "*.md")))
 WARNING = re.compile(r"\b[Oo]n (ADBE|KSPI|ACN|GTT\.PA|GTT|KNSL|ROG\.SW|OTIS|NXPI|PBR|PTON|ECHO)\b")
 COVERAGE = {"guarded", "script", "advisory", "prose", "new", "open"}
 

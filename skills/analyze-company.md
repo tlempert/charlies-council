@@ -401,7 +401,7 @@ Then launch all six in one call. Run this batch in the foreground with a 600000 
 CX=/Applications/ChatGPT.app/Contents/Resources/codex; D=/tmp/silicon_council/{TICKER}; E=/Users/tallempert/src-tal/investor/skills/experts; for x in bezos:jeff_bezos buffett:warren_buffett burry:michael_burry cook:tim_cook jobs:steve_jobs psychologist:psychologist; do f=${x%%:*}; k=${x##*:}; { echo "You are analyzing {TICKER} for the Silicon Council."; echo "## DOSSIER DATA:"; cat $D/refined_dossier.md; echo; cat $E/$f.md; echo; cat $D/expert_tail.txt; } | $CX exec - -m gpt-5.6-sol -c model_reasoning_effort=high --sandbox read-only --skip-git-repo-check --output-last-message $D/$k.md >$D/$k.log 2>&1 & done; wait; wc -c $D/jeff_bezos.md $D/warren_buffett.md $D/michael_burry.md $D/tim_cook.md $D/steve_jobs.md $D/psychologist.md
 ```
 
-**Group B — Claude subagents (6).** Launch all six in a SINGLE message using the Agent tool, each with `model: "sonnet"` and `run_in_background: true`:
+**Group B — Claude subagents (6).** Launch all six in a SINGLE message using the Agent tool, each with `model: "sonnet"` and `run_in_background: false`. Sending all six Agent calls in one message still runs them concurrently — foreground only changes when their results come back, not whether they overlap. Foreground calls return each subagent's usage in the tool result, which the metrics need; a background task also ends a headless session if the turn ends first.
 
 | # | Expert | Prompt file | `{EXPERT_KEY}` |
 |---|--------|-------------|----------------|
@@ -463,7 +463,7 @@ Where `{EXPERT_KEY}` is: `jeff_bezos`, `warren_buffett`, `michael_burry`, `tim_c
 
 **Shared tail vs. Claude-only tail.** Everything in the template above from `IMPORTANT: Produce your analysis...` through the `GUARD:` paragraph is identical for both pools. Write exactly that text — with `{TICKER}` substituted — to `/tmp/silicon_council/{TICKER}/expert_tail.txt` before launching Group A, so both pools read from one source. The final `AFTER completing your analysis, you MUST save your FULL output...` instruction is **Claude-only**: Codex workers have no Write tool, and `--output-last-message` writes `{EXPERT_KEY}.md` for them.
 
-Wait for all 12 to complete — both the backgrounded Codex batch and the six Claude subagents. Then collect the ---SUMMARY--- blocks for Step 5, writing them straight to `$D/all_summaries.md` rather than the session — only the one-line verdicts come back to your context. Truncate the file first so a resumed run does not append a second copy:
+The six Claude subagents have already returned by the time their message completes; the Codex batch still runs as a backgrounded Bash call, so wait for it too before treating all 12 as done. Then collect the ---SUMMARY--- blocks for Step 5, writing them straight to `$D/all_summaries.md` rather than the session — only the one-line verdicts come back to your context. Truncate the file first so a resumed run does not append a second copy:
 
 ```bash
 D=/tmp/silicon_council/{TICKER}; : > $D/all_summaries.md; for k in jeff_bezos warren_buffett michael_burry tim_cook steve_jobs psychologist sherlock futurist biologist historian anthropologist lynch; do { echo "=== EXPERT: $k ==="; sed -n '/---SUMMARY---/,/---END SUMMARY---/p' $D/$k.md; } >> $D/all_summaries.md; done; for k in jeff_bezos warren_buffett michael_burry tim_cook steve_jobs psychologist sherlock futurist biologist historian anthropologist lynch; do v=$(grep -m1 '^VERDICT:' $D/$k.md); p=$(grep -m1 '^POSITION SIZE:' $D/$k.md); echo "$k | ${v:-MISSING} | ${p:-MISSING}"; done
@@ -497,7 +497,7 @@ cd /Users/tallempert/src-tal/investor && ./venv/bin/python3 scripts/council_mani
 
 A non-zero exit means `refined_dossier.md` changed since it was hashed: stop, re-run `council_manifest.py evidence {TICKER}` only if the change was deliberate, and restart the step.
 
-Read `/Users/tallempert/src-tal/investor/skills/munger-synthesis.md`. Launch a **single subagent using the latest Opus model (Opus 4.7, `model: "opus"` via the Agent tool)** with `run_in_background: true`:
+Read `/Users/tallempert/src-tal/investor/skills/munger-synthesis.md`. Launch a **single subagent using the latest Opus model (Opus 4.7, `model: "opus"` via the Agent tool)** with `run_in_background: false`:
 - **All twelve expert reports, read in full with the Read tool from `/tmp/silicon_council/{TICKER}/experts_full.md`** (one file; every report complete, each under an `=== EXPERT REPORT: <key> ===` line). `all_summaries.md` and `argument_map.md` are indexes of them, not a substitute: the Moat Tribunal reads the MOAT FLAG lines, the synthesis reads the reports. On KNSL the synthesis called the moat "entirely broker-side" from twelve one-line summaries while three full reports named underwriting culture, data and discipline.
 - The refined dossier and the full raw dossier (Munger needs the raw numbers)
 - `evidence_ledger.json` — every material fact must appear in your prose or under `## Evidence considered and set aside`
@@ -606,7 +606,7 @@ cd /Users/tallempert/src-tal/investor && CX=/Applications/ChatGPT.app/Contents/R
 
 `MEMO_OK=0` → record `step {TICKER} memo done`; Step 9 names Codex (gpt-5.6-sol) as the writer. Otherwise move the draft aside (`mv $D/memo.md $D/memo.codex-rejected.md`), keep the validator's lines for Step 9, and run the Claude leg.
 
-**Claude leg (`CODEX_OK=1`, or both Codex drafts failed):** launch one subagent with `model: sonnet`, `run_in_background: true`:
+**Claude leg (`CODEX_OK=1`, or both Codex drafts failed):** launch one subagent with `model: sonnet`, `run_in_background: false`:
 
 "Read /Users/tallempert/src-tal/investor/skills/investor-memo.md and follow it exactly. Inputs, in this order — read each with the Read tool in full: /tmp/silicon_council/{TICKER}/verdict.md, /tmp/silicon_council/{TICKER}/refined_dossier.md, /tmp/silicon_council/{TICKER}/all_summaries.md, /tmp/silicon_council/{TICKER}/reality_check.md, and /tmp/silicon_council/{TICKER}/style_notes.md if it exists and is non-empty. Write the memo to /tmp/silicon_council/{TICKER}/memo.md with the Write tool. Then run `cd /Users/tallempert/src-tal/investor && ./venv/bin/python3 scripts/validate_memo.py /tmp/silicon_council/{TICKER}/memo.md /tmp/silicon_council/{TICKER}/verdict.md` until it exits 0, then run `./venv/bin/python3 scripts/verify_verdict.py /tmp/silicon_council/{TICKER} --memo memo.md` and report its `memo:` lines too. Do not change any number in the ledger. Report back only the validator's final output, the bundle's `memo:` lines, and the word count."
 
@@ -624,7 +624,7 @@ Runs only when `--explainers` was given, after `memo done` (or `memo failed`) an
 
 Record the checkpoint: `./venv/bin/python3 scripts/council_manifest.py step {TICKER} reports started`
 
-Launch these two in a single message with `run_in_background: true`, passing the verdict as gated by Step 6 and the memo's style notes from Step 7.
+Launch these two in a single message with `run_in_background: false`, passing the verdict as gated by Step 6 and the memo's style notes from Step 7.
 
 **Newsletter (sonnet model):** Read `/Users/tallempert/src-tal/investor/skills/family-newsletter.md`. Pass the Munger verdict summary and refined dossier. Add: "IMPORTANT: All data is provided. Output immediately. AFTER completing, save your FULL output to /tmp/silicon_council/{TICKER}/newsletter.md using the Write tool."
 

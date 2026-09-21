@@ -1313,3 +1313,41 @@ class TestStep3cIsASonnetSubagent:
         text = open(self.SKILL, encoding="utf-8").read()
         step34 = text.split("### Step 3.4:", 1)[1].split("### Step 3.5:", 1)[0]
         assert 'On ACN the dossier said *"the current data favours the bull"*' in step34
+class TestSubagentsRunInTheForeground:
+    """BF-B: subagents launched with run_in_background: true never report their
+    own token usage back to the orchestrator, so the metrics the dashboard
+    needs are never captured, and in a headless run a turn that ends while a
+    background task is outstanding ends the whole session."""
+
+    SKILL = os.path.join(_ROOT, "skills", "analyze-company.md")
+
+    def test_the_skill_contains_no_backgrounded_subagent_launch(self):
+        text = open(self.SKILL, encoding="utf-8").read()
+        assert "run_in_background: true" not in text
+
+    def test_step_4_group_b_runs_in_the_foreground(self):
+        text = open(self.SKILL, encoding="utf-8").read()
+        step4 = text.split("### Step 4:", 1)[1].split("### Step 5:", 1)[0]
+        group_b = step4.split("**Group B", 1)[1]
+        assert "run_in_background: false" in group_b.split("\n\n", 1)[0]
+
+    def test_step_4_explains_why_foreground_calls_matter(self):
+        text = open(self.SKILL, encoding="utf-8").read()
+        step4 = text.split("### Step 4:", 1)[1].split("### Step 5:", 1)[0]
+        assert "usage in the tool result" in step4
+        assert "ends a headless session" in step4
+
+    def test_step_5_munger_runs_in_the_foreground(self):
+        text = open(self.SKILL, encoding="utf-8").read()
+        step5 = text.split("### Step 5:", 1)[1].split("### Step 6:", 1)[0]
+        assert "run_in_background: false" in step5
+
+    def test_step_7_claude_leg_runs_in_the_foreground(self):
+        text = open(self.SKILL, encoding="utf-8").read()
+        step7 = text.split("### Step 7: Investor Memo", 1)[1].split("### Step 7b:", 1)[0]
+        assert "run_in_background: false" in step7
+
+    def test_step_7b_explainers_run_in_the_foreground(self):
+        text = open(self.SKILL, encoding="utf-8").read()
+        step7b = text.split("### Step 7b:", 1)[1].split("### Step 8:", 1)[0]
+        assert "run_in_background: false" in step7b

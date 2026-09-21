@@ -548,6 +548,16 @@ class TestTheSkillMarksEveryStepTwice:
     def test_the_manifest_paragraph_says_a_step_is_recorded_at_both_ends(self):
         text = open(self.SKILL, encoding="utf-8").read()
         assert "records itself twice" in text
+
+    @pytest.mark.parametrize("name", ["dossier", "forensic", "condense", "refine",
+                                       "threats", "experts", "gate", "assemble"])
+    def test_every_step_also_records_its_own_done_checkpoint(self, name):
+        text = open(self.SKILL, encoding="utf-8").read()
+        started = f"council_manifest.py step {{TICKER}} {name} started"
+        done = f"step {{TICKER}} {name} done"
+        assert started in text
+        assert done in text
+        assert text.index(started) < text.index(done)
         assert "step {TICKER} <step-name> started" in text
 
     def test_assemble_records_done_after_a_cleanup_that_keeps_the_manifest(self):

@@ -49,6 +49,8 @@ Replace `{TICKER}` with the actual ticker. **The raw dossier goes to a file, nev
 
 If the DATA WARNING count is non-zero or the build errored, inform the user and stop.
 
+Record the checkpoint: `./venv/bin/python3 scripts/council_manifest.py step {TICKER} dossier done`
+
 Cache the XBRL facts the dossier already fetched, for the shadow classifier below (a second fetch is acceptable here and is removed once T6 lands the cache in `build_initial_dossier`):
 
 ```bash
@@ -133,6 +135,8 @@ with open('/tmp/silicon_council/{TICKER}/raw_forensic.txt', 'w') as f:
 
 Only the byte count returns to your context. Do NOT `cat` this file.
 
+Record the checkpoint: `./venv/bin/python3 scripts/council_manifest.py step {TICKER} forensic done`
+
 ### Step 2.2: Jev Snippet Triage
 
 Before the condense, classify every snippet with TypeSafe Jev — a System One model that answers fixed-choice questions with calibrated probabilities and writes no prose. One call per snippet: is it about this company, which finding class, enacted or speculative, accusation or response, does it carry a citable figure. Code decides what to drop, and only on a confident answer.
@@ -176,6 +180,8 @@ Rules:
 - Target 800-1200 words."; echo; cat $D/raw_forensic.kept.txt 2>/dev/null || cat $D/raw_forensic.txt; } | $CX exec - -m gpt-5.6-luna -c model_reasoning_effort=low --sandbox read-only --skip-git-repo-check --output-last-message $D/forensic_brief.md >$D/forensic_brief.log 2>&1; wc -c $D/forensic_brief.md
 ```
 
+Record the checkpoint: `./venv/bin/python3 scripts/council_manifest.py step {TICKER} condense done`
+
 **Fallback:** if `$CX` is missing or `forensic_brief.md` is empty (check the byte count, not the exit code), skip this step and let Step 3 read `raw_forensic.txt` directly. Tell the user the Codex leg was skipped — never continue silently with a missing brief.
 
 **Codex condenses; it does not decide.** It must not drop a finding for seeming unimportant — that judgment belongs to Step 3.
@@ -203,6 +209,8 @@ CX=/Applications/ChatGPT.app/Contents/Resources/codex; D=/tmp/silicon_council/{T
 **Fallback** (`CODEX_OK=1`, or `narrative_brief.md` empty): read `dossier_narrative.md` directly with the Read tool, paginated. Tell the user.
 
 **3c — Refine (Claude, this session):** Read `dossier_blocks.md` in full, `narrative_brief.md`, and `forensic_brief.md` (or `raw_forensic.txt` if Step 2.5 was skipped). Write the refined dossier per refine-dossier.md. Strip the pipeline's own `📝 VERDICT:` label from the VALUATION ANCHORS block when you copy it — the numbers pass through verbatim, the label is a conclusion and violates Step 3.4. Read the `MOAT TYPES:` line from the refined dossier — Step 3.5 needs it.
+
+Record the checkpoint: `./venv/bin/python3 scripts/council_manifest.py step {TICKER} refine done`
 
 ### Step 3.4: DOSSIER NEUTRALITY CHECK (do this before Step 3.5)
 
@@ -348,6 +356,8 @@ cd /Users/tallempert/src-tal/investor && ./venv/bin/python3 scripts/council_mani
 
 The hash is the evidence pack every expert and the synthesist read; `evidence_ledger.json` is the list of facts the synthesis must use or set aside. `jev: SKIPPED` → no ledger this run; say so.
 
+Record the checkpoint: `./venv/bin/python3 scripts/council_manifest.py step {TICKER} threats done`
+
 ### Step 4: Expert Council (12 Parallel Subagents)
 
 Record the checkpoint: `./venv/bin/python3 scripts/council_manifest.py step {TICKER} experts started`
@@ -407,6 +417,8 @@ cd /Users/tallempert/src-tal/investor && D=/tmp/silicon_council/{TICKER}; for k 
 `validate_worker.sh` checks the file is ≥1.5KB, has both `---SUMMARY---` and `---END SUMMARY---`, has a `VERDICT:` line, and is not a contamination error. **A byte count alone is not enough:** a worker that exhausts its quota mid-generation leaves a non-empty, truncated file that would otherwise enter the Moat Tribunal silently.
 
 For every key the manifest lists as pending, re-dispatch **that key only** on the pool the manifest names in its `next` field (`codex:sol → codex:luna → claude:sonnet → claude:haiku`). For a Claude retry, launch one Agent with the same prompt shape as Group B and the named model. Re-validate, re-mark, repeat until `pending` prints nothing. If the ladder is exhausted for any key, stop and tell the user which expert could not be produced — never proceed to Step 5 with 11 experts. Report which experts fell back and to where.
+
+Record the checkpoint: `./venv/bin/python3 scripts/council_manifest.py step {TICKER} experts done`
 
 Each subagent prompt should be:
 ```

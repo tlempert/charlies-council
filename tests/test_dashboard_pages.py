@@ -141,6 +141,16 @@ class TestTheJobPage:
     def test_the_seats_stay_shut_until_the_experts_step_starts(self, client, job_id):
         assert "class=experts" not in client.get(f"/jobs/{job_id}")[1]
 
+    def test_a_finished_run_with_no_reports_step_shows_it_skipped_and_muted(
+            self, client, job_id, council_root):
+        (council_root / "ADBE" / "manifest.json").write_text(json.dumps(
+            {"ticker": "ADBE", "steps": {n: {"status": "done"} for n in progress.STEP_NAMES
+                                         if n != "reports"}}), encoding="utf-8")
+        body = client.get(f"/jobs/{job_id}")[1]
+        assert 'id="step-reports" class="skipped"' in body
+        assert "Reports (optional)" in body
+        assert "ol.track li.skipped" in body
+
     def test_the_timings_are_kept_but_folded_away(self, client, job_id):
         body = client.get(f"/jobs/{job_id}")[1]
         assert "<summary>Timings</summary>" in body

@@ -140,6 +140,7 @@ ol.track .t { font-size: .65rem; opacity: .5; }
 ol.track li.done i { background: #1a8f4c; border-color: #1a8f4c; }
 ol.track li.started i, ol.track li.partial i { background: #b8860b; border-color: #b8860b; }
 ol.track li.failed i { background: #c0392b; border-color: #c0392b; }
+ol.track li.skipped i, ol.track li.skipped .lbl, ol.track li.skipped .t { opacity: .35; }
 .experts { display: grid; grid-template-columns: repeat(6, 1fr); gap: .3rem; font-size: .75rem;
            margin: 0 0 1rem; }
 .experts span { padding: .25rem .1rem; border-radius: .3rem; text-align: center;
@@ -171,7 +172,7 @@ form.inline button { padding: .2rem .5rem; font-size: .75rem; font-weight: 500;
 .d-wait, td.running, a.running { color: #b8860b; }
 .d-hold { color: #6b7f99; }
 .d-pass, .d-sell, td.failed, a.failed { color: #c0392b; }
-td.queued, a.queued, td.cancelled, a.cancelled { opacity: .6; }
+td.queued, a.queued, td.cancelled, a.cancelled, td.skipped { opacity: .6; }
 .held::before { content: ""; display: inline-block; width: .45em; height: .45em;
                 border-radius: 50%; background: #2e9e5b; margin-right: .4em;
                 vertical-align: .12em; }

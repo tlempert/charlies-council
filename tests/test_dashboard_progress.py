@@ -56,6 +56,32 @@ class TestSteps:
     def test_every_step_carries_a_label_a_human_can_read(self):
         assert all(s["label"] for s in progress.steps(None))
 
+    def test_the_reports_step_is_labelled_optional(self):
+        reports = {s["name"]: s for s in progress.steps(None)}["reports"]
+        assert reports["label"] == "Reports (optional)"
+
+
+class TestTheOptionalReportsStep:
+    """Step 7b only runs with `--explainers`, so a finished run with no
+    `reports` entry at all skipped it rather than never getting there."""
+
+    def test_reports_with_no_manifest_entry_is_skipped_once_the_run_is_done(self):
+        manifest = {"steps": dict({n: {"status": "done"} for n in progress.STEP_NAMES
+                                   if n != "reports"})}
+        reports = {s["name"]: s for s in progress.steps(manifest)}["reports"]
+        assert reports["status"] == "skipped"
+
+    def test_reports_with_no_manifest_entry_is_still_pending_mid_run(self):
+        manifest = {"steps": {"dossier": {"status": "done"}}}
+        reports = {s["name"]: s for s in progress.steps(manifest)}["reports"]
+        assert reports["status"] == "pending"
+
+    def test_a_recorded_reports_step_is_shown_as_recorded_even_once_assemble_is_done(self):
+        manifest = {"steps": dict({n: {"status": "done"} for n in progress.STEP_NAMES},
+                                  reports={"status": "started", "started": 100, "ts": 100})}
+        reports = {s["name"]: s for s in progress.steps(manifest)}["reports"]
+        assert reports["status"] != "skipped"
+
 
 class TestTheClockOnAStep:
     """A checkpoint on the job page counts up while the run is standing in it."""

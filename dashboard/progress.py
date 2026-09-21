@@ -20,7 +20,7 @@ STEPS = [
     ("synthesis", "Munger synthesis"),
     ("gate", "Reality Check gate"),
     ("memo", "Investor memo"),
-    ("reports", "Reports"),
+    ("reports", "Reports (optional)"),
     ("assemble", "Assemble & save"),
 ]
 STEP_NAMES = [name for name, _ in STEPS]
@@ -62,6 +62,9 @@ def steps(manifest, now=None):
             entry = {"status": entry}
         entry = entry or {}
         status = entry.get("status", "pending")
+        if (name == "reports" and name not in recorded
+                and _entry_status(recorded.get("assemble")) == "done"):
+            status = "skipped"                     # Step 7b only runs with --explainers
         started, ts = entry.get("started"), entry.get("ts")
         finished = ts if status in ("done", "failed") else None
         out.append({
@@ -96,6 +99,14 @@ def _infer_completion(out, recorded):
                 step["elapsed"] = mark - step["started"] if step["started"] else None
                 step["inferred"] = True
                 break
+
+
+def _entry_status(entry):
+    """The recorded status of a raw manifest entry, in either shape (plain
+    string from an older run, or the `{"status": ...}` dict a newer one uses)."""
+    if isinstance(entry, str):
+        return entry
+    return (entry or {}).get("status")
 
 
 def _elapsed(status, started, finished, now):

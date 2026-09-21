@@ -40,7 +40,7 @@ def make_config(password, port=DEFAULT_PORT):
     salt = secrets.token_hex(16)
     return {"salt": salt, "password_hash": hash_password(password, salt),
             "cookie_secret": secrets.token_hex(32), "port": port,
-            "explainers": False}
+            "explainers": False, "orchestrator_model": "sonnet"}
 
 
 def check_password(config, password):

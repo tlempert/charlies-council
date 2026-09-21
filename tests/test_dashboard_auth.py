@@ -47,6 +47,13 @@ class TestPasswordHashing:
         flag; a template that omits the key leaves the setting undiscoverable."""
         assert app_mod.make_config(PASSWORD)["explainers"] is False
 
+    def test_a_fresh_install_pins_the_orchestrator_to_sonnet(self):
+        """The orchestrator otherwise runs on the account's default (Opus)
+        model; new installs default to Sonnet, existing configs without the
+        key keep the account default (dashboard/runner.py reads it with
+        config.get, never config[...])."""
+        assert app_mod.make_config(PASSWORD)["orchestrator_model"] == "sonnet"
+
 
 class TestCookie:
     def test_a_freshly_signed_cookie_verifies(self, config):

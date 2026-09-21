@@ -199,6 +199,19 @@ class TestTheCommand:
         assert "--explainers" in make_runner(explainers=True).command(ANALYSIS, "sess-1")
         assert "--explainers" not in make_runner().command(ANALYSIS, "sess-1")
 
+    def test_the_orchestrator_model_is_pinned_only_when_configured(self, make_runner):
+        """The orchestrator otherwise runs on the account's default (Opus)
+        model. A configured orchestrator_model pins it; an unconfigured one
+        leaves the account default alone rather than forcing a flag."""
+        assert "--model sonnet" in make_runner(orchestrator_model="sonnet").command(ANALYSIS, "sess-1")
+        assert "--model" not in shlex.split(make_runner().command(ANALYSIS, "sess-1"))
+
+
+class TestTheResumeCommand:
+    def test_the_orchestrator_model_is_pinned_only_when_configured(self, make_runner):
+        assert "--model sonnet" in make_runner(orchestrator_model="sonnet").resume_command(ANALYSIS, "sess-1")
+        assert "--model" not in shlex.split(make_runner().resume_command(ANALYSIS, "sess-1"))
+
 
 class TestTheDiscoveryCommand:
     """A discovery job runs a different skill entirely, off the same queue."""

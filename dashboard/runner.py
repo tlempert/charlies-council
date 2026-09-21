@@ -79,7 +79,7 @@ class Runner(threading.Thread):
                  "--session-id", session_id,
                  "--output-format", "stream-json", "--verbose",
                  "--permission-mode", "bypassPermissions",
-                 "--max-turns", str(self.max_turns)]
+                 "--max-turns", str(self.max_turns)] + self._model_flag()
         return " ".join(shlex.quote(part) for part in parts)
 
     def resume_command(self, job, session_id):
@@ -87,9 +87,15 @@ class Runner(threading.Thread):
         parts = [self.claude_bin, "-p", "--resume", session_id,
                  "--output-format", "stream-json", "--verbose",
                  "--permission-mode", "bypassPermissions",
-                 "--max-turns", str(self.max_turns),
+                 "--max-turns", str(self.max_turns)] + self._model_flag() + [
                  RESUME_PROMPT.replace("{TICKER}", job["ticker"])]
         return " ".join(shlex.quote(part) for part in parts)
+
+    def _model_flag(self):
+        """Pin the orchestrator to a specific model, or leave the account
+        default alone when no config value is set."""
+        model = self.config.get("orchestrator_model")
+        return ["--model", model] if model else []
 
     def run_next(self):
         """Run the oldest queued job to completion. Returns its id, or None."""

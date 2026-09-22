@@ -12,6 +12,7 @@ import shlex
 import signal
 import subprocess
 import threading
+import time
 import uuid
 from pathlib import Path
 
@@ -22,6 +23,20 @@ REPORT_BASE = "https://tlempert.github.io/investor-reports"
 DEFAULT_MAX_TURNS = 400
 DEFAULT_RESUME_LIMIT = 4
 STDERR_TAIL = 4000
+
+#: A run spends most of a five-hour usage window (BF-B: 16% to refused in 55
+#: minutes). Past this share, a new run waits for the window to reset rather
+#: than dying mid-gate and paying to re-read its context on the resume.
+HEADROOM = 0.5
+#: Seconds past the advertised reset before starting or resuming.
+LIMIT_GRACE = 120
+#: The five-hour window is waited out; a weekly limit is not.
+MAX_LIMIT_WAIT = 6 * 3600
+
+#: Nothing the pipeline runs is an MCP tool or needs a plugin hook, and an
+#: unwatched session carries them on every turn (79 tools and 4 hooks, ~5K
+#: tokens, measured 2026-09-23).
+LEAN_SESSION = ["--strict-mcp-config", "--settings", json.dumps({"disableAllHooks": True})]
 
 #: What to say to a session that stopped before the pipeline finished. KNSL,
 #: 2026-09-16: the turn ended while the Codex batch was still out, the process
@@ -79,7 +94,7 @@ class Runner(threading.Thread):
                  "--session-id", session_id,
                  "--output-format", "stream-json", "--verbose",
                  "--permission-mode", "bypassPermissions",
-                 "--max-turns", str(self.max_turns)] + self._model_flag()
+                 "--max-turns", str(self.max_turns)] + LEAN_SESSION + self._model_flag()
         return " ".join(shlex.quote(part) for part in parts)
 
     def resume_command(self, job, session_id):
@@ -87,7 +102,7 @@ class Runner(threading.Thread):
         parts = [self.claude_bin, "-p", "--resume", session_id,
                  "--output-format", "stream-json", "--verbose",
                  "--permission-mode", "bypassPermissions",
-                 "--max-turns", str(self.max_turns)] + self._model_flag() + [
+                 "--max-turns", str(self.max_turns)] + LEAN_SESSION + self._model_flag() + [
                  RESUME_PROMPT.replace("{TICKER}", job["ticker"])]
         return " ".join(shlex.quote(part) for part in parts)
 
@@ -103,6 +118,8 @@ class Runner(threading.Thread):
         if job is None:
             return None
         carrying_on = bool(job.get("resume_requested") and job.get("session_id"))
+        if not carrying_on and not self._await_headroom(job):
+            return job["id"] if self.store.cancel_requested(job["id"]) else None
         session_id = job["session_id"] if carrying_on else str(uuid.uuid4())
         self.store.mark_running(job["id"], session_id)
         self.store.clear_resume_request(job["id"])
@@ -125,7 +142,12 @@ class Runner(threading.Thread):
         exit_code, result_event, resumes = 0, None, 0
         if not carrying_on:
             exit_code, result_event = self._execute(job, self.command(job, session_id))
-        while self._stopped_short(job, exit_code, result_event) and resumes < self.resume_limit:
+        while resumes < self.resume_limit:
+            reset = self._usage_limit_reset(job, result_event)
+            if reset is None and not self._stopped_short(job, exit_code, result_event):
+                break
+            if reset is not None and not self._wait_until(job["id"], reset + LIMIT_GRACE):
+                break
             before = self._manifest_snapshot(job["ticker"])
             resumes += 1
             self.store.record_resume(job["id"])
@@ -134,6 +156,39 @@ class Runner(threading.Thread):
             if self._manifest_snapshot(job["ticker"]) == before:
                 break
         return exit_code, result_event, resumes
+
+    def _usage_limit_reset(self, job, result_event):
+        """When the run was refused at a usage limit worth waiting out: the
+        epoch the window reopens. None for any other ending."""
+        if not (result_event or {}).get("is_error") or self.store.cancel_requested(job["id"]):
+            return None
+        info = _last_rate_limit(self.job_dir(job["id"]) / "events.jsonl")
+        reset = info.get("resetsAt") if info.get("status") == "rejected" else None
+        return reset if reset and reset - time.time() <= MAX_LIMIT_WAIT else None
+
+    def _await_headroom(self, job):
+        """Hold a new run until the five-hour window the last run left behind
+        has room for it. False if the job was cancelled or the runner stopped
+        while it waited."""
+        window = ((_last_rate_limit(self._latest_stream()).get("unifiedWindows") or {})
+                  .get("five_hour") or {})
+        reset = window.get("resetsAt") or 0
+        if (window.get("utilization") or 0) < HEADROOM or \
+                not 0 < reset - time.time() <= MAX_LIMIT_WAIT:
+            return True
+        return self._wait_until(job["id"], reset + LIMIT_GRACE)
+
+    def _latest_stream(self):
+        streams = list((self.home / "jobs").glob("*/events.jsonl"))
+        return max(streams, key=lambda p: p.stat().st_mtime) if streams else None
+
+    def _wait_until(self, job_id, when):
+        """Sleep until `when`, waking to honour a cancel or a runner stop."""
+        while time.time() < when:
+            if self._stop.is_set() or self.store.cancel_requested(job_id):
+                return False
+            self._stop.wait(min(self.cancel_poll * 10, when - time.time()))
+        return not self.store.cancel_requested(job_id)
 
     @staticmethod
     def _manifest_snapshot(ticker):
@@ -246,6 +301,19 @@ class Runner(threading.Thread):
     def _report_url(self, ticker):
         return f"{REPORT_BASE}/{ticker}.html" \
             if (self.repo_root / "investor-reports" / f"{ticker}.html").exists() else None
+
+
+def _last_rate_limit(events_path):
+    """The rate-limit info of the last rate_limit_event in a stream, or {}."""
+    info = {}
+    try:
+        with open(events_path, encoding="utf-8") as lines:
+            for event in events.parse_stream(lines):
+                if event.get("type") == "rate_limit_event":
+                    info = event.get("rate_limit_info") or {}
+    except (OSError, TypeError):
+        pass
+    return info
 
 
 def _prompt(job, config=None):

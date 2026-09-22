@@ -543,3 +543,116 @@ class TestMetricsFromTheRunFolder:
         row = store.get_metrics(job_id)
         assert row["verdict"] == "WAIT"
         assert row["gate_passes"] == 2
+
+
+#: A claude whose first run is refused at the usage limit: it reports the
+#: window as rejected until @RESET_IN@ seconds from now, then ends in error.
+#: Every later run finishes the pipeline.
+LIMITED_CLAUDE = r"""#!/bin/sh
+COUNT=$(cat '@COUNTER@' 2>/dev/null || echo 0)
+COUNT=$((COUNT + 1))
+echo "$COUNT" > '@COUNTER@'
+echo "$@" >> '@ARGS@'
+mkdir -p '@ROOT@/ADBE'
+if [ "$COUNT" -eq 1 ]; then
+  printf '%s' '@SHORT@' > '@ROOT@/ADBE/manifest.json'
+  RESET=$(( $(date +%s) + @RESET_IN@ ))
+  printf '%s\n' "{\"type\":\"rate_limit_event\",\"rate_limit_info\":{\"status\":\"rejected\",\"resetsAt\":$RESET}}"
+  printf '%s\n' '{"type":"result","is_error":true,"result":"You have hit your session limit"}'
+  exit 1
+fi
+printf '%s' '@DONE@' > '@ROOT@/ADBE/manifest.json'
+printf '%s\n' 'RESULT_JSON'
+exit 0
+"""
+
+
+def limited(reset_in):
+    return {"body": LIMITED_CLAUDE.replace("@RESET_IN@", str(reset_in))}
+
+
+class TestTheUsageLimit:
+    """BF-B, 2026-09-21: the run hit the five-hour session limit mid-gate at
+    16:35, the job failed, and nobody resumed it until 19:43 — three hours of
+    a four-and-a-half hour run spent waiting for a person, not for the limit."""
+
+    @pytest.fixture(autouse=True)
+    def _no_grace(self, monkeypatch):
+        monkeypatch.setattr(runner_mod, "LIMIT_GRACE", 0)
+
+    def test_a_run_stopped_by_the_limit_resumes_itself_once_the_window_reopens(
+            self, make_runner, store, tmp_path):
+        runner = make_runner(fake=limited(reset_in=1))
+        job_id = store.enqueue("ADBE")
+        runner.run_next()
+        job = store.get_job(job_id)
+        assert job["state"] == "done"
+        assert job["resumes"] == 1
+        assert invocations(tmp_path) == 2
+        assert "--resume" in arguments(tmp_path)[1]
+
+    def test_a_limit_that_lifts_only_in_days_is_not_waited_out(
+            self, make_runner, store, tmp_path):
+        runner = make_runner(fake=limited(reset_in=5 * 86400))
+        job_id = store.enqueue("ADBE")
+        runner.run_next()
+        assert store.get_job(job_id)["state"] == "failed"
+        assert invocations(tmp_path) == 1
+
+
+def leave_a_window_behind(runner, utilization, reset_in):
+    """The last run's stream, as the next run finds it."""
+    folder = runner.job_dir("earlier")
+    event = {"type": "rate_limit_event", "rate_limit_info": {
+        "status": "allowed", "unifiedWindows": {"five_hour": {
+            "utilization": utilization, "resetsAt": time.time() + reset_in}}}}
+    (folder / "events.jsonl").write_text(json.dumps(event) + "\n", encoding="utf-8")
+    return time.time() + reset_in
+
+
+class TestHeadroomBeforeStarting:
+    """One run spends most of a five-hour window, so a run started in a window
+    already half spent dies mid-gate and pays to re-read its context later."""
+
+    @pytest.fixture(autouse=True)
+    def _no_grace(self, monkeypatch):
+        monkeypatch.setattr(runner_mod, "LIMIT_GRACE", 0)
+
+    def test_a_run_waits_for_a_spent_window_to_reset_before_starting(self, make_runner, store):
+        runner = make_runner()
+        reset = leave_a_window_behind(runner, utilization=0.9, reset_in=1.5)
+        job_id = store.enqueue("ADBE")
+        runner.run_next()
+        assert store.get_job(job_id)["started_at"] >= reset
+
+    def test_a_run_starts_at_once_in_a_window_with_room(self, make_runner, store):
+        runner = make_runner()
+        reset = leave_a_window_behind(runner, utilization=0.1, reset_in=30)
+        job_id = store.enqueue("ADBE")
+        runner.run_next()
+        assert store.get_job(job_id)["started_at"] < reset
+
+    def test_a_run_cancelled_while_waiting_never_starts(self, make_runner, store, tmp_path):
+        runner = make_runner()
+        leave_a_window_behind(runner, utilization=0.9, reset_in=30)
+        job_id = store.enqueue("ADBE")
+        threading.Timer(0.3, store.request_cancel, args=(job_id,)).start()
+        runner.run_next()
+        assert store.get_job(job_id)["state"] == "cancelled"
+        assert invocations(tmp_path) == 0
+
+
+class TestAnUnwatchedSessionLoadsOnlyWhatThePipelineUses:
+    """No MCP server and no plugin hook is used by the pipeline; together they
+    cost 51 tools and ~5K tokens on every turn of the orchestrator."""
+
+    def test_no_mcp_servers_are_started(self, make_runner):
+        runner = make_runner()
+        assert "--strict-mcp-config" in runner.command(ANALYSIS, "s1")
+        assert "--strict-mcp-config" in runner.resume_command(ANALYSIS, "s1")
+
+    def test_no_hooks_run(self, make_runner):
+        runner = make_runner()
+        for line in (runner.command(ANALYSIS, "s1"), runner.resume_command(ANALYSIS, "s1")):
+            parts = shlex.split(line)
+            assert json.loads(parts[parts.index("--settings") + 1]) == {"disableAllHooks": True}

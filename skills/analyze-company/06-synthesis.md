@@ -26,7 +26,9 @@ Munger is the first and only council member to see it. Do **not** merge it into 
 
 The prompt names the twelve report files to Read in full and includes `all_summaries.md` as a labelled index of them, not as a substitute. Add this instruction:
 
-"IMPORTANT: Produce your synthesis immediately. Read each expert's ---SUMMARY--- block to run the Moat Tribunal before starting valuation. Emit the ```json model_ledger``` block specified in munger-synthesis.md immediately above the EXECUTIVE SUMMARY — a memo without it is rejected unread. AFTER completing your synthesis, save your FULL output to /tmp/silicon_council/{TICKER}/verdict.md using the Write tool. Do not launch subagents."
+"IMPORTANT: Produce your synthesis immediately. Read each expert's ---SUMMARY--- block to run the Moat Tribunal before starting valuation. Emit the ```json model_ledger``` block specified in munger-synthesis.md immediately above the EXECUTIVE SUMMARY — a memo without it is rejected unread. AFTER completing your synthesis, save your FULL output to /tmp/silicon_council/{TICKER}/verdict.md in ONE Write call, the model_ledger block included — never draft it in pieces and splice them with scripts. Later fixes are Edits to the lines concerned. Read evidence_ledger.json and every other input with the Read tool; do not print files through python or cat. Do not launch subagents."
+
+(BF-B: Munger wrote prose, a set-aside file and a ledger tail separately, then spent a dozen ~200K-context turns splicing and checking them with ad-hoc scripts — the same verdict, paid for twice.)
 
 Collect the verdict, then run the verification bundle **before** spending an Opus review pass:
 

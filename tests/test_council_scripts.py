@@ -1180,7 +1180,7 @@ class TestStep6BuildsOneGateBundleForTheReviewer:
     def test_the_bundle_concatenates_the_expected_files_with_guards(self):
         step6 = self._step6()
         bundle_cmd = step6.split("```bash", 1)[1].split("```", 1)[0]
-        for name in ("verification.md", "argument_map.md", "all_summaries.md"):
+        for name in ("verification.md", "argument_map.md"):
             assert name in bundle_cmd
         assert "[ -f" in bundle_cmd
         assert ": >" in bundle_cmd
@@ -1194,6 +1194,15 @@ class TestStep6BuildsOneGateBundleForTheReviewer:
         assert "experts_full.md" in item1
         assert "every known data-quality defect" in item1
         assert "strongest available counter-argument" in item1
+
+    def test_the_summaries_are_not_bundled_beside_the_reports_that_contain_them(self):
+        """BF-B: the reviewer read all_summaries.md in the bundle and then
+        experts_full.md in full, which carries every ---SUMMARY--- block."""
+        step6 = self._step6()
+        bundle_cmd = step6.split("```bash", 1)[1].split("```", 1)[0]
+        assert "all_summaries.md" not in bundle_cmd
+        item1 = step6.split("1. **Pass 1.**", 1)[1].split("2. **PASS", 1)[0]
+        assert "`experts_full.md`, Read in full" in item1
 
     def test_the_f21_adbe_needle_survives(self):
         step6 = self._step6()

@@ -257,14 +257,15 @@ class TestASuccessfulRun:
     def test_the_session_the_run_used_is_recorded_for_follow_up_questions(self):
         recorded = self.store.get_job(self.job_id)["session_id"]
         stream = (self.runner.job_dir(self.job_id) / "events.jsonl").read_text(encoding="utf-8")
-        assert json.loads(stream.splitlines()[0])["session_id"] == recorded
+        first_claude_event = json.loads(stream.splitlines()[1])  # [0] is the runner's process marker
+        assert first_claude_event["session_id"] == recorded
 
     def test_the_published_report_is_linked_when_the_run_produced_one(self):
         assert self.store.get_job(self.job_id)["report_url"].endswith("/investor-reports/ADBE.html")
 
     def test_the_event_stream_is_kept_and_the_junk_line_is_not_in_it(self):
         lines = (self.runner.job_dir(self.job_id) / "events.jsonl").read_text().splitlines()
-        assert [json.loads(x)["type"] for x in lines] == ["system", "assistant", "result"]
+        assert [json.loads(x)["type"] for x in lines] == ["runner", "system", "assistant", "result"]
 
     def test_raw_stdout_is_kept_junk_and_all_for_debugging(self):
         assert "not json" in (self.runner.job_dir(self.job_id) / "stdout.log").read_text()
@@ -399,7 +400,7 @@ class TestARunThatStoppedShortOfTheEnd:
         job_id = store.enqueue("ADBE")
         runner.run_next()
         lines = (runner.job_dir(job_id) / "events.jsonl").read_text().splitlines()
-        assert [json.loads(x)["type"] for x in lines] == ["result", "result"]
+        assert [json.loads(x)["type"] for x in lines] == ["runner", "result", "runner", "result"]
 
     def test_a_pipeline_that_will_not_finish_fails_saying_where_it_stopped(
             self, make_runner, store, tmp_path):
@@ -525,7 +526,7 @@ class TestAJobPutBackByHand:
             json.dumps({"type": "system"}) + "\n", encoding="utf-8")
         runner.run_next()
         lines = (runner.job_dir(job_id) / "events.jsonl").read_text().splitlines()
-        assert [json.loads(x)["type"] for x in lines] == ["system", "result"]
+        assert [json.loads(x)["type"] for x in lines] == ["system", "runner", "result"]
 
 
 class TestMetricsFromTheRunFolder:

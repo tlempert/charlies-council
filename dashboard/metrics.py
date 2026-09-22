@@ -7,14 +7,14 @@ worth having, so every field degrades to null rather than raising.
 from . import events, progress
 
 
-def compute(ticker, job, result_event):
+def compute(ticker, job, result_event, events_path=None):
     """The metrics row for one job, from the manifest, the result event and the
     run folder. Any of the three may be missing.
 
     `resumes` and `stopped_at` are the harness-tuning pair: how many times the
     headless session had to be restarted, and the step it never got past."""
     job = job or {}
-    result = events.summarize_result(result_event) or {}
+    result = dict(events.summarize_result(result_event) or {}, **(_run_totals(events_path) or {}))
     manifest = progress.read_manifest(ticker)
     folder = progress.root() / ticker
     return {
@@ -33,6 +33,16 @@ def compute(ticker, job, result_event):
         "resumes": job.get("resumes") or 0,
         "stopped_at": None if job.get("kind") == "discover" else progress.stopped_at(manifest),
     }
+
+
+def _run_totals(events_path):
+    """Spend summed over every process in the job's stream: the final result
+    event alone reports only the last resume."""
+    try:
+        with open(events_path, encoding="utf-8") as lines:
+            return events.run_totals(events.parse_stream(lines))
+    except (OSError, TypeError, ValueError):
+        return None
 
 
 def _wall_seconds(job, result):

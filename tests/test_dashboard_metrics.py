@@ -205,3 +205,21 @@ class TestMissingInputs:
     def test_an_unreadable_verdict_file_yields_no_verdict_rather_than_an_error(self, run_folder):
         (run_folder / "verdict.md").mkdir()
         assert metrics.compute("ADBE", JOB, RESULT_EVENT)["verdict"] is None
+
+
+class TestAResumedRun:
+    def test_the_cost_of_every_process_in_the_job_stream_is_counted(self, run_folder, tmp_path):
+        stream = tmp_path / "events.jsonl"
+        lines = [{"type": "runner", "subtype": "process_start"},
+                 {"type": "assistant", "message": {"model": "claude-opus-5", "content": []}},
+                 {"type": "result", "total_cost_usd": 21.40},
+                 {"type": "runner", "subtype": "process_start"},
+                 {"type": "assistant", "message": {"model": "claude-opus-5", "content": []}},
+                 dict(RESULT_EVENT, total_cost_usd=14.90)]
+        stream.write_text("\n".join(json.dumps(x) for x in lines), encoding="utf-8")
+        row = metrics.compute("ADBE", JOB, RESULT_EVENT, events_path=stream)
+        assert row["cost_usd"] == pytest.approx(36.30)
+
+    def test_a_missing_stream_falls_back_to_the_final_result_event(self, run_folder, tmp_path):
+        row = metrics.compute("ADBE", JOB, RESULT_EVENT, events_path=tmp_path / "absent.jsonl")
+        assert row["cost_usd"] == 12.5

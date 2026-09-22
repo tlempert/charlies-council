@@ -170,6 +170,7 @@ class Runner(threading.Thread):
                 ["zsh", "-lic", command], cwd=str(self.repo_root),
                 stdout=subprocess.PIPE, stderr=errors, text=True, bufsize=1,
                 start_new_session=True)
+            stream.write(json.dumps(events.PROCESS_START) + "\n")
             watchdog = self._watch_for_cancel(job["id"], process)
             try:
                 for line in process.stdout:
@@ -239,7 +240,8 @@ class Runner(threading.Thread):
             if state == "done" and job.get("kind") != "discover" else None
         self.store.finish(job["id"], state, exit_code=exit_code, error=error, report_url=report_url)
         self.store.save_metrics(job["id"], metrics.compute(
-            job["ticker"], self.store.get_job(job["id"]), result_event))
+            job["ticker"], self.store.get_job(job["id"]), result_event,
+            events_path=self.job_dir(job["id"]) / "events.jsonl"))
 
     def _report_url(self, ticker):
         return f"{REPORT_BASE}/{ticker}.html" \

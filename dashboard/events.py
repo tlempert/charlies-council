@@ -82,3 +82,35 @@ def summarize_result(event):
         "cache_create_tokens": cache_create_tokens,
         "model_usage": model_usage,
     }
+
+
+_TOTALLED = ("cost_usd", "input_tokens", "output_tokens", "cache_read_tokens", "cache_create_tokens")
+
+
+#: What the runner writes into the stream before each process it starts: the
+#: CLI's own `init` repeats on every turn, so it cannot mark a process.
+PROCESS_START = {"type": "runner", "subtype": "process_start"}
+
+
+def run_totals(stream):
+    """Spend and tokens across every process a job ran, or None without a result.
+
+    A resumed job is several processes in one stream, each opened by the
+    runner's PROCESS_START marker and each reporting only its own spend,
+    cumulatively, in every result it emits — so each process counts once, at
+    its last result. A process that never reached the model (a resume refused
+    at the usage limit) echoes the previous total back and counts for nothing.
+    A stream with no markers is one process."""
+    processes = [{"called": False, "result": None}]
+    for event in stream:
+        if event == PROCESS_START:
+            processes.append({"called": False, "result": None})
+        elif event.get("type") == "assistant" and \
+                (event.get("message") or {}).get("model", "<synthetic>") != "<synthetic>":
+            processes[-1]["called"] = True
+        elif is_result(event):
+            processes[-1]["result"] = event
+    counted = [summarize_result(p["result"]) for p in processes if p["called"] and p["result"]]
+    if not counted:
+        return None
+    return {field: sum(c.get(field) or 0 for c in counted) for field in _TOTALLED}

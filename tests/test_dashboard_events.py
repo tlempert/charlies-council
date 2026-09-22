@@ -7,6 +7,8 @@ the process is killed, an event type this code has never seen.
 """
 import json
 
+import pytest
+
 from dashboard import events
 
 INIT = json.dumps({"type": "system", "subtype": "init", "session_id": "sess-1",
@@ -137,3 +139,44 @@ class TestSingleShotJsonOutput:
     def test_output_with_no_result_at_all_yields_nothing(self):
         assert events.find_result([json.loads(INIT)]) is None
         assert events.find_result(None) is None
+
+
+class TestARunSpreadOverSeveralProcesses:
+    """BF-B, 2026-09-21: the first process hit the session limit at $21.40, a
+    resume at the limit made no model call and echoed $21.40 back, and the
+    resume after the reset spent $14.90. The metrics row kept $14.90."""
+
+    INIT = events.PROCESS_START
+    CALL = {"type": "assistant", "message": {"model": "claude-opus-5", "content": []}}
+    NO_CALL = {"type": "assistant", "message": {"model": "<synthetic>", "content": []}}
+
+    @staticmethod
+    def result(cost, output_tokens=10):
+        return {"type": "result", "total_cost_usd": cost,
+                "modelUsage": {"m": {"inputTokens": 1, "outputTokens": output_tokens,
+                                     "cacheReadInputTokens": 100, "cacheCreationInputTokens": 5}}}
+
+    def test_each_process_spend_is_added_to_the_run_total(self):
+        stream = [self.INIT, self.CALL, self.result(21.40, 7),
+                  self.INIT, self.CALL, self.result(14.90, 3)]
+        totals = events.run_totals(stream)
+        assert totals["cost_usd"] == pytest.approx(36.30)
+        assert totals["output_tokens"] == 10
+        assert totals["cache_read_tokens"] == 200
+
+    def test_a_process_that_made_no_model_call_adds_nothing(self):
+        stream = [self.INIT, self.CALL, self.result(21.40),
+                  self.INIT, self.NO_CALL, self.result(21.40),
+                  self.INIT, self.CALL, self.result(14.90)]
+        assert events.run_totals(stream)["cost_usd"] == pytest.approx(36.30)
+
+    def test_a_process_is_counted_once_however_many_results_it_emits(self):
+        stream = [self.INIT, self.CALL, self.result(5.0), self.CALL, self.result(17.10)]
+        assert events.run_totals(stream)["cost_usd"] == pytest.approx(17.10)
+
+    def test_a_stream_the_runner_never_marked_is_one_process(self):
+        stream = [self.CALL, self.result(5.0), self.CALL, self.result(17.10)]
+        assert events.run_totals(stream)["cost_usd"] == pytest.approx(17.10)
+
+    def test_a_stream_with_no_result_at_all_has_no_totals(self):
+        assert events.run_totals([self.INIT, self.CALL]) is None

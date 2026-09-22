@@ -96,21 +96,36 @@ def run_totals(stream):
     """Spend and tokens across every process a job ran, or None without a result.
 
     A resumed job is several processes in one stream, each opened by the
-    runner's PROCESS_START marker and each reporting only its own spend,
-    cumulatively, in every result it emits — so each process counts once, at
-    its last result. A process that never reached the model (a resume refused
-    at the usage limit) echoes the previous total back and counts for nothing.
-    A stream with no markers is one process."""
-    processes = [{"called": False, "result": None}]
+    runner's PROCESS_START marker, and each process's results are cumulative,
+    so each counts once, at its last result. A result a process emits before
+    it has called the model is an echo of the session so far: sometimes the
+    process then counts on from that figure (DSY.PA: $12.91, then $13.56),
+    so it is subtracted as a baseline; a process that never calls the model at
+    all (a resume refused at the usage limit) adds nothing. A stream with no
+    markers is one process."""
+    processes = [_process()]
     for event in stream:
         if event == PROCESS_START:
-            processes.append({"called": False, "result": None})
+            processes.append(_process())
         elif event.get("type") == "assistant" and \
                 (event.get("message") or {}).get("model", "<synthetic>") != "<synthetic>":
             processes[-1]["called"] = True
         elif is_result(event):
-            processes[-1]["result"] = event
-    counted = [summarize_result(p["result"]) for p in processes if p["called"] and p["result"]]
+            processes[-1]["result" if processes[-1]["called"] else "baseline"] = event
+    counted = [p for p in processes if p["called"] and p["result"]]
     if not counted:
         return None
-    return {field: sum(c.get(field) or 0 for c in counted) for field in _TOTALLED}
+    return {field: sum(_spent(p, field) for p in counted) for field in _TOTALLED}
+
+
+def _process():
+    return {"called": False, "result": None, "baseline": None}
+
+
+def _spent(process, field):
+    """What one process added to `field`: its last result, less any echo it
+    opened with — unless it reported less than the echo, which means it was
+    counting its own spend from zero (BF-B's resume after the reset)."""
+    last = summarize_result(process["result"]).get(field) or 0
+    echoed = (summarize_result(process["baseline"]) or {}).get(field) or 0
+    return last - echoed if last >= echoed else last

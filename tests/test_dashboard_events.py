@@ -174,6 +174,15 @@ class TestARunSpreadOverSeveralProcesses:
         stream = [self.INIT, self.CALL, self.result(5.0), self.CALL, self.result(17.10)]
         assert events.run_totals(stream)["cost_usd"] == pytest.approx(17.10)
 
+    def test_a_resume_that_echoes_the_session_total_counts_only_what_it_added(self):
+        """DSY.PA, 2026-09-23: the resume opened by echoing $12.91, then kept
+        counting up from it to $13.56. The run cost $13.56, not $26.47."""
+        stream = [self.INIT, self.CALL, self.result(12.91, 7),
+                  self.INIT, self.result(12.91, 7), self.CALL, self.result(13.56, 9)]
+        totals = events.run_totals(stream)
+        assert totals["cost_usd"] == pytest.approx(13.56)
+        assert totals["output_tokens"] == 9
+
     def test_a_stream_the_runner_never_marked_is_one_process(self):
         stream = [self.CALL, self.result(5.0), self.CALL, self.result(17.10)]
         assert events.run_totals(stream)["cost_usd"] == pytest.approx(17.10)

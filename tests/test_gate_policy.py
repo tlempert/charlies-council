@@ -54,6 +54,25 @@ class TestParseFindings:
         assert f[0]["severity"] == "FATAL" and f[0]["name"] == "Reserve risk charged twice"
         assert "Operation: charge it once" in f[0]["body"]
 
+    def test_any_parenthesised_qualifier_is_accepted_and_only_prose_marks_prose_only(self):
+        """BF-B, 2026-09-21: the reviewer wrote `**MAJOR (number) — …**` and
+        `**MAJOR (judgment / omission) — …**`; neither parsed, and the
+        orchestrator rebuilt findings.json by hand over a dozen turns."""
+        f = gp.parse_findings(
+            "**MAJOR (number) — Owner EPS double-counts the add-back.** Operation: count it once.\n"
+            "**MAJOR (judgment / omission) — Bear case omits the laydown.** Operation: add it.\n"
+            "**MINOR (prose only) — Label drift.** Operation: relabel.\n")
+        assert [(x["severity"], x["prose_only"]) for x in f] == \
+            [("MAJOR", False), ("MAJOR", False), ("MINOR", True)]
+        assert f[0]["name"] == "Owner EPS double-counts the add-back"
+
+    def test_a_finding_body_ends_at_the_next_section_heading(self):
+        f = gp.parse_findings(
+            "### Findings\n**MODERATE — Terminal price label.** Operation: relabel.\n\n"
+            "## Summary of findings\n| 1 | MODERATE |\n\n"
+            "### The Real Charlie Munger's Take\nToo clever by half.\n\n### Result\n`PASS — 0 FATAL.`\n")
+        assert f[0]["body"] == "Operation: relabel."
+
     def test_major_aggregate_is_severity_major_with_the_name_intact(self):
         f = gp.parse_findings("**MAJOR-AGGREGATE — Three MAJORs touch published numbers.** See list below.\n")
         assert f[0]["severity"] == "MAJOR"

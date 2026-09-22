@@ -23,7 +23,7 @@ import sys
 sys.path.insert(0, os.path.dirname(os.path.abspath(__file__)))
 
 _SEV = r"(?:FATAL|MAJOR-AGGREGATE|MAJOR|MODERATE|MINOR)"
-_PROSE = r"(?:\s*\((?:prose only|prose)\))?"
+_PROSE = r"(?:\s*\([^)\n]*\))?"      # (prose only), (number), (judgment / omission) …
 _SEP = r"\s*[—–-]\s*"
 FINDING = re.compile(
     r"^(?:[-*]\s+)?(?:"
@@ -47,7 +47,9 @@ def parse_findings(text):
         body_tail = m.group("body1") if m.group("sev1") else ""
         severity = "MAJOR" if sev == "MAJOR-AGGREGATE" else sev
         body = (body_tail + text[m.end():end]).split("### Result")[0].strip()
-        out.append({"severity": severity, "prose_only": bool(prose), "name": name.strip(), "body": body})
+        body = re.split(r"^#{1,6}\s", body, maxsplit=1, flags=re.M)[0].strip()
+        prose_only = bool(prose) and prose.strip(" (").lower().startswith("prose")
+        out.append({"severity": severity, "prose_only": prose_only, "name": name.strip(), "body": body})
     return out
 
 

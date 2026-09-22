@@ -207,6 +207,15 @@ class TestTheCommand:
         assert "--model" not in shlex.split(make_runner().command(ANALYSIS, "sess-1"))
 
 
+    def test_the_effort_is_pinned_only_when_configured(self, make_runner):
+        """Opus 5.5, which the `opus` alias became, defaults to medium effort
+        where Opus 5 defaulted to high; headless Munger and gate runs measured
+        at medium-level thinking. A configured effort pins the session."""
+        assert "--effort high" in make_runner(effort="high").command(ANALYSIS, "sess-1")
+        assert "--effort high" in make_runner(effort="high").resume_command(ANALYSIS, "sess-1")
+        assert "--effort" not in shlex.split(make_runner().command(ANALYSIS, "sess-1"))
+
+
 class TestTheResumeCommand:
     def test_the_orchestrator_model_is_pinned_only_when_configured(self, make_runner):
         assert "--model sonnet" in make_runner(orchestrator_model="sonnet").resume_command(ANALYSIS, "sess-1")

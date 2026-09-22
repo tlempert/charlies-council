@@ -1,4 +1,4 @@
-# Step 5 — Munger Synthesis (Opus 4.7)
+# Step 5 — Munger Synthesis (Opus)
 
 Record the checkpoint: `./venv/bin/python3 scripts/council_manifest.py step {TICKER} synthesis started`
 
@@ -8,7 +8,7 @@ cd /Users/tallempert/src-tal/investor && ./venv/bin/python3 scripts/council_mani
 
 A non-zero exit means `refined_dossier.md` changed since it was hashed: stop, re-run `council_manifest.py evidence {TICKER}` only if the change was deliberate, and restart the step.
 
-Read `/Users/tallempert/src-tal/investor/skills/munger-synthesis.md`. Launch a **single subagent using the latest Opus model (Opus 4.7, `model: "opus"` via the Agent tool)** with `run_in_background: false`:
+Read `/Users/tallempert/src-tal/investor/skills/munger-synthesis.md`. Launch a **single subagent using the latest Opus model (`model: "opus"` via the Agent tool, which resolves to Opus 5.5 at the effort the runner pins)** with `run_in_background: false`:
 - **All twelve expert reports, read in full with the Read tool from `/tmp/silicon_council/{TICKER}/experts_full.md`** (one file; every report complete, each under an `=== EXPERT REPORT: <key> ===` line). `all_summaries.md` and `argument_map.md` are indexes of them, not a substitute: the Moat Tribunal reads the MOAT FLAG lines, the synthesis reads the reports. On KNSL the synthesis called the moat "entirely broker-side" from twelve one-line summaries while three full reports named underwriting culture, data and discipline.
 - The refined dossier and the full raw dossier (Munger needs the raw numbers)
 - `evidence_ledger.json` — every material fact must appear in your prose or under `## Evidence considered and set aside`

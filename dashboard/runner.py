@@ -107,10 +107,11 @@ class Runner(threading.Thread):
         return " ".join(shlex.quote(part) for part in parts)
 
     def _model_flag(self):
-        """Pin the orchestrator to a specific model, or leave the account
-        default alone when no config value is set."""
+        """Pin the orchestrator's model and the session's effort — which its
+        subagents inherit — or leave the account defaults alone when unset."""
         model = self.config.get("orchestrator_model")
-        return ["--model", model] if model else []
+        effort = self.config.get("effort")
+        return (["--model", model] if model else []) + (["--effort", effort] if effort else [])
 
     def run_next(self):
         """Run the oldest queued job to completion. Returns its id, or None."""

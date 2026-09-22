@@ -9,6 +9,7 @@ import glob
 import importlib.util
 import json
 import os
+import re
 import subprocess
 import time
 import sys
@@ -787,6 +788,15 @@ class TestValidateMemo:
         memo = _memo().replace("## Reading guide", "word " * 700 + "\n\n## Reading guide")
         problems = _memo_run(tmp_path, memo)
         assert any("too long" in p for p in problems)
+
+    def test_too_long_says_how_much_to_cut_and_where_the_words_are(self, tmp_path):
+        """BF-B, 2026-09-21: told only its total, the Claude memo writer cut
+        one sentence per Edit for sixty edits, re-reading ~200K tokens each."""
+        memo = _memo().replace("## Reading guide", "word " * 700 + "\n\n## Reading guide")
+        too_long = next(p for p in _memo_run(tmp_path, memo) if "too long" in p)
+        over = int(re.search(r"(\d+) words of reading", too_long).group(1)) - 1500
+        assert f"cut at least {over}" in too_long
+        assert re.search(r"longest sections: ## What you would own \(7\d\d\)", too_long)
 
     def test_citation_tags_and_the_source_list_are_not_reading(self, tmp_path):
         """The 2026-09-13 ADBE memo was 1,718 words by wc, 1,392 once the 83

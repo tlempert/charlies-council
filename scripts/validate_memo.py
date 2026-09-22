@@ -52,6 +52,14 @@ def reading_words(memo):
     return len(CITATION_RE.sub("", body).split())
 
 
+def longest_sections(memo, n=3):
+    """The `## ` sections carrying the most reading words, longest first."""
+    body = re.split(r"^## Sources and scope\s*$", memo, maxsplit=1, flags=re.M)[0]
+    parts = re.split(r"^(## .+?)\s*$", body, flags=re.M)[1:]
+    sizes = [(head, reading_words(text)) for head, text in zip(parts[::2], parts[1::2])]
+    return sorted(sizes, key=lambda s: -s[1])[:n]
+
+
 def problems(memo_path, verdict_path):
     memo = open(memo_path, encoding="utf-8").read()
     L = ledger_from(open(verdict_path, encoding="utf-8").read())
@@ -60,7 +68,9 @@ def problems(memo_path, verdict_path):
         out.append(f"too short: {len(memo)} chars, need {MIN_CHARS}")
     words = reading_words(memo)
     if words > MAX_WORDS:
-        out.append(f"too long: {words} words of reading, the ceiling is {MAX_WORDS}")
+        where = ", ".join(f"{head} ({size})" for head, size in longest_sections(memo))
+        out.append(f"too long: {words} words of reading, the ceiling is {MAX_WORDS} — "
+                   f"cut at least {words - MAX_WORDS}; longest sections: {where}")
     if not re.search(r"^# .+ as an investment\s*$", memo, re.M):
         out.append("missing title: '# {Company} as an investment'")
     for h in HEADINGS:

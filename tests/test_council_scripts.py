@@ -1431,3 +1431,15 @@ class TestLongCodexCallsStayInTheForeground:
     def test_a_backgrounded_call_is_waited_for_before_the_turn_ends(self):
         rules = self._rules()
         assert "moved to the background" in rules and "never end your turn" in rules
+
+
+class TestCodexSolIsTheSixGeneration:
+    """Codex 0.155 (2026-09-23) lists gpt-5.6-sol as "Older coding model";
+    gpt-6-sol is the current workhorse. Experts and the memo run on it."""
+
+    def test_no_step_pins_the_old_sol(self):
+        assert "gpt-5.6-sol" not in skill_text()
+
+    def test_the_experts_and_both_memo_drafts_run_on_gpt_6_sol(self):
+        text = skill_text()
+        assert text.count("-m gpt-6-sol") >= 3

@@ -43,7 +43,7 @@ along on every remaining turn of the run.
 
 **Every Bash call is self-contained:** start it `cd /Users/tallempert/src-tal/investor && D=/tmp/silicon_council/{TICKER} && …`. The working directory does not persist between calls, and `{TICKER}` is substituted by you, never by the shell.
 
-**Codex binary and models are both pinned explicitly.** Use `$CX` (`/Applications/ChatGPT.app/Contents/Resources/codex`), NOT the `codex` on PATH — the Homebrew build is far older and rejects current models. Models are pinned rather than inherited from `~/.codex/config.toml`, otherwise retuning Codex for coding work would silently change investment output. Condense steps use `gpt-5.6-luna` (clear, repeatable extraction) at low effort; the Step 4 experts use `gpt-5.6-sol` (deep analysis) at high effort. Do not substitute `gpt-5.4` / `gpt-5.4-mini` — both retire from Codex on 2026-08-31.
+**Codex binary and models are both pinned explicitly.** Use `$CX` (`/Applications/ChatGPT.app/Contents/Resources/codex`), NOT the `codex` on PATH — the Homebrew build is far older and rejects current models. Models are pinned rather than inherited from `~/.codex/config.toml`, otherwise retuning Codex for coding work would silently change investment output. Condense steps use `gpt-5.6-luna` (clear, repeatable extraction) at low effort; the Step 4 experts use `gpt-6-sol` (deep analysis) at high effort. `gpt-6-sol` needs the ChatGPT app's Codex 0.155 or later — an older build rejects it with "not supported when using Codex with a ChatGPT account", which the empty-output fallbacks below would read as Codex being down. Do not substitute `gpt-5.4` / `gpt-5.4-mini` — both retire from Codex on 2026-08-31.
 
 **Every Bash call that runs `codex exec` gets a `timeout` of 600000** (the tool's maximum) — a `$CX` call on a full memo input runs past five minutes. If a command is still moved to the background, wait for it in the foreground with a Bash loop that polls for its output file (also `timeout` 600000) and **never end your turn while it is outstanding**: this run is headless, and a turn that ends exits the process (DSY.PA and NVO, 2026-09-23: a 300s timeout backgrounded the memo, the turn ended, and each run paid a resume and a context reload).
 
@@ -69,7 +69,7 @@ Every step below records itself twice: `./venv/bin/python3 scripts/council_manif
 Display a summary:
 1. The Munger verdict (BUY/SELL/PASS + buy zone)
 2. The reality check scorecard
-3. The file paths where reports were saved, including the investor memo and which leg wrote it (Codex gpt-5.6-sol or Claude sonnet) — or that Step 7 failed on both, with the validator's lines
+3. The file paths where reports were saved, including the investor memo and which leg wrote it (Codex gpt-6-sol or Claude sonnet) — or that Step 7 failed on both, with the validator's lines
 4. The GitHub Pages URLs: the interactive dashboard and the standalone memo page
 5. The company type Step 1 classified (shadow only) and the count of `type:` WARN lines the memo bundle raised, so each live run leaves the evidence the taxonomy gate needs. Both come from the manifest, not from the run folder — Step 8 deleted `company_type.json` and `verification.md`: `cd /Users/tallempert/src-tal/investor && ./venv/bin/python3 scripts/council_manifest.py status {TICKER}` and read `notes.company_type` and `notes.type_warns`
 

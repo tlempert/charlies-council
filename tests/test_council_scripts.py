@@ -1440,6 +1440,16 @@ class TestCodexSolIsTheSixGeneration:
     def test_no_step_pins_the_old_sol(self):
         assert "gpt-5.6-sol" not in skill_text()
 
+    def test_the_condense_steps_stay_on_luna(self):
+        """Measured 2026-09-23 on NVO's analysis (same prompt, 60KB): luna kept
+        281 source numbers, gpt-6-sol 195 at low effort and 211 at medium —
+        it writes tighter, and a condense step exists to keep every number."""
+        assert skill_text().count("-m gpt-5.6-luna -c model_reasoning_effort=low") == 3
+
+    def test_the_preflight_checks_the_model_the_run_uses(self):
+        src = open(os.path.join(_SCRIPTS, "codex_preflight.py"), encoding="utf-8").read()
+        assert '"gpt-6-sol"' in src and "gpt-5.6-luna" not in src
+
     def test_the_experts_and_both_memo_drafts_run_on_gpt_6_sol(self):
         text = skill_text()
         assert text.count("-m gpt-6-sol") >= 3

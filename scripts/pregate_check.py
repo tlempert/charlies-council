@@ -237,7 +237,7 @@ def run_checks(d):
 
     # 7. pass-through blocks: present verbatim or declared absent (NXPI 2026-08-21, registry F14)
     for block in ("FORENSIC BLOCK", "BUYBACK ANALYSIS", "WORKING CAPITAL", "LATEST QUARTER", "CASH CONVERSION"):
-        if (re.search(rf"--- .*{re.escape(block)}", dossier)
+        if (re.search(rf"--- .*{re.escape(block)}|^#{{1,6}} .*{re.escape(block)}", dossier, re.M)
                 or re.search(rf"{re.escape(block)}[^\n:]*:\s*not present", dossier, re.I)):
             add("OK", f"passthrough:{block}", "present or declared absent")
         else:

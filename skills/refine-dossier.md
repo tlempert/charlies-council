@@ -189,6 +189,8 @@ Before finalising, re-read the raw dossier asking only: **what did I leave out t
 
 Copy these blocks from the raw dossier into the refined dossier **verbatim**. They are tables of primary facts, not prose to be condensed, and several experts cannot do their job without them:
 
+Verbatim includes the header line: keep each block's `--- … ---` line exactly as the raw dossier has it, emoji and all — never re-head it as a `##` heading. The pre-gate finds the blocks by those lines (DSY.PA, 2026-09-23: re-headed blocks failed it and the orchestrator rewrote the dossier by hand mid-run).
+
 1. **FORENSIC BLOCK** (SBC, SBC/Rev%, accounts receivable, share count, debt, R&D, goodwill by year)
 2. **BUYBACK ANALYSIS** (shares repurchased, dollars spent, net share-count change)
 3. **WORKING CAPITAL** (inventory, payables, COGS, DIO, DPO)

@@ -499,6 +499,19 @@ class TestPregatePassthroughAndEngagement:
             "--- FORENSIC BLOCK ---\n", ""))
         assert status["passthrough:FORENSIC BLOCK"] == "OK"
 
+    def test_a_block_re_headed_as_a_markdown_heading_still_passes(self, tmp_path):
+        """DSY.PA, 2026-09-23: the refine subagent copied the tables but
+        re-headed them `## …`; the check failed and the orchestrator
+        rewrote the dossier by hand mid-run."""
+        status, _ = _run(tmp_path, _ledger(), dossier=DOSSIER + self.BLOCKS.replace(
+            "--- FORENSIC BLOCK ---", "## 🔬 FORENSIC BLOCK"))
+        assert status["passthrough:FORENSIC BLOCK"] == "OK"
+
+    def test_a_block_only_mentioned_in_prose_still_fails(self, tmp_path):
+        status, _ = _run(tmp_path, _ledger(), dossier=DOSSIER + self.BLOCKS.replace(
+            "--- FORENSIC BLOCK ---", "See the FORENSIC BLOCK for share counts."))
+        assert status["passthrough:FORENSIC BLOCK"] == "FAIL"
+
     def test_job_cuts_does_not_engage_jobs(self, tmp_path):
         prose = ("Bezos, Buffett, Burry, Cook, the Psychologist, Sherlock, the Futurist, "
                   "the Biologist, the Historian, the Anthropologist and Lynch agree the layoffs "
@@ -1401,3 +1414,4 @@ class TestTheSkillIsAnIndexPlusOneFilePerStep:
         text = open(self.INDEX, encoding="utf-8").read()
         assert "Read the step file with the Read tool when you reach it" in text
         assert "never read ahead" in text
+

@@ -1415,3 +1415,19 @@ class TestTheSkillIsAnIndexPlusOneFilePerStep:
         assert "Read the step file with the Read tool when you reach it" in text
         assert "never read ahead" in text
 
+
+class TestLongCodexCallsStayInTheForeground:
+    """DSY.PA and NVO, 2026-09-23: the orchestrator ran the Codex memo with a
+    300s Bash timeout, the tool moved it to the background, the turn ended,
+    and the headless process exited — a resume and a context reload each run."""
+
+    def _rules(self):
+        return open(os.path.join(_ROOT, "skills", "analyze-company.md"), encoding="utf-8").read() \
+            .split("## RULES FOR EVERY STEP", 1)[1].split("### Step 0", 1)[0]
+
+    def test_every_codex_call_gets_the_ten_minute_bash_timeout(self):
+        assert "`timeout` of 600000" in self._rules()
+
+    def test_a_backgrounded_call_is_waited_for_before_the_turn_ends(self):
+        rules = self._rules()
+        assert "moved to the background" in rules and "never end your turn" in rules

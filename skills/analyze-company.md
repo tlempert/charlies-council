@@ -45,6 +45,8 @@ along on every remaining turn of the run.
 
 **Codex binary and models are both pinned explicitly.** Use `$CX` (`/Applications/ChatGPT.app/Contents/Resources/codex`), NOT the `codex` on PATH — the Homebrew build is far older and rejects current models. Models are pinned rather than inherited from `~/.codex/config.toml`, otherwise retuning Codex for coding work would silently change investment output. Condense steps use `gpt-5.6-luna` (clear, repeatable extraction) at low effort; the Step 4 experts use `gpt-5.6-sol` (deep analysis) at high effort. Do not substitute `gpt-5.4` / `gpt-5.4-mini` — both retire from Codex on 2026-08-31.
 
+**Every Bash call that runs `codex exec` gets a `timeout` of 600000** (the tool's maximum) — a `$CX` call on a full memo input runs past five minutes. If a command is still moved to the background, wait for it in the foreground with a Bash loop that polls for its output file (also `timeout` 600000) and **never end your turn while it is outstanding**: this run is headless, and a turn that ends exits the process (DSY.PA and NVO, 2026-09-23: a 300s timeout backgrounded the memo, the turn ended, and each run paid a resume and a context reload).
+
 **Never trust `codex exec`'s exit code.** It has returned 0 when the model call failed outright (writing an empty output file) and 1 at a usage limit. Every fallback below keys on the output file being non-empty, never on `$?`.
 
 ### Step 0: Validate

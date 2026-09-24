@@ -47,7 +47,7 @@ def status(path):
     return f"{len(_rows(text))} tickers" + (f", updated {updated.group(1)}" if updated else "")
 
 
-DECISIONS = ("BUY", "WAIT", "HOLD", "PASS", "SELL")
+DECISIONS = ("STRONG BUY", "BUY", "WAIT", "HOLD", "PASS", "SELL")
 SORT_KEYS = ("ticker", "decision", "date", "runs")
 _NEWEST_FIRST = ("date", "runs")
 _SORT_VALUES = {

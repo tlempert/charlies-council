@@ -13,6 +13,7 @@ import signal
 import subprocess
 import threading
 import time
+import urllib.parse
 import uuid
 from pathlib import Path
 
@@ -302,6 +303,13 @@ class Runner(threading.Thread):
     def _report_url(self, ticker):
         return f"{REPORT_BASE}/{ticker}.html" \
             if (self.repo_root / "investor-reports" / f"{ticker}.html").exists() else None
+
+
+def memo_url(ticker):
+    """The published memo page, when the run that wrote it got as far as deploying one."""
+    if (REPO_ROOT / "investor-reports" / f"{ticker}_memo.html").exists():
+        return f"{REPORT_BASE}/{urllib.parse.quote(ticker)}_memo.html"
+    return None
 
 
 def _last_rate_limit(events_path):

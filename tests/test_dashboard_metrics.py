@@ -149,6 +149,26 @@ class TestGateAndVerdict:
             "VERDICT: BUY\n", encoding="utf-8")
         assert metrics.compute("ADBE", JOB, RESULT_EVENT)["verdict"] == "WAIT"
 
+    def test_a_strong_buy_is_read_as_both_words(self, run_folder):
+        (run_folder / "verdict.md").write_text("**VERDICT: STRONG BUY** — under the floor.\n", encoding="utf-8")
+        assert metrics.compute("ADBE", JOB, RESULT_EVENT)["verdict"] == "STRONG BUY"
+
+    def test_munger_s_decision_outranks_an_expert_s_verdict_line(self, run_folder):
+        # ZTS 2026-09-24: an expert's "VERDICT: PASS" came first; Munger decided WAIT
+        (run_folder / "verdict.md").write_text(
+            "=== EXPERT: warren_buffett ===\nVERDICT: PASS\n\n---\n\n"
+            "## EXECUTIVE SUMMARY (distilled from synthesis above)\n\n**Decision:** WAIT\n",
+            encoding="utf-8")
+        assert metrics.compute("ADBE", JOB, RESULT_EVENT)["verdict"] == "WAIT"
+
+    def test_too_uncertain_is_read_as_both_words(self, run_folder):
+        (run_folder / "verdict.md").write_text("**Decision:** TOO UNCERTAIN\n", encoding="utf-8")
+        assert metrics.compute("ADBE", JOB, RESULT_EVENT)["verdict"] == "TOO UNCERTAIN"
+
+    def test_a_strong_buy_decision_is_read_as_both_words(self, run_folder):
+        (run_folder / "verdict.md").write_text("**Decision:** STRONG BUY\n", encoding="utf-8")
+        assert metrics.compute("ADBE", JOB, RESULT_EVENT)["verdict"] == "STRONG BUY"
+
     def test_a_memo_with_no_verdict_line_yields_no_verdict(self, run_folder):
         (run_folder / "verdict.md").write_text("no conclusion here", encoding="utf-8")
         assert metrics.compute("ADBE", JOB, RESULT_EVENT)["verdict"] is None

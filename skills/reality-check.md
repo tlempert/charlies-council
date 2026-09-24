@@ -13,6 +13,8 @@ Review the "Silicon Council" investment memo. Your job is to be the Red Team. Yo
 | **MODERATE** | Imprecise, mislabelled, or overstated; a careful reader would object | Fix if cheap |
 | **MINOR** | Cosmetic | Note and move on |
 
+**A STRONG BUY is held to its four conditions** (price at or below the floor, High conviction, no SEVERE moat flag, 7+ BUY votes; munger-synthesis.md). A STRONG BUY that misses any of them, or one whose floor rests on a number you mark MAJOR or worse, is FATAL: the correction is to publish as BUY.
+
 A judgment call you would merely argue differently is MAJOR at most. FATAL is reserved for defects where the memo's own rules, read honestly, do not reach its own conclusion.
 
 **End every review with one of these two lines, verbatim:**

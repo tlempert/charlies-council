@@ -11,6 +11,7 @@ import pytest
 
 from dashboard import app as app_mod
 from dashboard import progress
+from dashboard import runner as runner_mod
 from dashboard import store as store_mod
 from tests.test_dashboard_auth import PASSWORD, _Client
 
@@ -57,6 +58,17 @@ def council_root(tmp_path, monkeypatch):
     (root / "ADBE" / "manifest.json").write_text(json.dumps(MANIFEST), encoding="utf-8")
     monkeypatch.setenv("COUNCIL_ROOT", str(root))
     return root
+
+
+@pytest.fixture
+def published_memo(tmp_path, monkeypatch):
+    """A repo whose investor-reports folder holds one memo page — the named ticker's."""
+    monkeypatch.setattr(runner_mod, "REPO_ROOT", tmp_path)
+    (tmp_path / "investor-reports").mkdir()
+
+    def publish(ticker):
+        (tmp_path / "investor-reports" / f"{ticker}_memo.html").write_text("<p>memo</p>")
+    return publish
 
 
 @pytest.fixture
@@ -194,6 +206,19 @@ class TestTheJobPage:
         finish_the_pipeline(council_root)
         store.finish(job_id, "done", report_url="https://example.test/ADBE.html")
         assert "https://example.test/ADBE.html" in client.get(f"/jobs/{job_id}")[1]
+
+    def test_the_memo_is_linked_beside_the_report_once_it_is_published(
+            self, client, store, job_id, council_root, published_memo):
+        finish_the_pipeline(council_root)
+        store.finish(job_id, "done", report_url="https://example.test/ADBE.html")
+        published_memo("ADBE")
+        assert "https://tlempert.github.io/investor-reports/ADBE_memo.html" in client.get(f"/jobs/{job_id}")[1]
+
+    def test_a_run_without_a_memo_page_offers_no_memo_link(
+            self, client, store, job_id, council_root, published_memo):
+        finish_the_pipeline(council_root)
+        store.finish(job_id, "done", report_url="https://example.test/ADBE.html")
+        assert "_memo.html" not in client.get(f"/jobs/{job_id}")[1]
 
     def test_a_job_that_never_existed_is_a_404(self, client):
         assert client.get("/jobs/deadbeef")[0] == 404
@@ -375,7 +400,7 @@ class TestTheAnalyzedList:
 
     def test_the_section_is_collapsed_and_says_how_much_corpus_there_is(self, client):
         body = client.get("/")[1]
-        assert "<details>" in body and "</details>" in body
+        assert "<details id=analyzed>" in body and "</details>" in body
         assert "5 tickers, updated 2026-09-05" in body
 
     def test_every_analyzed_ticker_is_listed_with_its_verdict(self, client):
@@ -387,6 +412,12 @@ class TestTheAnalyzedList:
     def test_a_ticker_links_to_its_published_report(self, client):
         assert "https://tlempert.github.io/investor-reports/FLO.html" in client.get("/")[1]
 
+    def test_a_ticker_with_a_published_memo_links_to_it_too(self, client, published_memo):
+        published_memo("ACN")
+        body = client.get("/")[1]
+        assert "https://tlempert.github.io/investor-reports/ACN_memo.html" in body
+        assert "FLO_memo.html" not in body
+
     def test_the_default_order_is_the_newest_analysis_first(self, client):
         body = client.get("/")[1]
         assert body.index("ACN.html") < body.index("INTC.html") < body.index("FLO.html")
@@ -395,6 +426,9 @@ class TestTheAnalyzedList:
         body = client.get("/")[1]
         assert "<span class=d-buy>BUY</span>" in body
         assert "<span class=d-wait>WAIT</span>" in body
+
+    def test_a_strong_buy_has_its_own_colour(self):
+        assert app_mod.verdict("STRONG BUY") == "<span class=d-strong>STRONG BUY</span>"
 
     def test_holdings_and_staleness_are_marked_without_emoji(self, client):
         body = client.get("/")[1]
@@ -419,12 +453,12 @@ class TestSortingAndFilteringTheAnalyzedList:
 
     def test_a_column_heading_links_to_itself_carrying_the_current_filter(self, client):
         body = client.get("/?decision=BUY")[1]
-        assert 'href="/?sort=ticker&amp;dir=asc&amp;decision=BUY"' in body
+        assert 'href="/?sort=ticker&amp;dir=asc&amp;decision=BUY#analyzed"' in body
 
     def test_the_column_being_sorted_says_which_way_and_offers_the_flip(self, client):
         body = client.get("/?sort=runs&dir=desc")[1]
         assert "Runs ▼" in body
-        assert 'href="/?sort=runs&amp;dir=asc"' in body
+        assert 'href="/?sort=runs&amp;dir=asc#analyzed"' in body
 
     def test_sorting_by_ticker_reorders_the_rows_alphabetically(self, client):
         body = client.get("/?sort=ticker&dir=asc")[1]
@@ -456,9 +490,34 @@ class TestSortingAndFilteringTheAnalyzedList:
         assert "INTC.html" in body and "ACN.html" in body
 
     def test_the_section_is_folded_away_until_something_is_asked_of_it(self, client):
-        assert "<details>" in client.get("/")[1]
-        assert "<details open>" in client.get("/?sort=ticker")[1]
-        assert "<details open>" in client.get("/?decision=BUY")[1]
+        assert "<details id=analyzed>" in client.get("/")[1]
+        assert "<details id=analyzed open>" in client.get("/?sort=ticker")[1]
+        assert "<details id=analyzed open>" in client.get("/?decision=BUY")[1]
+
+
+class TestThePageOnAPhone:
+    """A 375px screen: the page stays its own width, and re-sorting keeps your place."""
+
+    def test_every_table_scrolls_sideways_inside_its_own_box(self, client, store):
+        store.add_candidate("FLO", "manual", "a note")
+        store.enqueue("ADBE")
+        body = client.get("/")[1]
+        assert body.count("<table") == body.count("<div class=scroll><table") > 0
+
+    def test_low_value_columns_fold_away_on_a_narrow_screen(self, client):
+        body = client.get("/")[1]
+        assert "sm-hide" in body
+        assert "@media (max-width: 520px)" in body and ".sm-hide { display: none; }" in body
+
+    def test_a_sort_or_filter_link_lands_back_on_the_analyzed_list(self, client):
+        body = client.get("/")[1]
+        assert "<details id=analyzed" in body
+        assert "sort=date&amp;dir=asc#analyzed" in body
+        assert "decision=WAIT#analyzed" in body
+
+    def test_re_sorting_restores_the_scroll_position(self, client):
+        body = client.get("/")[1]
+        assert "data-keep-scroll" in body and "sessionStorage" in body
 
 
 class TestTheCandidateList:

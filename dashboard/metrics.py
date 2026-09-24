@@ -77,13 +77,21 @@ def _fallbacks(manifest):
 
 
 def _verdict(folder):
-    """The word after the memo's first `VERDICT:`, or None if it never got one."""
+    """Munger's `**Decision:**`, else the memo's first `VERDICT:` — an expert's
+    block can print its own VERDICT line above his — or None if neither."""
     try:
         text = (folder / "verdict.md").read_text(encoding="utf-8", errors="replace")
     except (OSError, ValueError):
         return None
-    for line in text.splitlines():
-        if "VERDICT:" in line:
-            word = line.split("VERDICT:", 1)[1].strip().strip("*_ ").split()
-            return word[0].strip("*_,.") if word else None
+    for marker in ("**Decision:**", "VERDICT:"):
+        for line in text.splitlines():
+            if marker in line:
+                return _verdict_word(line.split(marker, 1)[1])
     return None
+
+
+def _verdict_word(rest):
+    words = [w.strip("*_,.") for w in rest.strip().strip("*_ ").split()]
+    if " ".join(words[:2]) in ("STRONG BUY", "TOO UNCERTAIN"):
+        return " ".join(words[:2])
+    return words[0] if words else None

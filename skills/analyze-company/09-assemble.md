@@ -80,11 +80,12 @@ if memo:
 for k, v in paths.items():
     print(f"{k}: {v}")
 
-# Keep manifest.json — the dashboard runner reads it to know the pipeline
-# reached this step. Everything else in tmp is disposable now it's assembled.
+# Keep manifest.json and verdict.md — the dashboard runner reads the first to
+# know the pipeline reached this step and the second for the run's verdict.
+# Everything else in tmp is disposable now it's assembled.
 import shutil
 for name in os.listdir(tmp):
-    if name == "manifest.json":
+    if name in ("manifest.json", "verdict.md"):
         continue
     path = os.path.join(tmp, name)
     if os.path.isdir(path):

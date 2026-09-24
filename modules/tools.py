@@ -130,13 +130,16 @@ def _valuation_verdict(price, dcf_standard, dcf_opt):
     started following value the two disagreed: PTON printed "STRONG BUY (Below
     Conservative DCF)" at $5.38 while the table called its $2.75 anchor the
     conservative one. Compare against the same low/high the reader sees.
+
+    The labels describe where the price sits, never what to do: STRONG BUY is
+    the council's verdict, earned in pregate_check, not a DCF comparison.
     """
     low, high = sorted((dcf_standard, dcf_opt))
     if price < low:
-        return "✅ STRONG BUY (Below Conservative DCF)"
+        return "✅ Below conservative DCF"
     if price < high:
-        return "⚠️ SPECULATIVE BUY (Requires Growth/Owner Earn Thesis)"
-    return "❌ OVERVALUED (Above Optimistic DCF)"
+        return "⚠️ Between DCF anchors (needs a growth/owner-earnings thesis)"
+    return "❌ Above optimistic DCF"
 
 
 def _owner_earnings(operating_cash_flow, maintenance_capex, sbc):
@@ -3508,6 +3511,9 @@ def save_to_html(ticker, verdict, reports, simple_report=None, base_dir=None,
                 'subtitle': 'Structured summary unavailable — see full synthesis below',
                 'word': d or 'ANALYSIS',
             }
+        if d == 'STRONG BUY':
+            return {'color': '#15803D', 'bg': '#DCFCE7', 'icon': '✓✓',
+                    'subtitle': 'At or below the absurdly-cheap floor', 'word': 'STRONG BUY'}
         if d == 'BUY':
             return {'color': '#16A34A', 'bg': '#F0FDF4', 'icon': '✓',
                     'subtitle': 'At or below fair value limit', 'word': 'BUY'}

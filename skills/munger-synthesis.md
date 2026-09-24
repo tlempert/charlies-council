@@ -142,11 +142,22 @@ Without this framing, readers will misread the verdict as a product defect rathe
 
 **VALUATION DISCIPLINE FOR TOO UNCERTAIN VERDICTS:** When your verdict is TOO UNCERTAIN, do not cite point-estimate valuations for the scenario you declared uncalculable. Use conditional framing: "If [specific event] resolves favorably, normalized earnings of $X-$Y at Z-Wx multiples imply $A-$B per share." Never state a single valuation number without naming the assumption it depends on. The report is strongest when humble, weakest when it slips into precision on the very variable it declared unknowable.
 
+## STRONG BUY — A BUY THE WHOLE COUNCIL STANDS BEHIND, AT THE FLOOR
+
+STRONG BUY is BUY plus four conditions. Every one must hold; if any fails, the verdict is BUY.
+
+1. **Price at or below the absurdly-cheap floor** — the bottom of the Munger Buy Zone, not merely under the fair-value limit.
+2. **Conviction High** — the same word in the EXECUTIVE SUMMARY and `sizing_basis.conviction`.
+3. **No SEVERE moat flag** from any expert.
+4. **At least 7 of 12 experts vote BUY.**
+
+The Reality Check must also pass with 0 FATAL. `scripts/pregate_check.py` checks 1–4 against the model ledger and the summary blocks and fails a STRONG BUY that misses any of them. It is rare by design: a verdict that says "pound the table" has to survive the most hostile reading of its own numbers. Name the condition that came closest to failing.
+
 ## FINAL DECISION SECTION (IN THE PROSE SYNTHESIS)
 
 Include these fields as natural paragraphs in your prose synthesis:
 
-- **Decision:** BUY / WAIT / HOLD / PASS / SELL / TOO UNCERTAIN
+- **Decision:** STRONG BUY / BUY / WAIT / HOLD / PASS / SELL / TOO UNCERTAIN
 - **Moat Tribunal Result:** [Strong/Uncertain/Decaying] — list which experts agreed and disagreed
 - **The "Munger Buy Zone":** $[Absurdly Cheap] - $[Fair Value Limit]
   - Explicitly state if you adjusted the Floor for Moat Quality or the Ceiling for Hidden Value
@@ -162,8 +173,8 @@ After your complete prose synthesis, add a `---` horizontal rule and then this e
 
 ## EXECUTIVE SUMMARY (distilled from synthesis above)
 
-**Decision:** [BUY | WAIT | HOLD | PASS | SELL | TOO UNCERTAIN]
-**Trigger:** [For WAIT: "Buy anywhere ≤ $X (absurdly cheap floor $Y | fair value limit $X)" | For BUY: "At current price" | For others: "none" or the key evidence that would change the decision]
+**Decision:** [STRONG BUY | BUY | WAIT | HOLD | PASS | SELL | TOO UNCERTAIN]
+**Trigger:** [For WAIT: "Buy anywhere ≤ $X (absurdly cheap floor $Y | fair value limit $X)" | For BUY: "At current price" | For STRONG BUY: "At current price (at or below the $Y floor)" | For others: "none" or the key evidence that would change the decision]
 **Conviction:** [High | Moderate | Low | Too Uncertain]
 **Council Vote:** [N BUY, N HOLD, N PASS, N SELL]
 **Thesis in One Sentence:** [The single sentence that captures the entire judgment]

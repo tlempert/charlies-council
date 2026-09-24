@@ -442,6 +442,62 @@ class TestPregate:
         assert detail.startswith("3 expert")
 
 
+def _council(buys, severe=0):
+    """Twelve summary blocks: the first `buys` vote BUY, the first `severe` flag the moat SEVERE."""
+    names = ["jeff_bezos", "warren_buffett", "michael_burry", "tim_cook", "steve_jobs", "psychologist",
+             "sherlock", "futurist", "biologist", "historian", "anthropologist", "lynch"]
+    return "".join(
+        f"=== EXPERT: {n} ===\n---SUMMARY---\nVERDICT: {'BUY' if i < buys else 'HOLD'}\nCONFIDENCE: 80\n"
+        f"KEY METRIC: m\nTRIGGER PRICE: at or below current\nPOSITION SIZE: {'4%' if i < buys else '0%'}\n"
+        f"KEY RISK: r\nBULL CASE: b\nMOAT FLAG: {'SEVERE' if i < severe else 'MODERATE'}\n---END SUMMARY---\n\n"
+        for i, n in enumerate(names))
+
+
+def _strong_buy(**over):
+    """A STRONG BUY at $170, under a $175 floor, High conviction — every criterion met."""
+    return _ledger(**{"price": 170.0, "verdict": "STRONG BUY", "position_pct": 5,
+                      "sizing_basis": {"conviction": "High", "unresolved": [], "cap_pct": 6}, **over})
+
+
+class TestPregateStrongBuy:
+    """STRONG BUY is a BUY at or under the absurdly-cheap floor that the whole
+    council stands behind. The dossier's old mechanical STRONG BUY label stamped
+    PTON at 37x GAAP; this one has to be earned on every count."""
+
+    def test_a_strong_buy_meeting_every_criterion_passes(self, tmp_path):
+        status, _ = _run(tmp_path, _strong_buy(), summaries=_council(buys=8))
+        assert status["strong_buy"] == "OK"
+
+    def test_a_strong_buy_priced_above_its_floor_fails(self, tmp_path):
+        status, _ = _run(tmp_path, _strong_buy(price=200.0), summaries=_council(buys=8))
+        assert status["strong_buy"] == "FAIL"
+
+    def test_a_strong_buy_without_high_conviction_fails(self, tmp_path):
+        led = _strong_buy(sizing_basis={"conviction": "Moderate", "unresolved": [], "cap_pct": 3})
+        status, _ = _run(tmp_path, led, summaries=_council(buys=8))
+        assert status["strong_buy"] == "FAIL"
+
+    def test_a_strong_buy_without_a_buy_majority_of_seven_fails(self, tmp_path):
+        status, _ = _run(tmp_path, _strong_buy(), summaries=_council(buys=6))
+        assert status["strong_buy"] == "FAIL"
+
+    def test_a_strong_buy_over_a_severe_moat_flag_fails(self, tmp_path):
+        status, _ = _run(tmp_path, _strong_buy(), summaries=_council(buys=8, severe=1))
+        assert status["strong_buy"] == "FAIL"
+
+    def test_a_strong_buy_with_no_position_fails(self, tmp_path):
+        status, _ = _run(tmp_path, _strong_buy(position_pct=0), summaries=_council(buys=8))
+        assert status["position"] == "FAIL"
+
+    def test_a_strong_buy_above_its_ceiling_fails_the_geometry_like_a_buy(self, tmp_path):
+        status, _ = _run(tmp_path, _strong_buy(price=292.79), summaries=_council(buys=8))
+        assert status["geometry"] == "FAIL"
+
+    def test_a_plain_buy_is_not_held_to_the_strong_buy_bar(self, tmp_path):
+        status, _ = _run(tmp_path, _ledger(price=250.0, verdict="BUY", position_pct=2))
+        assert "strong_buy" not in status
+
+
 class TestPregateRequiredGrowth:
     """Action item 8: the required-growth table is arithmetic on price, owner_eps,
     hurdle and each row's multiple — the pre-gate recomputes it and FAILs drift."""
@@ -595,7 +651,7 @@ class TestTheSkillMarksEveryStepTwice:
         assert text.count(done) == 1
         assert "shutil.rmtree(tmp" not in text
         step8 = text.split("# Step 8 — Assemble", 1)[1].split("### Step 8.5", 1)[0]
-        assert 'name == "manifest.json"' in step8
+        assert 'name in ("manifest.json", "verdict.md")' in step8   # the dashboard reads both
         assert step8.index("PYEOF") < step8.index(done)
 
 

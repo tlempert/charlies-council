@@ -82,6 +82,10 @@ class TestSortingTheTable:
         assert [r["ticker"] for r in corpus.sort_rows(rows, "decision", "asc")] == \
             ["C", "E", "B", "D", "A"]
 
+    def test_a_strong_buy_ranks_above_a_buy(self):
+        rows = [_row("A", "BUY"), _row("B", "STRONG BUY")]
+        assert [r["ticker"] for r in corpus.sort_rows(rows, "decision", "asc")] == ["B", "A"]
+
     def test_a_verdict_the_council_does_not_use_sorts_below_the_ones_it_does(self):
         rows = [_row("A", "MAYBE"), _row("B", "SELL"), _row("C", "BUY")]
         assert [r["ticker"] for r in corpus.sort_rows(rows, "decision", "asc")] == ["C", "B", "A"]

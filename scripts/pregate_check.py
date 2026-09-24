@@ -18,7 +18,9 @@ import re
 import sys
 
 TAG_RE = re.compile(r"\[(SEC|CALC|MEDIA|SEARCH)\b|JUDGMENT|DERIVED")   # accepts "[SEARCH per Finsee]" as the dossier writes it
-VERDICTS = ("BUY", "WAIT", "HOLD", "PASS", "SELL", "TOO UNCERTAIN")
+VERDICTS = ("STRONG BUY", "BUY", "WAIT", "HOLD", "PASS", "SELL", "TOO UNCERTAIN")
+BUYS = ("STRONG BUY", "BUY")
+STRONG_BUY_MAJORITY = 7   # of twelve experts
 # Jobs and Cook are also common English words ("added 200 jobs", "will cook up"); match
 # those two case-sensitively so ordinary prose doesn't falsely engage the expert.
 EXPERT_NAME_PATTERNS = {"jeff_bezos": (r"bezos", re.I), "warren_buffett": (r"buffett", re.I), "michael_burry": (r"burry", re.I),
@@ -52,13 +54,34 @@ def summaries_from(text):
         v = re.search(r"^VERDICT:\s*([A-Z ]+?)\s*$", body, re.M)
         t = re.search(r"^TRIGGER PRICE:\s*(.*)$", body, re.M)
         p = re.search(r"^POSITION SIZE:\s*(.*)$", body, re.M)
+        m = re.search(r"^MOAT FLAG:\s*([A-Z]+)", body, re.M)
         trig = _prices(t.group(1)) if t else []
         pos_text = p.group(1) if p else ""
         pos = 0.0 if re.search(r"\bZERO\b", pos_text, re.I) else \
             (float(re.search(r"(\d+\.?\d*)\s*%", pos_text).group(1)) if re.search(r"(\d+\.?\d*)\s*%", pos_text) else None)
         out.append({"expert": name, "verdict": (v.group(1).strip() if v else ""),
-                    "trigger_prices": trig, "position_pct": pos})
+                    "trigger_prices": trig, "position_pct": pos, "moat_flag": m.group(1) if m else ""})
     return out
+
+
+def _strong_buy_check(ledger, price, floor, summaries):
+    """At or under the absurdly-cheap floor, High conviction, no SEVERE moat flag,
+    and a BUY majority of seven. Reality Check owns the no-FATAL condition."""
+    unmet = []
+    if None in (price, floor) or price > floor:
+        unmet.append(f"price {price} above floor {floor}")
+    conviction = ((ledger.get("sizing_basis") or {}).get("conviction") or "").strip()
+    if conviction.lower() != "high":
+        unmet.append(f"conviction {conviction or 'missing'}, not High")
+    severe = [s["expert"] for s in summaries if s["moat_flag"] == "SEVERE"]
+    if severe:
+        unmet.append(f"SEVERE moat flag from {severe}")
+    buys = sum(1 for s in summaries if s["verdict"] in BUYS)
+    if buys < STRONG_BUY_MAJORITY:
+        unmet.append(f"{buys} BUY votes, fewer than {STRONG_BUY_MAJORITY}")
+    if unmet:
+        return "FAIL", "strong_buy", "; ".join(unmet) + " — publish as BUY"
+    return "OK", "strong_buy", f"price {price} ≤ floor {floor}, High conviction, {buys} BUY votes, no SEVERE flag"
 
 
 def _prices(text):
@@ -147,8 +170,8 @@ def run_checks(d):
 
     # 2. verdict ↔ price geometry
     if None not in (price, ceiling):
-        if verdict_word == "BUY" and price > ceiling:
-            add("FAIL", "geometry", f"BUY with price {price} above ceiling {ceiling}")
+        if verdict_word in BUYS and price > ceiling:
+            add("FAIL", "geometry", f"{verdict_word} with price {price} above ceiling {ceiling}")
         elif verdict_word == "WAIT" and price <= ceiling:
             add("FAIL", "geometry", f"WAIT with price {price} at or below ceiling {ceiling} — that is a BUY by the memo's own rule")
         else:
@@ -160,12 +183,16 @@ def run_checks(d):
 
     # 3. position ↔ verdict
     if pos is not None:
-        if verdict_word == "BUY" and pos <= 0:
-            add("FAIL", "position", "BUY with 0% position")
+        if verdict_word in BUYS and pos <= 0:
+            add("FAIL", "position", f"{verdict_word} with 0% position")
         elif verdict_word in ("WAIT", "PASS", "TOO UNCERTAIN") and pos > 0:
             add("FAIL", "position", f"{verdict_word} with a {pos}% position")
         else:
             add("OK", "position", f"{verdict_word} sized {pos}%")
+
+    # 3a. STRONG BUY is earned on every count, not asserted
+    if verdict_word == "STRONG BUY":
+        add(*_strong_buy_check(L, price, floor, summaries))
 
     # 3b. required-growth table — every row is arithmetic, recompute and check it
     rg = L.get("required_growth")
@@ -209,7 +236,7 @@ def run_checks(d):
             add("OK", "tally", f"{tally}")
 
         # 5. position-size column: how many experts prescribe a non-zero long at the current price
-        longs = [s["expert"] for s in summaries if s["verdict"] == "BUY" and (s["position_pct"] or 0) > 0]
+        longs = [s["expert"] for s in summaries if s["verdict"] in BUYS and (s["position_pct"] or 0) > 0]
         add("INFO", "buyers_at_price", f"{len(longs)} expert(s) both vote BUY and size >0: {longs}")
 
         # 6. trigger-price echo: E ÷ r
@@ -237,8 +264,9 @@ def run_checks(d):
 
     # 7. pass-through blocks: present verbatim or declared absent (NXPI 2026-08-21, registry F14)
     for block in ("FORENSIC BLOCK", "BUYBACK ANALYSIS", "WORKING CAPITAL", "LATEST QUARTER", "CASH CONVERSION"):
-        if (re.search(rf"--- .*{re.escape(block)}|^#{{1,6}} .*{re.escape(block)}", dossier, re.M)
-                or re.search(rf"{re.escape(block)}[^\n:]*:\s*not present", dossier, re.I)):
+        block_pat = re.escape(block).replace(r"\ ", "[ -]")  # refine-dossier.md's own heading is hyphenated ("LATEST-QUARTER DISCIPLINE")
+        if (re.search(rf"--- .*{block_pat}|^#{{1,6}} .*{block_pat}", dossier, re.M)
+                or re.search(rf"{block_pat}[^\n:]*:\s*not present", dossier, re.I)):
             add("OK", f"passthrough:{block}", "present or declared absent")
         else:
             add("FAIL", f"passthrough:{block}", "neither passed through nor declared 'not present in the raw dossier'")

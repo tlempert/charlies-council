@@ -264,6 +264,14 @@ class TestSaveToHtml:
         assert result["html"].endswith(".html")
         assert os.path.isfile(result["html"])
 
+    def test_a_strong_buy_gets_its_own_hero_badge(self, tmp_path):
+        verdict = ("Prose.\n\n---\n\n## EXECUTIVE SUMMARY (distilled from synthesis above)\n\n"
+                   "**Decision:** STRONG BUY\n**Trigger:** At current price (at or below the $80 floor)\n"
+                   "**Conviction:** High\n**Council Vote:** 9 BUY, 3 HOLD\n**Thesis in One Sentence:** Cheap.\n")
+        content = open(self._save(tmp_path, verdict=verdict)["html"], encoding="utf-8").read()
+        assert "STRONG BUY" in content
+        assert "At or below the absurdly-cheap floor" in content
+
     def test_html_is_valid_structure(self, tmp_path):
         result = self._save(tmp_path)
         content = open(result["html"], encoding="utf-8").read()
@@ -1811,19 +1819,22 @@ def _verdict(price, dcf_standard, dcf_opt):
     return _valuation_verdict(price, dcf_standard, dcf_opt)
 
 
-def test_calls_it_strong_buy_only_below_the_LOWER_anchor():
+def test_below_conservative_means_below_the_LOWER_anchor():
     # PTON post-SBC: owner-earnings DCF $2.75, FCF DCF $10.03, price $5.38.
     # The table labels $2.75 CONSERVATIVE, so "below Conservative" must mean
     # below $2.75 — not below the $10.03 the old code compared against.
-    assert "SPECULATIVE" in _verdict(5.38, 10.03, 2.75)
+    assert "Between DCF anchors" in _verdict(5.38, 10.03, 2.75)
 
 
-def test_strong_buy_when_genuinely_below_both():
-    assert "STRONG BUY" in _verdict(2.00, 10.03, 2.75)
+def test_below_both_anchors_says_so_without_borrowing_a_council_verdict():
+    # STRONG BUY is the council's word now; the dossier's DCF line must not use it
+    label = _verdict(2.00, 10.03, 2.75)
+    assert "Below conservative DCF" in label
+    assert "BUY" not in label
 
 
-def test_overvalued_when_above_both():
-    assert "OVERVALUED" in _verdict(12.00, 10.03, 2.75)
+def test_above_optimistic_when_above_both():
+    assert "Above optimistic DCF" in _verdict(12.00, 10.03, 2.75)
 
 
 def test_does_not_depend_on_which_basis_produced_which_anchor():

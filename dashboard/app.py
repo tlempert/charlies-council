@@ -170,6 +170,7 @@ form.inline { display: inline; margin: 0; }
 form.inline button { padding: .2rem .5rem; font-size: .75rem; font-weight: 500;
                      white-space: nowrap; border-color: rgba(128,128,128,.3); }
 .d-buy, td.done, a.done { color: #2e9e5b; }
+.d-strong { color: #1f7a45; font-weight: 700; }
 .d-wait, td.running, a.running { color: #b8860b; }
 .d-hold { color: #6b7f99; }
 .d-pass, .d-sell, td.failed, a.failed { color: #c0392b; }
@@ -184,6 +185,7 @@ td.stale { opacity: .5; }
 .chips span.on { background: rgba(128,128,128,.18); border-color: transparent; opacity: 1; }
 @media (prefers-color-scheme: dark) {
   .d-buy, td.done, a.done { color: #5ad08a; }
+  .d-strong { color: #7ee2a4; }
   .d-wait, td.running, a.running { color: #e0b341; }
   .d-hold { color: #9fb0c7; }
   .d-pass, .d-sell, td.failed, a.failed { color: #ef6a5c; }
@@ -196,7 +198,12 @@ td.stale { opacity: .5; }
   .fail, .experts span.failed { color: #ef6a5c; }
   .running, td.started, td.partial { color: #e0b341; }
 }
+.scroll { overflow-x: auto; -webkit-overflow-scrolling: touch; }
 @media (max-width: 520px) {
+  body { padding: .75rem; }
+  table { font-size: .82rem; }
+  th, td { padding: .45rem .3rem; }
+  .sm-hide { display: none; }
   ol.track { flex-wrap: wrap; }
   ol.track li { flex: 0 0 20%; }
   .experts { grid-template-columns: repeat(3, 1fr); }
@@ -252,7 +259,7 @@ def login_page(message=""):
                 'autocomplete="current-password"><button>Enter</button></form>', nav=False)
 
 
-_DECISION_CLASS = {"BUY": "d-buy", "WAIT": "d-wait", "HOLD": "d-hold",
+_DECISION_CLASS = {"STRONG BUY": "d-strong", "BUY": "d-buy", "WAIT": "d-wait", "HOLD": "d-hold",
                    "PASS": "d-pass", "SELL": "d-sell"}
 
 
@@ -272,8 +279,8 @@ _BAR_CLASS = {"done": "done", "failed": "failed", "started": "running", "partial
 def index_page(store, corpus_path, message="", params=None):
     note = f"<p class=err>{e(message)}</p>" if message else ""
     rows = "".join(_run_row(store, job) for job in store.list_jobs(50))
-    table = ("<table><tr><th>Ticker<th>State<th>Step / verdict<th class=nw>Elapsed<th></tr>"
-             + rows + "</table>") if rows else "<p class=muted>Nothing has run yet.</p>"
+    table = ("<div class=scroll><table><tr><th>Ticker<th>State<th>Step / verdict<th class=nw>Elapsed<th></tr>"
+             + rows + "</table></div>") if rows else "<p class=muted>Nothing has run yet.</p>"
     return page("Silicon Council",
                 "<h1>Silicon Council</h1>" + note +
                 '<form class=row method="post" action="/jobs">'
@@ -281,7 +288,7 @@ def index_page(store, corpus_path, message="", params=None):
                 'autocorrect=off spellcheck=false><button>Analyze</button></form>'
                 "<h2>Runs</h2>" + table +
                 "<h2>Candidates</h2>" + DISCOVER_FORM + candidates_section(store) +
-                "<h2>Analyzed</h2>" + analyzed_section(corpus_path, params))
+                "<h2>Analyzed</h2>" + analyzed_section(corpus_path, params) + KEEP_SCROLL_JS)
 
 
 def _run_row(store, job):
@@ -319,16 +326,17 @@ def candidates_section(store):
             state = (f"<a href=\"/jobs/{e(c['job_id'])}\" class={e(state)}>{e(state)}</a>")
         path = "/candidates/" + urllib.parse.quote(c["ticker"])
         rows.append(f"<tr><td class=nw><b>{e(c['ticker'])}</b></td>"
-                    f"<td class=muted>{e(c['source'] or '—')}</td>"
+                    f"<td class=\"muted sm-hide\">{e(c['source'] or '—')}</td>"
                     f"<td>{e(c['note'] or '')}</td>"
-                    f'<td class="nw muted">{_day(c["added_at"])}</td>'
+                    f'<td class="nw muted sm-hide">{_day(c["added_at"])}</td>'
                     f"<td class=nw>{state}</td>"
                     f'<td class=nw><form class=inline method="post" action="{e(path)}/analyze">'
                     "<button>Analyze</button></form> "
                     f'<form class=inline method="post" action="{e(path)}/remove">'
                     "<button>Remove</button></form></td></tr>")
-    table = ("<table><tr><th>Ticker<th>Source<th>Note<th class=nw>Added<th>State<th></tr>"
-             + "".join(rows) + "</table>") if rows else \
+    table = ("<div class=scroll><table><tr><th>Ticker<th class=sm-hide>Source<th>Note"
+             "<th class=\"nw sm-hide\">Added<th>State<th></tr>"
+             + "".join(rows) + "</table></div>") if rows else \
         "<p class=muted>Nothing is waiting. Ideas land here from find-candidates and scan-vic.</p>"
     return ('<form class=row method="post" action="/candidates">'
             '<input type=text name=ticker placeholder="TICKER" autocapitalize=characters '
@@ -348,10 +356,10 @@ def analyzed_section(corpus_path, params=None):
     everything = corpus.load(corpus_path)
     rows = "".join(_analyzed_row(r)
                    for r in corpus.sort_rows(corpus.filter_rows(everything, decision), key, direction))
-    table = (f"<table><tr>{_analyzed_header(key, direction, decision)}</tr>{rows}</table>") if rows \
+    table = (f"<div class=scroll><table><tr>{_analyzed_header(key, direction, decision)}</tr>{rows}</table></div>") if rows \
         else "<p class=muted>No analyses to show.</p>"
     opened = " open" if any(params.get(p) for p in ("sort", "dir", "decision")) else ""
-    return (f"<details{opened}><summary>{e(corpus.status(corpus_path))}</summary>"
+    return (f"<details id=analyzed{opened}><summary>{e(corpus.status(corpus_path))}</summary>"
             f"{_chips(everything, key, direction, decision)}{table}</details>")
 
 
@@ -361,13 +369,18 @@ def _analyzed_row(r):
         else f'<td class="nw muted">{e(r["date"])}</td>'
     return (f'<tr><td class=nw>{held}'
             f'<a href="{e(runner.REPORT_BASE)}/{e(urllib.parse.quote(r["ticker"]))}.html">'
-            f"<b>{e(r['ticker'])}</b></a></td>"
-            f"<td class=nw>{verdict(r['decision'])}</td><td class=nw>{e(r['delta'])}</td>"
+            f"<b>{e(r['ticker'])}</b></a>{_memo_link(r['ticker'])}</td>"
+            f"<td class=nw>{verdict(r['decision'])}</td><td class=\"nw sm-hide\">{e(r['delta'])}</td>"
             f"<td>{e(r['buy_zone'])}</td><td class=nw>{e(r['price'])}</td>{date}"
-            f"<td class=nw>{e(r['runs'])}</td>"
+            f"<td class=\"nw sm-hide\">{e(r['runs'])}</td>"
             f'<td class=nw><form class=inline method="post" action="/jobs">'
             f'<input type=hidden name=ticker value="{e(r["ticker"])}"><button>Re-run</button>'
             "</form></td></tr>")
+
+
+def _memo_link(ticker):
+    memo = runner.memo_url(ticker)
+    return f' <a class=muted href="{e(memo)}">memo</a>' if memo else ""
 
 
 def _analyzed_header(key, direction, decision):
@@ -379,8 +392,10 @@ def _analyzed_header(key, direction, decision):
             label += " ▼" if direction == "desc" else " ▲"
         else:
             target = corpus.sort_params(column, None)[1]
-        cells[column] = f'<th class=nw><a href="{_analyzed_link(column, target, decision)}">{label}</a></th>'
-    return (cells["ticker"] + cells["decision"] + "<th>Δ<th>Buy Zone<th class=nw>Price"
+        hide = " sm-hide" if column == "runs" else ""
+        cells[column] = (f'<th class="nw{hide}"><a data-keep-scroll '
+                         f'href="{_analyzed_link(column, target, decision)}">{label}</a></th>')
+    return (cells["ticker"] + cells["decision"] + "<th class=sm-hide>Δ<th>Buy Zone<th class=nw>Price"
             + cells["date"] + cells["runs"] + "<th>")
 
 
@@ -388,7 +403,7 @@ def _analyzed_link(column, target, decision):
     query = {"sort": column, "dir": target}
     if decision:
         query["decision"] = decision
-    return "/?" + e(urllib.parse.urlencode(query))
+    return "/?" + e(urllib.parse.urlencode(query)) + "#analyzed"
 
 
 def _chips(rows, key, direction, active):
@@ -398,9 +413,26 @@ def _chips(rows, key, direction, active):
             [(d, f"{d} ({counts[d]})") for d in corpus.DECISIONS if counts[d]]
     return "<p class=chips>" + "".join(
         f"<span class=on>{label}</span>" if d == active
-        else f'<a href="{_analyzed_link(key, direction, d)}">{label}</a>'
+        else f'<a data-keep-scroll href="{_analyzed_link(key, direction, d)}">{label}</a>'
         for d, label in chips) + "</p>"
 
+
+# A sort or filter reloads the page; put the reader back where they were, not at the top.
+KEEP_SCROLL_JS = """
+<script>
+addEventListener('click', function (ev) {
+  if (ev.target.closest('a[data-keep-scroll]')) {
+    try { sessionStorage.setItem('keepScroll', String(scrollY)); } catch (e) {}
+  }
+});
+addEventListener('load', function () {
+  try {
+    var y = sessionStorage.getItem('keepScroll');
+    if (y !== null) { sessionStorage.removeItem('keepScroll'); scrollTo(0, +y); }
+  } catch (e) {}
+});
+</script>
+"""
 
 POLL_JS = """
 <script>
@@ -464,7 +496,9 @@ def job_page(store, job):
                  f'<form method="post" action="/jobs/{e(job["id"])}/resume" style="margin:.5rem 0">'
                  "<button>Continue run</button></form>")
     elif job["report_url"]:
-        head += f'<p><a href="{e(job["report_url"])}"><b>Report →</b></a></p>'
+        memo = runner.memo_url(job["ticker"])
+        head += (f'<p><a href="{e(job["report_url"])}"><b>Report →</b></a>'
+                 + (f' · <a href="{e(memo)}"><b>Memo →</b></a>' if memo else "") + "</p>")
     elif job["state"] == "done" and not discover:
         head += f'<p><a href="/jobs/{e(job["id"])}/verdict"><b>Verdict →</b></a></p>'
     if job["error"]:
@@ -541,8 +575,8 @@ def _timings(steps, gate_passes):
         f"<td class=nw>{_clock(s['started'])}</td><td class=nw>{e(_step_time(s, gate_passes))}</td></tr>"
         for s in steps)
     return ("<details><summary>Timings</summary>"
-            "<table><tr><th>Step<th>Status<th class=nw>Started<th>Elapsed</tr>"
-            + rows + "</table></details>")
+            "<div class=scroll><table><tr><th>Step<th>Status<th class=nw>Started<th>Elapsed</tr>"
+            + rows + "</table></div></details>")
 
 
 def _clock(timestamp):
@@ -583,9 +617,9 @@ def metrics_page(store):
         f"<td>{e(m['num_turns'] or '—')}</td><td>{len(m['fallbacks'] or [])}</td>"
         f"<td>{e(m['gate_passes'] or 0)}</td><td>{e(m['resumes'] or 0)}</td>"
         f"<td>{e(m['stopped_at'] or '—')}</td></tr>" for m in store.all_metrics())
-    table = ("<table><tr><th>Ticker<th>Verdict<th>Wall<th>Cost<th>Turns<th>Fallbacks<th>Gate"
+    table = ("<div class=scroll><table><tr><th>Ticker<th>Verdict<th>Wall<th>Cost<th>Turns<th>Fallbacks<th>Gate"
              "<th>Resumes<th>Stopped</tr>"
-             + rows + "</table>") if rows else "<p class=muted>No runs measured yet.</p>"
+             + rows + "</table></div>") if rows else "<p class=muted>No runs measured yet.</p>"
     return page("Council — metrics",
                 "<h1>Metrics</h1>" + table +
                 '<p class=muted><a href="/metrics.jsonl">metrics.jsonl</a> — one row per run.</p>')

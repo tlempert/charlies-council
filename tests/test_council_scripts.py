@@ -1529,3 +1529,20 @@ class TestTheFranchiseBandReadsReturnsNotOnlyMargins:
 
     def test_the_return_on_capital_counts_acquired_goodwill(self):
         assert "goodwill" in self._criterion().lower()
+
+
+class TestAFinishedRunIsNeverResumed:
+    """YUMC 2026-09-26: the dashboard re-queued a ticker whose manifest was
+    complete. The headless session judged a rerun not worth it, asked the user
+    whether to reuse the old analysis, and exited in three minutes; the job
+    was marked done with the previous day's verdict."""
+
+    def _rule(self):
+        return skill_text().split("**Resume or clean slate.**", 1)[1].split("Every step below records itself twice", 1)[0]
+
+    def test_a_manifest_with_assemble_done_starts_a_clean_slate(self):
+        rule = self._rule()
+        assert "`assemble`" in rule and "clean slate" in rule
+
+    def test_the_skill_never_stops_to_ask_whether_to_rerun(self):
+        assert "never ask" in self._rule().lower()

@@ -59,7 +59,8 @@ Extract the ticker from the arguments. If no ticker was provided, ask the user f
 ./venv/bin/python3 scripts/council_manifest.py status {TICKER} 2>/dev/null | head -20 || true
 ```
 
-- If a manifest exists **from today** and the user did not ask for a fresh run, say which steps are already `done`, skip them, and continue from the first step that is not.
+- If the manifest shows `assemble` as `done`, that analysis is **finished**, not interrupted: start a clean slate (below), whatever its date. Being invoked again on a finished ticker *is* the request for a new analysis — never ask whether to reuse the old one; a dashboard run is headless and no one can answer (YUMC, 2026-09-26: the question ended the run in three minutes and the job reported yesterday's verdict).
+- Else, if a manifest exists **from today** and the user did not ask for a fresh run, say which steps are already `done`, skip them, and continue from the first step that is not.
 - Otherwise run `rm -rf /tmp/silicon_council/{TICKER}` (only this ticker's directory — other analyses are unaffected) and initialise: `./venv/bin/python3 scripts/council_manifest.py init {TICKER}`.
 
 Every step below records itself twice: `./venv/bin/python3 scripts/council_manifest.py step {TICKER} <step-name> started` the moment the step begins, and the same line with `done` when it completes — the dashboard times a step from the gap between them. Step names: `dossier`, `forensic`, `condense`, `refine`, `threats`, `experts`, `synthesis`, `gate`, `gate_pass1`, `gate_pass2`, `memo`, `reports`, `assemble`.

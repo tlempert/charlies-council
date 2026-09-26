@@ -54,7 +54,7 @@ You buy **anywhere at or below buy_zone_high**, not only within the range. A pri
 The default 10x-18x range assumes average-quality businesses. **Dominant platform monopolies with deep switching costs deserve higher multiples.** If ALL of the following are true, RAISE both the floor and ceiling:
 
 1. Moat Tribunal returned 0 SEVERE flags
-2. Operating margins >35% sustained over 3+ years
+2. Pricing power shows in the economics, sustained over 3+ years: operating margins >35% **OR** ROIC >20% with acquired goodwill and intangibles in invested capital. The ROIC route is for capital-light compounders whose moat is redeployment, not markup (serial acquirers, distributors, franchisors — CSU.TO failed the margin test at 15% on 2026-09-24). Goodwill stays in the denominator so an acquirer cannot qualify by writing its purchases off the balance sheet. Name which route qualified and cite the figure.
 3. Revenue >75% recurring (subscriptions, contracts)
 4. Switching costs are organizational (multi-month migration), not individual (one-click)
 

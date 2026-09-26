@@ -2639,3 +2639,69 @@ class TestHeroCardCurrency:
     def test_hero_defaults_to_dollars_without_a_currency(self, tmp_path):
         content = self._content(tmp_path, {"price": 371.6})
         assert '<div class="metric-value">$372</div>' in content
+
+
+# --- balance sheet: what the council can see, and what net debt the anchors use ---
+# YUMC 2026-09-25: the dossier printed no balance sheet, so Munger inferred the
+# cash pile from interest income (±$8/share), and the anchors netted $2.23B of
+# restaurant leases as debt against $0.49B of cash-equivalents only — ~$1.8B of
+# "net debt" on a company holding ~$1.3B net of its borrowings in cash alone.
+
+def _yumc_balance_sheet(**drop):
+    import pandas as pd
+    rows = {
+        "Total Debt": 2.296e9, "Capital Lease Obligations": 2.230e9,
+        "Cash And Cash Equivalents": 0.485e9, "Other Short Term Investments": 0.901e9,
+        "Cash Cash Equivalents And Short Term Investments": 1.386e9,
+        "Investmentin Financial Assets": 0.741e9,
+    }
+    for key in drop:
+        rows.pop(key)
+    return pd.DataFrame({pd.Timestamp("2026-06-30"): rows})
+
+
+class TestBalanceSheetPosition:
+    def test_leases_are_not_borrowings_and_short_term_investments_are_cash(self):
+        from modules.tools import balance_sheet_position
+        p = balance_sheet_position(_yumc_balance_sheet())
+        assert p["borrowings"] == pytest.approx(0.066e9)
+        assert p["leases"] == pytest.approx(2.230e9)
+        assert p["cash_and_st_investments"] == pytest.approx(1.386e9)
+        assert p["lt_financial_assets"] == pytest.approx(0.741e9)
+        assert p["net_debt"] == pytest.approx(0.066e9 - 1.386e9)
+
+    def test_cash_plus_short_term_investments_when_yahoo_gives_no_total(self):
+        from modules.tools import balance_sheet_position
+        p = balance_sheet_position(_yumc_balance_sheet(**{"Cash Cash Equivalents And Short Term Investments": 1}))
+        assert p["cash_and_st_investments"] == pytest.approx(1.386e9)
+
+    def test_no_lease_line_means_all_debt_is_borrowing(self):
+        from modules.tools import balance_sheet_position
+        p = balance_sheet_position(_yumc_balance_sheet(**{"Capital Lease Obligations": 1}))
+        assert p["borrowings"] == pytest.approx(2.296e9)
+        assert p["leases"] == 0
+
+    def test_values_are_converted_to_the_price_currency(self):
+        from modules.tools import balance_sheet_position
+        assert balance_sheet_position(_yumc_balance_sheet(), fx_rate=2.0)["net_debt"] == \
+            pytest.approx(2 * (0.066e9 - 1.386e9))
+
+    def test_an_empty_or_missing_balance_sheet_gives_no_position(self):
+        import pandas as pd
+        from modules.tools import balance_sheet_position
+        assert balance_sheet_position(pd.DataFrame()) is None
+        assert balance_sheet_position(None) is None
+
+
+class TestBalanceSheetBlock:
+    def test_the_block_shows_net_cash_and_says_why_leases_are_apart(self):
+        from modules.tools import balance_sheet_position, build_balance_sheet_block
+        block = build_balance_sheet_block(balance_sheet_position(_yumc_balance_sheet()), "$", "2026-06-30")
+        assert "--- 🏦 BALANCE SHEET (2026-06-30) ---" in block
+        assert "NET CASH" in block and "$1.32B" in block
+        assert "$2.23B" in block and "lease" in block.lower()
+        assert "$0.74B" in block
+
+    def test_a_missing_balance_sheet_is_declared_not_silent(self):
+        from modules.tools import build_balance_sheet_block
+        assert "BALANCE SHEET: not present in the raw dossier" in build_balance_sheet_block(None, "$")

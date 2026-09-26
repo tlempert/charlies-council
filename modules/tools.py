@@ -351,7 +351,8 @@ def get_advanced_valuations(ticker, info, stock):
                     
                     ttm_vals = {
                         'ebit': ttm_ebit, 'ocf': ttm_ocf, 'capex': ttm_capex,
-                        'net_debt': latest_debt - latest_cash, 'fcf': ttm_fcf, 'owner': ttm_owner_earn
+                        'net_debt': _net_debt(stock.quarterly_balance_sheet, fx_rate, balance),
+                        'fcf': ttm_fcf, 'owner': ttm_owner_earn
                     }
                     use_ttm = True
         except Exception as e: print(f"Warning: TTM Skipped ({e})")
@@ -443,7 +444,7 @@ def get_advanced_valuations(ticker, info, stock):
             curr_sbc = get_val(cashflow, 'Stock Based Compensation')
             curr_owner = _owner_earnings(curr_ocf, curr_dep, curr_sbc)
 
-            net_debt_curr = (get_val(balance, 'Total Debt') - get_val(balance, 'Cash And Cash Equivalents'))
+            net_debt_curr = _net_debt(balance, 1.0)
             source_label = "(Last Fiscal Year)"
 
         # 1. Graham Buy Floor
@@ -1691,6 +1692,72 @@ def _derive_cost_stickiness(forensic_data):
     return defaults, None
 
 
+def balance_sheet_position(bs, fx_rate=1.0):
+    """Cash, borrowings and leases from the latest balance-sheet column.
+
+    YUMC (2026-09-25) is why this exists: the dossier printed no balance sheet
+    and its anchors netted Total Debt — $2.23B of it restaurant leases — against
+    Cash And Cash Equivalents alone, missing $0.90B of short-term investments.
+    Leases are kept apart from borrowings; short-term investments count as cash.
+    Long-term financial assets are reported, never netted: they may be bank
+    deposits (YUMC) or a strategic stake, and that is the council's call.
+    """
+    if bs is None or getattr(bs, "empty", True):
+        return None
+
+    def row(key):
+        try:
+            value = bs.loc[key].iloc[0]
+        except (KeyError, IndexError):
+            return None
+        return None if value != value else float(value) * fx_rate   # NaN is missing
+
+    total_debt = row("Total Debt") or 0.0
+    leases = row("Capital Lease Obligations") or 0.0
+    cash = row("Cash Cash Equivalents And Short Term Investments")
+    if cash is None:
+        cash = (row("Cash And Cash Equivalents") or 0.0) + (row("Other Short Term Investments") or 0.0)
+    borrowings = total_debt - leases
+    return {"borrowings": borrowings, "leases": leases, "cash_and_st_investments": cash,
+            "lt_financial_assets": row("Investmentin Financial Assets") or 0.0,
+            "net_debt": borrowings - cash}
+
+
+def _net_debt(bs, fx_rate, fallback=None):
+    """Borrowings less cash and short-term investments; the annual sheet (already
+    converted) when the quarterly one is empty; 0 when neither can be read."""
+    position = balance_sheet_position(bs, fx_rate) or balance_sheet_position(fallback)
+    return position["net_debt"] if position else 0.0
+
+
+def _balance_sheet_section(stock, fx_rate, c_sym):
+    """The latest quarter's balance sheet, else the fiscal year's, dated."""
+    for bs in (stock.quarterly_balance_sheet, stock.balance_sheet):
+        position = balance_sheet_position(bs, fx_rate)
+        if position:
+            return build_balance_sheet_block(position, c_sym, f"{bs.columns[0]:%Y-%m-%d}")
+    return build_balance_sheet_block(None, c_sym)
+
+
+def build_balance_sheet_block(position, c_sym='$', as_of=""):
+    """The balance sheet the council reads, with net debt stated the way the anchors use it."""
+    if position is None:
+        return "    BALANCE SHEET: not present in the raw dossier"
+    b = lambda v: f"{c_sym}{v / 1e9:.2f}B"
+    net = position["net_debt"]
+    return "\n".join([
+        f"    --- 🏦 BALANCE SHEET ({as_of}) ---" if as_of else "    --- 🏦 BALANCE SHEET ---",
+        f"    Cash + short-term investments: {b(position['cash_and_st_investments'])}",
+        f"    Borrowings (debt excluding leases): {b(position['borrowings'])}",
+        f"    {'NET CASH' if net < 0 else 'NET DEBT'}: {b(abs(net))}  ← used by the valuation anchors",
+        f"    Lease liabilities: {b(position['leases'])} — not netted. Under US GAAP operating-lease "
+        "payments already sit in operating cash flow; under IFRS 16 they sit in financing, so charge "
+        "them against owner earnings or add them to debt.",
+        f"    Long-term financial assets: {b(position['lt_financial_assets'])} — not netted; deposits or "
+        "a strategic stake? Check the filing before counting them as cash.",
+    ])
+
+
 def build_carry_block(info, price, fx_rate=1.0, c_sym='$'):
     """Return-of-capital and sustainable growth — the downside-protection math.
 
@@ -2932,6 +2999,7 @@ def build_initial_dossier(ticker):
     {build_carry_block(info, info.get('currentPrice', 0) or info.get('regularMarketPrice', 0), _fx_rate, c_sym)}
     {build_earnings_velocity([q * _fx_rate for q in quarterly_revenues], c_sym, quarter_labels)}
     {build_cash_conversion(stock.quarterly_cashflow, stock.quarterly_financials, c_sym, _fx_rate)}
+    {_balance_sheet_section(stock, _fx_rate, c_sym)}
     """
 
     # --- Data quality warning: count empty Tavily-dependent sections ---

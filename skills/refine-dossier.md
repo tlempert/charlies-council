@@ -196,6 +196,7 @@ Verbatim includes the header line: keep each block's `--- … ---` line exactly 
 3. **WORKING CAPITAL** (inventory, payables, COGS, DIO, DPO)
 4. **LATEST QUARTER (8-K Ex.99.1)** — without it, no expert sees a primary source newer than the 10-K: share count, guidance, and acquisition contribution can all be a full year stale.
 5. **CASH CONVERSION** — without it, no expert can check revenue growth against cash growth; it is the only block that puts the two side by side.
+6. **BALANCE SHEET** — cash and short-term investments, borrowings, leases and long-term financial assets, with the net debt the valuation anchors use. Without it (YUMC, 2026-09-25) the synthesist inferred the cash pile from interest income, a ±$8/share guess on a company whose balance sheet was one API call away.
 
 This rule exists because they were dropped on NXPI (2026-08-21) and it cost real analysis:
 

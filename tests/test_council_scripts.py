@@ -344,7 +344,8 @@ DOSSIER = ("CURRENT PRICE: $292.79\n| 2025 | $1.94B | 8.2% | $2.34B | 413M |\n"
            "P/E Ratio | 16.8x | ... | 24.6x |\n")
 
 PASSTHROUGH_BLOCKS = ("--- FORENSIC BLOCK ---\n--- BUYBACK ANALYSIS ---\n--- WORKING CAPITAL ---\n"
-                       "--- LATEST QUARTER (8-K Ex.99.1 filed 2026-06-12) ---\n--- CASH CONVERSION ---\n")
+                       "--- LATEST QUARTER (8-K Ex.99.1 filed 2026-06-12) ---\n--- CASH CONVERSION ---\n"
+                       "--- 🏦 BALANCE SHEET (2026-06-30) ---\n")
 
 TALLY = {"BUY": 3, "HOLD": 6, "PASS": 2, "SELL": 1}
 
@@ -1509,3 +1510,22 @@ class TestCodexSolIsTheSixGeneration:
     def test_the_experts_and_both_memo_drafts_run_on_gpt_6_sol(self):
         text = skill_text()
         assert text.count("-m gpt-6-sol") >= 3
+
+
+class TestTheFranchiseBandReadsReturnsNotOnlyMargins:
+    """CSU.TO 2026-09-24: a serial acquirer with organisational switching costs
+    and recurring maintenance revenue was held to the 18x Quality band because
+    its operating margin is 15%, not 35%. Pricing power can show in returns on
+    capital instead — but only if acquired goodwill is in the denominator."""
+
+    def _criterion(self):
+        text = open(os.path.join(_ROOT, "skills", "munger-synthesis.md"), encoding="utf-8").read()
+        section = text.split("## FRANCHISE PREMIUM ADJUSTMENT", 1)[1].split("\n## ", 1)[0]
+        return section.split("\n2. ", 1)[1].split("\n3. ", 1)[0]
+
+    def test_a_high_return_on_capital_can_stand_in_for_a_high_margin(self):
+        criterion = self._criterion()
+        assert "35%" in criterion and "OR" in criterion and "ROIC" in criterion
+
+    def test_the_return_on_capital_counts_acquired_goodwill(self):
+        assert "goodwill" in self._criterion().lower()

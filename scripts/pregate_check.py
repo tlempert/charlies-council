@@ -263,7 +263,8 @@ def run_checks(d):
                     break
 
     # 7. pass-through blocks: present verbatim or declared absent (NXPI 2026-08-21, registry F14)
-    for block in ("FORENSIC BLOCK", "BUYBACK ANALYSIS", "WORKING CAPITAL", "LATEST QUARTER", "CASH CONVERSION"):
+    for block in ("FORENSIC BLOCK", "BUYBACK ANALYSIS", "WORKING CAPITAL", "LATEST QUARTER", "CASH CONVERSION",
+                  "BALANCE SHEET"):
         block_pat = re.escape(block).replace(r"\ ", "[ -]")  # refine-dossier.md's own heading is hyphenated ("LATEST-QUARTER DISCIPLINE")
         if (re.search(rf"--- .*{block_pat}|^#{{1,6}} .*{block_pat}", dossier, re.M)
                 or re.search(rf"{block_pat}[^\n:]*:\s*not present", dossier, re.I)):

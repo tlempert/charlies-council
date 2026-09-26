@@ -345,7 +345,7 @@ DOSSIER = ("CURRENT PRICE: $292.79\n| 2025 | $1.94B | 8.2% | $2.34B | 413M |\n"
 
 PASSTHROUGH_BLOCKS = ("--- FORENSIC BLOCK ---\n--- BUYBACK ANALYSIS ---\n--- WORKING CAPITAL ---\n"
                        "--- LATEST QUARTER (8-K Ex.99.1 filed 2026-06-12) ---\n--- CASH CONVERSION ---\n"
-                       "--- 🏦 BALANCE SHEET (2026-06-30) ---\n")
+                       "--- 🏦 BALANCE SHEET (2026-06-30) ---\n--- 🌍 COST OF EQUITY INPUTS ---\n")
 
 TALLY = {"BUY": 3, "HOLD": 6, "PASS": 2, "SELL": 1}
 

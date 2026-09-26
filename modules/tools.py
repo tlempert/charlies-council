@@ -8,6 +8,7 @@ from .config import tavily, SEC_HEADERS, CURRENT_YEAR, LAST_YEAR
 from pypdf import PdfReader # <--- Ensure this is imported
 import io
 import itertools
+import json
 import math
 import os
 import re
@@ -1692,6 +1693,51 @@ def _derive_cost_stickiness(forensic_data):
     return defaults, None
 
 
+_COUNTRY_RISK = os.path.join(os.path.dirname(os.path.dirname(os.path.abspath(__file__))),
+                             "data", "country_risk_premiums.json")
+# Yahoo's `country` spelling → the row name in Damodaran's table
+_COUNTRY_ALIASES = {"South Korea": "Korea", "Czechia": "Czech Republic", "Türkiye": "Turkey",
+                    "North Macedonia": "Macedonia", "Eswatini": "Swaziland", "Macau": "Macao"}
+
+
+def build_cost_of_equity_block(country, risk_free):
+    """A sourced hurdle: the US 10-year plus the country's total equity risk
+    premium from Damodaran's January table, in USD terms at a beta of one.
+
+    YUMC (2026-09-26) is why: the refine step wrote the China hurdle from
+    judgment, and it moved from 10.2% to 14% across review passes — ~$14 of
+    value on one unsourced number. Anything added on top is the council's
+    JUDGMENT and must be named as such.
+    """
+    with open(_COUNTRY_RISK, encoding="utf-8") as f:
+        table = json.load(f)
+    tag = f"[DATA: Damodaran, {table['edition']}]"
+    mature = table["mature_market_erp"]
+    lines = ["    --- 🌍 COST OF EQUITY INPUTS ---",
+             f"    COUNTRY: {country or 'not reported'} (headquarters, per Yahoo — check where the revenue is)",
+             f"    US 10-year: {f'{risk_free:.2%}' if risk_free is not None else 'unavailable'} [LIVE: ^TNX]",
+             f"    Mature-market equity risk premium: {mature:.2%} {tag}"]
+    crp = table["country_risk_premium"].get(_COUNTRY_ALIASES.get(country, country)) if country else None
+    if crp is None:
+        lines.append(f"    Country risk premium: not in the Damodaran table for '{country}' — state and justify one.")
+    else:
+        lines += [f"    Country risk premium: {crp:.2%} {tag}",
+                  f"    Total equity risk premium: {mature + crp:.2%}"]
+        if risk_free is not None:
+            lines.append(f"    USD COST OF EQUITY (beta 1): {risk_free + mature + crp:.2%}")
+    lines.append("    Any premium above this (capital controls, VIE, governance, a non-USD price's inflation gap) "
+                 "is JUDGMENT: name it and size it.")
+    return "\n".join(lines)
+
+
+def _us_ten_year():
+    """The US 10-year yield as a fraction, or None when Yahoo will not say."""
+    try:
+        return float(yf.Ticker("^TNX").history(period="5d")["Close"].dropna().iloc[-1]) / 100
+    except Exception:
+        return None
+
+
 def balance_sheet_position(bs, fx_rate=1.0):
     """Cash, borrowings and leases from the latest balance-sheet column.
 
@@ -3000,6 +3046,7 @@ def build_initial_dossier(ticker):
     {build_earnings_velocity([q * _fx_rate for q in quarterly_revenues], c_sym, quarter_labels)}
     {build_cash_conversion(stock.quarterly_cashflow, stock.quarterly_financials, c_sym, _fx_rate)}
     {_balance_sheet_section(stock, _fx_rate, c_sym)}
+    {build_cost_of_equity_block(info.get('country'), _us_ten_year())}
     """
 
     # --- Data quality warning: count empty Tavily-dependent sections ---

@@ -133,9 +133,11 @@ Experts MUST adjust their analysis to the problem type. For cyclicals: cite whic
 
 ### LOCAL COST OF EQUITY (MANDATORY — STATE IT BEFORE ANY VALUATION)
 
-Read `COUNTRY:` from the raw dossier and state a defensible local cost of equity:
+Build it from the raw dossier's **COST OF EQUITY INPUTS** block — `COUNTRY:`, the US 10-year, and Damodaran's mature-market and country risk premiums — not from memory:
 
-`LOCAL COST OF EQUITY: X–Y% — [country] risk-free ~A%, plus equity risk premium, plus any sector premium. [one sentence of justification]`
+`LOCAL COST OF EQUITY: X–Y% — US 10-year A% + Damodaran total ERP B% [DATA: Damodaran, <edition>] = C% at beta 1; + D% [JUDGMENT: named reason] for [capital controls / VIE / governance / sector / non-USD inflation gap]. [one sentence of justification]`
+
+Every point above the Damodaran figure is JUDGMENT and must be named and sized. YUMC (2026-09-26) is why: an unsourced China hurdle moved from 10.2% to 14% across review passes and spanned ~$14 a share. If the block says the country is not in the table, state and justify a premium explicitly.
 
 For a US-domiciled company this is roughly 8–10% and the pipeline's anchors are usable as printed. For an emerging market it is frequently 15–20%, and the pipeline's DCF and Graham Floor — which are computed with developed-market discount rates — are then **not usable as printed**. In that case add:
 
@@ -197,6 +199,7 @@ Verbatim includes the header line: keep each block's `--- … ---` line exactly 
 4. **LATEST QUARTER (8-K Ex.99.1)** — without it, no expert sees a primary source newer than the 10-K: share count, guidance, and acquisition contribution can all be a full year stale.
 5. **CASH CONVERSION** — without it, no expert can check revenue growth against cash growth; it is the only block that puts the two side by side.
 6. **BALANCE SHEET** — cash and short-term investments, borrowings, leases and long-term financial assets, with the net debt the valuation anchors use. Without it (YUMC, 2026-09-25) the synthesist inferred the cash pile from interest income, a ±$8/share guess on a company whose balance sheet was one API call away.
+7. **COST OF EQUITY INPUTS** — the sourced country risk premium and US 10-year the LOCAL COST OF EQUITY is built from; without it the hurdle is a judgment no one can check.
 
 This rule exists because they were dropped on NXPI (2026-08-21) and it cost real analysis:
 

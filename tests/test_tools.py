@@ -2705,3 +2705,34 @@ class TestBalanceSheetBlock:
     def test_a_missing_balance_sheet_is_declared_not_silent(self):
         from modules.tools import build_balance_sheet_block
         assert "BALANCE SHEET: not present in the raw dossier" in build_balance_sheet_block(None, "$")
+
+
+# --- cost of equity: a sourced country premium, not a judgment that drifts ---
+# YUMC 2026-09-26: the refine step wrote the China hurdle from judgment; it moved
+# 10.2% → 14% across review passes and spanned ~$14 of value. The dossier also
+# never printed the COUNTRY: line the refine skill told it to read.
+
+class TestCostOfEquityBlock:
+    def test_the_hurdle_is_the_us_ten_year_plus_the_country_s_total_premium(self):
+        from modules.tools import build_cost_of_equity_block
+        block = build_cost_of_equity_block("China", 0.042)
+        assert "--- 🌍 COST OF EQUITY INPUTS ---" in block
+        assert "COUNTRY: China" in block
+        assert "0.91%" in block and "5.14%" in block
+        assert "9.34%" in block
+        assert "Damodaran" in block and "January 2026" in block
+
+    def test_yahoo_country_names_find_their_damodaran_row(self):
+        from modules.tools import build_cost_of_equity_block
+        assert "0.64%" in build_cost_of_equity_block("South Korea", 0.042)
+
+    def test_a_country_missing_from_the_table_is_declared_not_guessed(self):
+        from modules.tools import build_cost_of_equity_block
+        block = build_cost_of_equity_block("Atlantis", 0.042)
+        assert "COUNTRY: Atlantis" in block and "not in the Damodaran table" in block
+
+    def test_no_country_and_no_yield_are_both_said_out_loud(self):
+        from modules.tools import build_cost_of_equity_block
+        block = build_cost_of_equity_block(None, None)
+        assert "COUNTRY: not reported" in block
+        assert "US 10-year: unavailable" in block

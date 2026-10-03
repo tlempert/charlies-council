@@ -93,7 +93,7 @@ Rules:
 - For each entry give: THREAT (one line) / EVIDENCE (facts, numbers, dates, verbatim) / SOURCE (article title) / STATUS (enacted, proposed, speculative, or rumoured).
 - Preserve every number and date exactly. Never infer, round, or extrapolate.
 - Do NOT rank threats by severity and do NOT assess the moat. You are registering, not judging.
-- Drop entries with no identifiable source. Target 600-1000 words."; echo; cat $D/raw_moat_threats.kept.txt 2>/dev/null || cat $D/raw_moat_threats.txt; } | $CX exec - -m gpt-5.6-luna -c model_reasoning_effort=low --sandbox read-only --skip-git-repo-check --output-last-message $D/threat_register.md >$D/threat_register.log 2>&1; wc -c $D/threat_register.md
+- Drop entries with no identifiable source. Target 600-1000 words."; echo; cat $D/raw_moat_threats.kept.txt 2>/dev/null || cat $D/raw_moat_threats.txt; } | $CX exec - -m gpt-6-luna -c model_reasoning_effort=low --sandbox read-only --skip-git-repo-check --output-last-message $D/threat_register.md >$D/threat_register.log 2>&1; wc -c $D/threat_register.md
 ```
 
 **Fallback:** if `$CX` is missing or `threat_register.md` is empty (check the byte count, not the exit code), use `raw_moat_threats.txt` in place of the register below and tell the user the Codex leg was skipped.

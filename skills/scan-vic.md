@@ -128,7 +128,7 @@ $CX exec "Use the Browser skill via mcp__node_repl__js to control the user's ALR
 Open {URL}. Extract the full 'Description' and 'Catalyst' sections of the write-up, plus any author-stated valuation, and reproduce them VERBATIM. Do not summarise, do not paraphrase, do not add commentary of your own.
 
 If the Description shows a 'Sign up or Log In' gate instead of prose, reply with exactly: GATED - NOT LOGGED IN. If a permission or security policy blocks the page, reply with that error verbatim." \
-  -m gpt-5.6-luna -c model_reasoning_effort=low --sandbox read-only --skip-git-repo-check \
+  -m gpt-6-luna -c model_reasoning_effort=low --sandbox read-only --skip-git-repo-check \
   --output-last-message $D/pitch.md > $D/pitch.log 2>&1 < /dev/null
 wc -c $D/pitch.md
 ```

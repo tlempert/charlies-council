@@ -2,12 +2,14 @@
 """Accept or reject an investor memo before it is assembled.
 
     validate_memo.py MEMO.md VERDICT.md
+    validate_memo.py --brief VERDICT.md
 
 The memo is written by whichever model is available (Codex first, Claude
 when it is not), so the format is checked mechanically rather than trusted:
 the headings the reader navigates by, the ledger's price points, the verdict
 word and position, and that numbers carry citations. Prints one line per
-problem and exits 1 on any; exits 0 on a clean memo.
+problem and exits 1 on any; exits 0 on a clean memo. `--brief` prints the
+checklist a writer is graded on, by value, to go last in the writer's prompt.
 """
 import json
 import re
@@ -96,7 +98,27 @@ def problems(memo_path, verdict_path):
     return out
 
 
+def brief(verdict_path):
+    """What the validator will look for, stated as values rather than rules."""
+    L = ledger_from(open(verdict_path, encoding="utf-8").read()) or {}
+    lines = ["=== CHECKLIST: the validator rejects a memo that misses any line ==="]
+    for key in ("price", "central_value", "ceiling", "floor"):
+        v = L.get(key)
+        if isinstance(v, (int, float)):
+            lines.append(f"- print the ledger {key.replace('_', ' ')} as ${float(v):.2f} (prose may round to ${float(v):.0f})")
+    if L.get("verdict") and L.get("position_pct") is not None:
+        lines.append(f"- open ### Final investment view with **Verdict: {str(L['verdict']).upper()} — "
+                     f"{L['position_pct']:g}% position.**")
+    lines.append(f"- at most {MAX_WORDS:,} words of reading (citation tags and the source list excluded); "
+                 "write 1,200–1,350")
+    lines.append(f"- every heading of the spec, and at least {MIN_CITATIONS} citation tags like [3; filing]")
+    return "\n".join(lines)
+
+
 def main(argv):
+    if len(argv) == 3 and argv[1] == "--brief":
+        print(brief(argv[2]))
+        return 0
     if len(argv) != 3:
         print(__doc__)
         return 2

@@ -891,6 +891,20 @@ class TestValidateMemo:
                             str(tmp_path / "memo.md"), str(tmp_path / "verdict.md")], capture_output=True, text=True)
         assert r.returncode == 1 and "MEMO: FAIL" in r.stdout
 
+    def test_the_brief_names_every_figure_the_validator_will_look_for(self, tmp_path):
+        """IBKR, 2026-10-03: both Codex drafts left out the ledger's 42.3 ceiling
+        (and one the 35.3 floor) buried in a 37KB verdict. The brief is what
+        the writer reads last: the numbers it will be graded on, by value."""
+        L = _ledger()
+        (tmp_path / "verdict.md").write_text(f"```json model_ledger\n{json.dumps(L)}\n```\n")
+        r = subprocess.run([sys.executable, os.path.join(_SCRIPTS, "validate_memo.py"), "--brief",
+                            str(tmp_path / "verdict.md")], capture_output=True, text=True)
+        assert r.returncode == 0, r.stderr
+        for key in ("price", "central_value", "ceiling", "floor"):
+            assert f"{L[key]:.2f}" in r.stdout
+        assert f"Verdict: {L['verdict']} — {L['position_pct']:g}% position." in r.stdout
+        assert "1,500" in r.stdout
+
 
 # --- verify_verdict.py --------------------------------------------------------
 
@@ -1500,16 +1514,28 @@ class TestCodexSolIsTheSixGeneration:
     def test_the_condense_steps_stay_on_luna(self):
         """Measured 2026-09-23 on NVO's analysis (same prompt, 60KB): luna kept
         281 source numbers, gpt-6-sol 195 at low effort and 211 at medium —
-        it writes tighter, and a condense step exists to keep every number."""
-        assert skill_text().count("-m gpt-5.6-luna -c model_reasoning_effort=low") == 3
+        it writes tighter, and a condense step exists to keep every number.
+        2026-10-03, IBKR's forensic dump, two samples each: gpt-6-luna kept
+        89 and 93 of 201 source numbers, gpt-5.6-luna (now listed "older")
+        exactly the same — so the current luna, before the old one retires."""
+        assert skill_text().count("-m gpt-6-luna -c model_reasoning_effort=low") == 3
+        assert "gpt-5.6-luna" not in skill_text()
 
     def test_the_preflight_checks_the_model_the_run_uses(self):
         src = open(os.path.join(_SCRIPTS, "codex_preflight.py"), encoding="utf-8").read()
         assert '"gpt-6-sol"' in src and "gpt-5.6-luna" not in src
 
-    def test_the_experts_and_both_memo_drafts_run_on_gpt_6_sol(self):
-        text = skill_text()
-        assert text.count("-m gpt-6-sol") >= 3
+    def test_the_experts_run_on_gpt_6_sol(self):
+        assert "-m gpt-6-sol" in skill_text()
+
+    def test_both_memo_drafts_run_on_astra_with_the_brief_last(self):
+        """IBKR, 2026-10-03, same inputs: gpt-6-sol ran 110–153 words over the
+        1,500 ceiling in all three drafts, with the brief or without; gpt-6-astra
+        passed. Two calls a run fit Plus's astra allowance, and an exhausted
+        allowance leaves an empty file, which the Claude leg already catches."""
+        memo = open(os.path.join(_ROOT, "skills", "analyze-company", "08-memo.md"), encoding="utf-8").read()
+        assert memo.count("-m gpt-6-astra") == 2 and "-m gpt-6-sol" not in memo
+        assert memo.count("validate_memo.py --brief") == 2
 
 
 class TestTheFranchiseBandReadsReturnsNotOnlyMargins:

@@ -647,6 +647,12 @@ def get_xbrl_facts(cik):
         'CostOfSales': 'cost_of_goods_sold',
         'Inventories': 'inventory',
         'TradeAndOtherPayables': 'accounts_payable',
+        # FEMSA's 20-F (FMX) files these instead; unmapped, its forensic block
+        # showed debt, payables and receivables as zero.
+        'TradeAndOtherCurrentPayables': 'accounts_payable',
+        'TradeAndOtherCurrentReceivables': 'accounts_receivable',
+        'LongtermBorrowings': 'long_term_debt',
+        'RevenueFromContractsWithCustomers': 'revenue',
         'DilutedEarningsLossPerShare': 'eps_diluted',
         # Loan-book facts — these are what _is_lender keys off when yfinance
         # mislabels a bank's sector (Kaspi.kz: 'Software - Infrastructure').
@@ -1286,10 +1292,14 @@ def format_forensic_block(xbrl_data, c_sym='$'):
         # missing. NXPI's XBRL dict carried no revenue and this rendered 0.0%,
         # which says 'stock comp is immaterial' about a ~3.6%-of-revenue charge.
         sbc_cell = f"{sbc / rev * 100:.1f}%" if rev and rev > 0 else "n/a"
+        # Receivables, debt and goodwill too: FMX's unmapped IFRS concepts
+        # rendered "$0.00B" and every expert had to discover it meant unsourced.
+        def money(v, places=2):
+            return f"{c_sym}{v/1e9:.{places}f}B" if v else "n/a"
         lines.append(
             f"| {year} | {c_sym}{sbc/1e9:.2f}B | {sbc_cell} "
-            f"| {c_sym}{ar/1e9:.2f}B | {shares_cell} "
-            f"| {c_sym}{debt/1e9:.2f}B | {c_sym}{rd/1e9:.2f}B | {c_sym}{gw/1e9:.1f}B |"
+            f"| {money(ar)} | {shares_cell} "
+            f"| {money(debt)} | {c_sym}{rd/1e9:.2f}B | {money(gw, 1)} |"
         )
 
     latest_shares = xbrl_data.get('latest_shares')
@@ -1326,11 +1336,12 @@ def format_forensic_block(xbrl_data, c_sym='$'):
             ap = d.get('accounts_payable', 0)
             cogs = d.get('cost_of_goods_sold', 0)
             dio = (inv / cogs * 365) if cogs > 0 else 0
-            dpo = (ap / cogs * 365) if cogs > 0 else 0
             year = date[:4]
+            ap_cell = f"{c_sym}{ap/1e9:.2f}B" if ap else "n/a"
+            dpo_cell = f"{ap / cogs * 365:.0f}" if ap and cogs > 0 else "n/a"
             lines.append(
-                f"| {year} | {c_sym}{inv/1e9:.2f}B | {c_sym}{ap/1e9:.2f}B "
-                f"| {c_sym}{cogs/1e9:.2f}B | {dio:.0f} | {dpo:.0f} |"
+                f"| {year} | {c_sym}{inv/1e9:.2f}B | {ap_cell} "
+                f"| {c_sym}{cogs/1e9:.2f}B | {dio:.0f} | {dpo_cell} |"
             )
     else:
         lines.append(f"\n--- 🏭 WORKING CAPITAL ---")

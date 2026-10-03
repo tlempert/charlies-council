@@ -2736,3 +2736,74 @@ class TestCostOfEquityBlock:
         block = build_cost_of_equity_block(None, None)
         assert "COUNTRY: not reported" in block
         assert "US 10-year: unavailable" in block
+
+
+# --- IFRS filers spell debt, payables, receivables and revenue differently ---
+
+class TestIfrsAlternateConcepts:
+    """FMX, 2026-10-04: FEMSA's 20-F files LongtermBorrowings,
+    TradeAndOtherCurrentPayables, TradeAndOtherCurrentReceivables and
+    RevenueFromContractsWithCustomers. None were mapped, so the forensic block
+    showed debt, payables and receivables as zero and the experts set them
+    aside as defects."""
+
+    def _result(self):
+        from modules.tools import get_xbrl_facts
+        def fact(val):
+            return {'units': {'USD': [{'end': '2024-12-31', 'val': val, 'form': '20-F', 'filed': '2025-04-20'}]}}
+        payload = {'facts': {'ifrs-full': {
+            'RevenueFromContractsWithCustomers': fact(3.75e10),
+            'LongtermBorrowings': fact(6.78e9),
+            'TradeAndOtherCurrentPayables': fact(4.65e9),
+            'TradeAndOtherCurrentReceivables': fact(2.07e9),
+        }}}
+        resp = MagicMock(status_code=200)
+        resp.json.return_value = payload
+        with patch('modules.tools.requests.get', return_value=resp):
+            return get_xbrl_facts('0001061736')['yearly']['2024-12-31']
+
+    def test_revenue_from_contracts_with_customers_is_revenue(self):
+        assert self._result()['revenue'] == 3.75e10
+
+    def test_long_term_borrowings_are_long_term_debt(self):
+        assert self._result()['long_term_debt'] == 6.78e9
+
+    def test_current_trade_payables_are_accounts_payable(self):
+        assert self._result()['accounts_payable'] == 4.65e9
+
+    def test_current_trade_receivables_are_accounts_receivable(self):
+        assert self._result()['accounts_receivable'] == 2.07e9
+
+
+# --- an unsourced balance-sheet line must read as missing, not as zero -------
+
+def _forensic_block_missing(**missing):
+    from modules.tools import format_forensic_block
+    row = {"sbc": 4.6e8, "revenue": 1.0e10, "accounts_receivable": 1.05e9,
+           "shares_outstanding": 275_000_000, "total_debt_par": 1.229e10,
+           "rd_expense": 2.36e9, "goodwill": 1.03e10, "inventory": 8.0e8,
+           "accounts_payable": 9.0e8, "cost_of_goods_sold": 6.0e9}
+    for key in missing:      # absent, as an unmapped concept arrives
+        row.pop(key)
+    return format_forensic_block({"sorted_dates": ["2025-12-31"], "source": "SEC XBRL",
+                                  "yearly": {"2025-12-31": row}}, '$')
+
+
+def _cells(block, header_start):
+    line = next(l for l in block.splitlines() if l.startswith("| 2025"))
+    if header_start == "WC":
+        line = [l for l in block.splitlines() if l.startswith("| 2025")][1]
+    return [c.strip() for c in line.strip("|").split("|")]
+
+
+def test_missing_receivables_debt_and_goodwill_read_n_a():
+    # FMX: "receivables, debt and goodwill zeros are defective" — every expert
+    # had to work out that $0.00B meant 'not sourced', and several said so.
+    cells = _cells(_forensic_block_missing(accounts_receivable=None, total_debt_par=None, goodwill=None), "")
+    assert cells[3] == "n/a" and cells[5] == "n/a" and cells[7] == "n/a"
+
+
+def test_missing_payables_read_n_a_and_so_does_dpo():
+    # FMX: "accounts payable $0.00B / DPO 0 is a pipeline defect".
+    cells = _cells(_forensic_block_missing(accounts_payable=None), "WC")
+    assert cells[2] == "n/a" and cells[5] == "n/a"

@@ -216,6 +216,19 @@ class TestTheCommand:
         assert "--effort" not in shlex.split(make_runner().command(ANALYSIS, "sess-1"))
 
 
+    def test_the_sonnet_alias_is_remapped_only_when_configured(self, make_runner):
+        """Claude Code 2.1.283's `sonnet` alias still resolves to Sonnet 5 after
+        Sonnet 5.5 shipped, and the Agent tool takes aliases only. Remapping the
+        alias for the whole session moves the orchestrator and every Sonnet
+        subagent with it."""
+        remapped = make_runner(sonnet_model="claude-sonnet-5-5")
+        assert shlex.split(remapped.command(ANALYSIS, "sess-1"))[0] == \
+            "ANTHROPIC_DEFAULT_SONNET_MODEL=claude-sonnet-5-5"
+        assert shlex.split(remapped.resume_command(ANALYSIS, "sess-1"))[0] == \
+            "ANTHROPIC_DEFAULT_SONNET_MODEL=claude-sonnet-5-5"
+        assert "ANTHROPIC_DEFAULT_SONNET_MODEL" not in make_runner().command(ANALYSIS, "sess-1")
+
+
 class TestTheResumeCommand:
     def test_the_orchestrator_model_is_pinned_only_when_configured(self, make_runner):
         assert "--model sonnet" in make_runner(orchestrator_model="sonnet").resume_command(ANALYSIS, "sess-1")

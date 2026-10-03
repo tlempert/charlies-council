@@ -91,7 +91,7 @@ class Runner(threading.Thread):
 
     def command(self, job, session_id):
         """The shell line handed to `zsh -lic`."""
-        parts = [self.claude_bin, "-p", _prompt(job, self.config),
+        parts = self._sonnet_alias() + [self.claude_bin, "-p", _prompt(job, self.config),
                  "--session-id", session_id,
                  "--output-format", "stream-json", "--verbose",
                  "--permission-mode", "bypassPermissions",
@@ -100,12 +100,18 @@ class Runner(threading.Thread):
 
     def resume_command(self, job, session_id):
         """The same run, asked to carry on in the session it already opened."""
-        parts = [self.claude_bin, "-p", "--resume", session_id,
+        parts = self._sonnet_alias() + [self.claude_bin, "-p", "--resume", session_id,
                  "--output-format", "stream-json", "--verbose",
                  "--permission-mode", "bypassPermissions",
                  "--max-turns", str(self.max_turns)] + LEAN_SESSION + self._model_flag() + [
                  RESUME_PROMPT.replace("{TICKER}", job["ticker"])]
         return " ".join(shlex.quote(part) for part in parts)
+
+    def _sonnet_alias(self):
+        """Remap the `sonnet` alias for the whole session — the only way to move
+        the Sonnet subagents, since the Agent tool takes aliases, not model ids."""
+        model = self.config.get("sonnet_model")
+        return [f"ANTHROPIC_DEFAULT_SONNET_MODEL={model}"] if model else []
 
     def _model_flag(self):
         """Pin the orchestrator's model and the session's effort — which its

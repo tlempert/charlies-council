@@ -2807,3 +2807,38 @@ def test_missing_payables_read_n_a_and_so_does_dpo():
     # FMX: "accounts payable $0.00B / DPO 0 is a pipeline defect".
     cells = _cells(_forensic_block_missing(accounts_payable=None), "WC")
     assert cells[2] == "n/a" and cells[5] == "n/a"
+
+
+# --- book value per share in the units the price is quoted in ----------------
+
+class TestBookValuePerPriceUnit:
+    """FMX, 2026-10-04: yfinance's bookValue (36.07 MXN) is per local share,
+    the price ($115.68) is per ADS — many local shares. Converting only the
+    currency printed book $1.99 and P/B 58.19x. Equity over the share count
+    implied by market cap / price is in the price's own units."""
+
+    def _stock(self, equity):
+        import pandas as pd
+        stock = MagicMock()
+        stock.balance_sheet = pd.DataFrame({pd.Timestamp('2025-12-31'): [equity]},
+                                           index=['Stockholders Equity'])
+        return stock
+
+    def test_book_per_ads_comes_from_equity_over_price_unit_shares(self):
+        from modules.tools import _book_value_per_price_unit
+        info = {'marketCap': 39_410_032_640, 'bookValue': 36.07}
+        bvps = _book_value_per_price_unit(self._stock(244.982e9), info, 115.68, 0.0548)
+        assert 39.0 < bvps < 39.8          # 244.98B MXN x 0.0548 / 340.7M ADS
+
+    def test_none_when_equity_or_market_cap_is_missing(self):
+        from modules.tools import _book_value_per_price_unit
+        assert _book_value_per_price_unit(self._stock(244.982e9), {}, 115.68, 0.0548) is None
+        stock = MagicMock()
+        stock.balance_sheet = __import__('pandas').DataFrame()
+        assert _book_value_per_price_unit(stock, {'marketCap': 1e10}, 100.0, 1.0) is None
+
+    def test_the_carry_block_prints_the_price_unit_book_value_when_given(self):
+        from modules.tools import build_carry_block
+        block = build_carry_block({'bookValue': 36.07, 'returnOnEquity': 0.1}, 115.68, 0.0548,
+                                  book_per_share=39.39)
+        assert "P/B: 2.94x" in block and "58." not in block

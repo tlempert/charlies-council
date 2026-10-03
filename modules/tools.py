@@ -1815,7 +1815,24 @@ def build_balance_sheet_block(position, c_sym='$', as_of=""):
     ])
 
 
-def build_carry_block(info, price, fx_rate=1.0, c_sym='$'):
+def _book_value_per_price_unit(stock, info, price, fx_rate=1.0):
+    """Book value per share in the units the price is quoted in, or None.
+
+    yfinance's bookValue is per local share; an ADS price can stand for many
+    (FMX: 36.07 MXN per share against $115.68 per ADS printed P/B 58x). Equity
+    over market cap / price counts shares in the price's own units."""
+    try:
+        bs = stock.balance_sheet
+        equity = float(bs.loc['Stockholders Equity'].iloc[0])
+    except Exception:
+        return None
+    market_cap = info.get('marketCap')
+    if not (market_cap and price and equity == equity and equity > 0):
+        return None
+    return equity * fx_rate / (market_cap / price)
+
+
+def build_carry_block(info, price, fx_rate=1.0, c_sym='$', book_per_share=None):
     """Return-of-capital and sustainable growth — the downside-protection math.
 
     A dividend is what pays you to wait, and for an income-paying franchise it is
@@ -1862,8 +1879,8 @@ def build_carry_block(info, price, fx_rate=1.0, c_sym='$'):
                      "rate hides the assumption that drives the answer.")
 
     bv = info.get('bookValue')
-    if bv and price:
-        bv_conv = bv * fx_rate
+    if (bv or book_per_share) and price:
+        bv_conv = book_per_share or bv * fx_rate
         if bv_conv > 0:
             lines.append(f"    Book value / share: {c_sym}{bv_conv:.2f}   "
                          f"P/B: {price / bv_conv:.2f}x")
@@ -2989,6 +3006,7 @@ def build_initial_dossier(ticker):
     except Exception as e:
         print(f"⚠️  Could not save key_metrics.json: {e}")
 
+    _px = info.get('currentPrice', 0) or info.get('regularMarketPrice', 0)
     return f"""
     TARGET: {ticker}
     COMPANY: {company_name}
@@ -3053,7 +3071,7 @@ def build_initial_dossier(ticker):
     {segmentation_data if segmentation_data else '(No segmentation data found)'}
 
     {build_stress_test_table(forensic_data, c_sym, _is_lender(info, forensic_data), actual_fcf=actual_fcf)}
-    {build_carry_block(info, info.get('currentPrice', 0) or info.get('regularMarketPrice', 0), _fx_rate, c_sym)}
+    {build_carry_block(info, _px, _fx_rate, c_sym, book_per_share=_book_value_per_price_unit(stock, info, _px, _fx_rate))}
     {build_earnings_velocity([q * _fx_rate for q in quarterly_revenues], c_sym, quarter_labels)}
     {build_cash_conversion(stock.quarterly_cashflow, stock.quarterly_financials, c_sym, _fx_rate)}
     {_balance_sheet_section(stock, _fx_rate, c_sym)}

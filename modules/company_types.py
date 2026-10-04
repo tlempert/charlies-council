@@ -34,6 +34,9 @@ LABELS = {
     "homebuilder_cyclical": {"frame": "land/cycle", "required": [r"backlog|book value|land"], "forbidden": []},
     "distributor_wholesale": {"frame": "working capital", "required": [r"inventory turn|gross margin"], "forbidden": []},
     "consumer_brand": {"frame": "brand-led", "required": [r"pricing power|volume"], "forbidden": []},
+    "airline": {"frame": "seat capacity, fuel and the travel cycle",
+                "required": [r"load factor", r"RASK|unit revenue|yield per", r"CASK|unit cost|cost per seat"],
+                "forbidden": [r"trailing (peak )?margins? (are|is) durable"]},
     "unknown": {"frame": "operating_product by default", "required": [], "forbidden": []},
 }
 
@@ -42,7 +45,7 @@ SIC_HINTS = {"6331": "insurer_pc", "6311": "insurer_life", "6321": "insurer_life
              "1311": "resource_commodity", "1040": "resource_commodity", "1000": "resource_commodity",
              "208": "consumer_brand", "204": "consumer_brand", "206": "consumer_brand", "209": "consumer_brand", "2834": "biotech_pharma_binary", "2836": "biotech_pharma_binary", "1531": "homebuilder_cyclical",
              "5000": "distributor_wholesale", "5010": "distributor_wholesale", "6211": "asset_manager", "6282": "asset_manager",
-             "4911": "regulated_utility_infra", "6770": "unknown", "7372": "software_subscription", "7370": "software_subscription"}
+             "4911": "regulated_utility_infra", "4512": "airline", "6770": "unknown", "7372": "software_subscription", "7370": "software_subscription"}
 XBRL_HINTS = {"insurer_pc": ["UnearnedPremiums", "PremiumsEarnedNet", "LiabilityForClaimsAndClaimsAdjustmentExpense"],
               "lender_bank": ["LoansAndLeasesReceivableNetReportedAmount", "InterestAndDividendIncomeOperating", "DepositsTotal"],
               "reit_property": ["RealEstateInvestmentPropertyNet"]}
@@ -75,6 +78,8 @@ def deterministic_evidence(sic, xbrl_latest, industry):
     ind = (industry or "").lower()
     if "property & casualty" in ind or "specialty" in ind and "insur" in ind:
         ev.setdefault("insurer_pc", []).append(f"industry:{industry}")
+    if "airline" in ind:
+        ev.setdefault("airline", []).append(f"industry:{industry}")
     return ev
 
 

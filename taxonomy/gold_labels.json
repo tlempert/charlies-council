@@ -107,6 +107,11 @@
     "status": "proposed",
     "source": "seed 2026-09-19"
   },
+  "CHKP": {
+    "primary": "software_subscription",
+    "status": "proposed",
+    "source": "run 2026-10-03"
+  },
   "CPRT": {
     "primary": "operating_product",
     "status": "proposed",
@@ -157,6 +162,14 @@
     "status": "proposed",
     "source": "seed 2026-09-19"
   },
+  "FMX": {
+    "primary": "consumer_brand",
+    "status": "proposed",
+    "source": "run 2026-10-03",
+    "also": [
+      "holding_conglomerate"
+    ]
+  },
   "GOOG": {
     "primary": "operating_product",
     "status": "proposed",
@@ -176,6 +189,13 @@
     "primary": "consumer_brand",
     "status": "proposed",
     "source": "seed 2026-09-19"
+  },
+  "IBKR": {
+    "primary": "asset_manager",
+    "status": "confirmed",
+    "source": "user",
+    "confirmed_by": "user",
+    "date": "2026-10-04"
   },
   "INTC": {
     "primary": "operating_product",
@@ -222,6 +242,11 @@
     "status": "proposed",
     "source": "seed 2026-09-19"
   },
+  "MRVL": {
+    "primary": "operating_product",
+    "status": "proposed",
+    "source": "run 2026-09-26"
+  },
   "MSFT": {
     "primary": "software_subscription",
     "status": "proposed",
@@ -252,6 +277,11 @@
     "status": "proposed",
     "source": "seed 2026-09-19"
   },
+  "NVO": {
+    "primary": "biotech_pharma_binary",
+    "status": "proposed",
+    "source": "run 2026-09-22"
+  },
   "NVR": {
     "primary": "homebuilder_cyclical",
     "status": "proposed",
@@ -261,6 +291,11 @@
     "primary": "operating_product",
     "status": "proposed",
     "source": "seed 2026-09-19"
+  },
+  "ODFL": {
+    "primary": "operating_product",
+    "status": "proposed",
+    "source": "run 2026-10-03"
   },
   "OTIS": {
     "primary": "operating_product",
@@ -307,6 +342,23 @@
     "status": "proposed",
     "source": "seed 2026-09-19"
   },
+  "RYAAY": {
+    "primary": "airline",
+    "status": "confirmed",
+    "source": "user",
+    "confirmed_by": "user",
+    "date": "2026-10-04"
+  },
+  "SBUX": {
+    "primary": "consumer_brand",
+    "status": "proposed",
+    "source": "run 2026-09-27"
+  },
+  "STZ": {
+    "primary": "consumer_brand",
+    "status": "proposed",
+    "source": "run 2026-09-26"
+  },
   "TCEHY": {
     "primary": "operating_product",
     "status": "proposed",
@@ -341,6 +393,11 @@
     "primary": "insurer_pc",
     "status": "proposed",
     "source": "seed 2026-09-19"
+  },
+  "YUMC": {
+    "primary": "consumer_brand",
+    "status": "proposed",
+    "source": "run 2026-09-25"
   },
   "ZTS": {
     "primary": "operating_product",

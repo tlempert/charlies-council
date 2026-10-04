@@ -57,6 +57,22 @@ class TestEvidence:
         assert ev == {"asset_manager": ["SIC 6022"]}
 
 
+class TestAirline:
+    """RYAAY, 2026-10-03: the classifier answered operating_product at 0.00
+    with unknown=yes — there was no label for a capacity-and-fuel business,
+    so its memo was held to no airline metrics at all."""
+
+    def test_scheduled_air_transport_sic_supports_airline(self):
+        assert ct.deterministic_evidence("4512", {}, None) == {"airline": ["SIC 4512"]}
+
+    def test_the_airlines_industry_supports_airline_without_a_sic(self):
+        assert ct.deterministic_evidence(None, {}, "Airlines") == {"airline": ["industry:Airlines"]}
+
+    def test_an_airline_memo_must_speak_load_factor_and_unit_economics(self):
+        required = " ".join(ct.LABELS["airline"]["required"])
+        assert "load factor" in required and "RASK" in required and "CASK" in required
+
+
 class TestGoldLabels:
     def test_load_gold_reads_the_json_file(self, tmp_path):
         p = tmp_path / "gold.json"

@@ -24,13 +24,17 @@ sys.path.insert(0, os.path.dirname(os.path.abspath(__file__)))
 
 _SEV = r"(?:FATAL|MAJOR-AGGREGATE|MAJOR|MODERATE|MINOR)"
 _PROSE = r"(?:\s*\([^)\n]*\))?"      # (prose only), (number), (judgment / omission) …
-_SEP = r"\s*[—–-]\s*"
+_SEP = r"\s*[—–:-]\s*"
+_NUM = r"(?:\d+[.)]\s*)?"          # MC.PA wrote `**1. MAJOR: title.**`
 FINDING = re.compile(
     r"^(?:[-*]\s+)?(?:"
-    rf"\*\*(?P<sev1>{_SEV})(?P<prose1>{_PROSE}){_SEP}(?P<name1>.+?)\.?\*\*\s*(?P<body1>.*)"
+    rf"\*\*{_NUM}(?P<sev1>{_SEV})(?P<prose1>{_PROSE}){_SEP}(?P<name1>.+?)\.?\*\*\s*(?P<body1>.*)"
     r"|"
-    rf"\#{{2,6}}\s+(?P<sev2>{_SEV})(?P<prose2>{_PROSE}){_SEP}(?P<name2>.+?)\.?"
+    rf"\#{{2,6}}\s+{_NUM}(?P<sev2>{_SEV})(?P<prose2>{_PROSE}){_SEP}(?P<name2>.+?)\.?"
     r")$", re.M)
+#: Any line that opens like a finding, parseable or not. More of these than
+#: parsed findings means a heading shape FINDING does not know.
+FINDING_SHAPE = re.compile(rf"^(?:[-*]\s+)?(?:\*\*|\#{{2,6}}\s+){_NUM}{_SEV}\b", re.M)
 RESULT = re.compile(r"`?(PASS|REJECT)\s*[—-]\s*(\d+)\s*FATAL", re.I)
 CEILING_MOVE, POSITION_MOVE, MAX_FIX_ROUNDS = 0.10, 1.0, 3
 WORDING_MIN = 0.7
@@ -118,6 +122,11 @@ def findings_cli(path):
     n_fatal_parsed = sum(1 for f in fs if f["severity"] == "FATAL")
     if n_fatal_result != n_fatal_parsed:
         print(f"PARSE MISMATCH — result line says {n_fatal_result} FATAL, parsed {n_fatal_parsed}")
+        return 1
+    n_shaped = len(FINDING_SHAPE.findall(text.split("### Result")[0]))
+    if n_shaped != len(fs):
+        # MC.PA: 0 FATAL declared, 0 parsed, four MAJORs never read.
+        print(f"PARSE MISMATCH — {n_shaped} finding-shaped line(s), parsed {len(fs)}")
         return 1
     print(f"{len(fs)} finding(s); result {result_line(text)}")
     return 0

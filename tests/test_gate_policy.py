@@ -49,6 +49,14 @@ class TestParseFindings:
         f = gp.parse_findings("* **MODERATE — Terminal price label.** Operation: relabel.\n")
         assert f[0]["severity"] == "MODERATE" and f[0]["name"] == "Terminal price label"
 
+    def test_a_numbered_finding_with_a_colon_is_accepted(self):
+        """MC.PA, 2026-10-04: the reviewer wrote `**1. MAJOR: title.**`; it
+        parsed as nothing and the orchestrator rewrote 11 headings by hand."""
+        f = gp.parse_findings("**1. MAJOR: Lease liabilities not netted.** Operation: net them.\n"
+                              "**2. MINOR: Label.** Operation: relabel.\n")
+        assert [(x["severity"], x["name"]) for x in f] == [
+            ("MAJOR", "Lease liabilities not netted"), ("MINOR", "Label")]
+
     def test_a_heading_style_finding_is_accepted(self):
         f = gp.parse_findings("#### FATAL — Reserve risk charged twice.\nOperation: charge it once.\n")
         assert f[0]["severity"] == "FATAL" and f[0]["name"] == "Reserve risk charged twice"
@@ -129,6 +137,20 @@ class TestDecide:
 
 
 class TestFindingsCLI:
+    def test_an_unparsed_major_is_a_mismatch_even_with_zero_fatal(self, tmp_path, capsys):
+        """MC.PA, 2026-10-04: four MAJORs in a heading shape the regex did not
+        know, 0 FATAL declared and 0 parsed — the FATAL-only check saw no gap
+        and the gate would have passed with every MAJOR unread."""
+        review = tmp_path / "reality_check.md"
+        review.write_text(
+            "### Findings\n"
+            "**MAJOR. Lease liabilities not netted.** Operation: net them.\n\n"
+            "### Result\n"
+            "`PASS — 0 FATAL. 1 MAJOR.`\n"
+        )
+        assert gp.findings_cli(str(review)) == 1
+        assert "PARSE MISMATCH" in capsys.readouterr().out
+
     def test_a_fatal_count_mismatch_is_reported_and_exits_1(self, tmp_path):
         review = (tmp_path / "reality_check.md")
         review.write_text(

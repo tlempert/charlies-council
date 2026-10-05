@@ -74,7 +74,7 @@ reproduce is MAJOR; one whose correction changes the verdict is FATAL.
 
 A perpetuity's inputs must share a currency: hurdle and perpetual growth in different currencies, or g above the local cap (the dossier's PERPETUAL GROWTH CAP), is MAJOR; FATAL if it decides the verdict.
 
-Which zone governs follows munger-synthesis.md's governing rule: band governing without all four franchise-premium tests, or with a ceiling return below the local risk-free rate, is MAJOR; FATAL if it decides the verdict. The pre-gate checks only the count Munger typed, so score the four tests yourself against the dossier (RACE, 2026-10-05: the band and the hurdle put Ferrari's ceiling $170 apart, so the choice is the verdict).
+Which zone governs follows munger-synthesis.md's governing rule: band governing without all four franchise-premium tests, or with a ceiling return below the local risk-free rate, is MAJOR; FATAL if it decides the verdict. The pre-gate checks only that the count Munger typed matches the results he listed, so re-score the four tests yourself against the dossier, route by route (RACE, 2026-10-05: the band and the hurdle put Ferrari's ceiling $170 apart, so the choice is the verdict). A franchise-premium route used for the wrong business type — the ROIC route for a markup moat, a brand route without sourced scarcity or price evidence — is MAJOR; FATAL if it flips which zone governs.
 
 Run the deterministic pre-gate output you were handed (`scripts/pregate_check.py`)
 as your starting list, not your finishing list — it catches geometry, sourcing,

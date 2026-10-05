@@ -1647,7 +1647,7 @@ class TestTheFranchiseBandReadsReturnsNotOnlyMargins:
 
     def _criterion(self):
         text = open(os.path.join(_ROOT, "skills", "munger-synthesis.md"), encoding="utf-8").read()
-        section = text.split("## FRANCHISE PREMIUM ADJUSTMENT", 1)[1].split("\n## ", 1)[0]
+        section = text.split("## FRANCHISE PREMIUM TESTS", 1)[1].split("\n## ", 1)[0]
         return section.split("\n2. ", 1)[1].split("\n3. ", 1)[0]
 
     def test_a_high_return_on_capital_can_stand_in_for_a_high_margin(self):
@@ -1656,6 +1656,78 @@ class TestTheFranchiseBandReadsReturnsNotOnlyMargins:
 
     def test_the_return_on_capital_counts_acquired_goodwill(self):
         assert "goodwill" in self._criterion().lower()
+
+
+class TestTheFranchiseTestsHaveBrandAndFranchisorRoutes:
+    """RMS.PA 2026-10-06: Hermès passed 1 of 4 franchise-premium tests and its
+    band (Quality 10-18x owner EPS = €357-643) sat below its hurdle zone
+    (€911-1,076). Tests 3 and 4 described software platforms only, so a luxury
+    house, a consumer brand or a franchisor could never pass them (LVMH 1 of 4;
+    Ferrari, the case that started the band, would fail both). Each test now has
+    routes; the platform route is unchanged, and a route without a sourced
+    figure is UNPROVEN, which fails."""
+
+    def _section(self):
+        text = open(os.path.join(_ROOT, "skills", "munger-synthesis.md"), encoding="utf-8").read()
+        return text.split("## FRANCHISE PREMIUM TESTS", 1)[1].split("\n## ", 1)[0]
+
+    def _test(self, n):
+        return self._section().split(f"\n{n}. ", 1)[1].split(f"\n{n + 1}. ", 1)[0]
+
+    def test_the_heading_no_longer_limits_the_tests_to_platform_monopolies(self):
+        text = open(os.path.join(_ROOT, "skills", "munger-synthesis.md"), encoding="utf-8").read()
+        assert "PLATFORM MONOPOLIES" not in text
+
+    def test_the_margin_route_is_the_route_for_a_markup_moat(self):
+        two = self._test(2)
+        assert "markup moat" in two and "luxury" in two
+        assert "ROIC" in two and "goodwill" in two and "CSU.TO" in two
+
+    def test_recurring_revenue_counts_franchise_royalties_and_rents_as_contracts(self):
+        three = self._test(3)
+        assert ">75%" in three and "subscriptions, contracts" in three
+        assert "royalties and rents under multi-year franchise agreements count as contracts" in three
+
+    def test_brand_demand_exceeding_supply_needs_two_years_of_sourced_scarcity(self):
+        three = self._test(3)
+        assert "demand exceeding supply" in three
+        assert "waitlists, allocation, order books or sold-out production" in three and "2+ years" in three
+
+    def test_repeat_demand_needs_three_years_of_retention_data(self):
+        three = self._test(3)
+        assert "repeat demand" in three and "retention or repeat-purchase" in three and "3+ years" in three
+
+    def test_organizational_switching_costs_remain_a_route(self):
+        assert "organizational (multi-month migration)" in self._test(4)
+
+    def test_price_led_growth_without_a_price_volume_split_is_unproven(self):
+        four = self._test(4)
+        assert "price/mix increases at or above local inflation for 3+ years" in four
+        assert "volumes flat or growing" in four
+        assert "Without a price versus volume split" in four and "UNPROVEN" in four
+
+    def test_a_network_or_density_moat_needs_a_figure_in_the_economics(self):
+        four = self._test(4)
+        assert "network or density moat" in four and "sourced figure" in four
+
+    def test_each_result_names_its_route_and_unproven_fails(self):
+        section = self._section()
+        assert "name the route and cite the figure, or write UNPROVEN" in section
+        assert "UNPROVEN counts as a fail" in section
+
+    def test_the_ledger_example_lists_each_test_with_its_route(self):
+        text = open(os.path.join(_ROOT, "skills", "munger-synthesis.md"), encoding="utf-8").read()
+        band = json.loads(text.split("```json model_ledger\n", 1)[1].split("```", 1)[0])["zones"]["band"]
+        tests = band["premium_tests"]
+        assert [t["test"] for t in tests] == [1, 2, 3, 4]
+        assert all(t["result"] in ("pass", "fail", "unproven") and t["route"] and t["evidence"] for t in tests)
+        assert band["premium_tests_passed"] == sum(t["result"] == "pass" for t in tests)
+
+    def test_reality_check_grades_a_route_used_for_the_wrong_business(self):
+        text = open(os.path.join(_ROOT, "skills", "reality-check.md"), encoding="utf-8").read()
+        assert "A franchise-premium route used for the wrong business type" in text
+        assert "the ROIC route for a markup moat" in text
+        assert "is MAJOR; FATAL if it flips which zone governs" in text
 
 
 class TestAFinishedRunIsNeverResumed:
@@ -1831,6 +1903,47 @@ class TestPregateTwoZonesOneGoverns:
         led = _band_governs(risk_free=0.031, risk_free_source="[CALC] COST OF EQUITY INPUTS: US 10-year 3.10%")
         status, _ = _run(tmp_path, led, dossier=RF_DOSSIER)
         assert status["risk_free_source"] == "FAIL"
+
+
+def _premium_tests(*results):
+    return [{"test": i + 1, "result": r, "route": "operating margin", "evidence": "41% op margin 2022-2025 [SEC]"}
+            for i, r in enumerate(results)]
+
+
+class TestPregatePremiumTestsAddUp:
+    """RMS.PA 2026-10-06: Hermès passed 1 of 4 franchise-premium tests and its
+    band (€357-643) sat below its hurdle (€911-1,076). The tests now carry
+    routes, and an UNPROVEN route fails. When the ledger lists the four tests,
+    the count Munger typed must be the number that passed, so the band cannot
+    govern on a count the list does not support. Old ledgers pass unchanged."""
+
+    def test_a_count_matching_the_listed_passes_is_ok(self, tmp_path):
+        led = _band_governs()
+        led["zones"]["band"]["premium_tests"] = _premium_tests("pass", "pass", "pass", "pass")
+        status, results = _run(tmp_path, led, dossier=RF_DOSSIER)
+        assert status["premium_tests"] == "OK" and status["governing"] == "OK", results
+
+    def test_an_unproven_route_does_not_count_as_a_pass(self, tmp_path):
+        led = _band_governs()
+        led["zones"]["band"]["premium_tests"] = _premium_tests("pass", "pass", "pass", "unproven")
+        status, _ = _run(tmp_path, led, dossier=RF_DOSSIER)
+        assert status["premium_tests"] == "FAIL"
+
+    def test_the_list_must_hold_the_four_tests(self, tmp_path):
+        led = _hurdle_governs()
+        led["zones"]["band"]["premium_tests"] = _premium_tests("pass", "pass", "pass")
+        status, _ = _run(tmp_path, led, dossier=RF_DOSSIER)
+        assert status["premium_tests"] == "FAIL"
+
+    def test_a_result_must_be_pass_fail_or_unproven(self, tmp_path):
+        led = _hurdle_governs()
+        led["zones"]["band"]["premium_tests"] = _premium_tests("pass", "pass", "pass", "partial")
+        status, _ = _run(tmp_path, led, dossier=RF_DOSSIER)
+        assert status["premium_tests"] == "FAIL"
+
+    def test_a_ledger_without_the_list_is_checked_as_before(self, tmp_path):
+        status, _ = _run(tmp_path, _hurdle_governs(), dossier=RF_DOSSIER)
+        assert "premium_tests" not in status and "FAIL" not in status.values()
 
 
 class TestValidateMemoTwoZones:

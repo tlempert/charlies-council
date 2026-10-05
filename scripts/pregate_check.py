@@ -113,6 +113,8 @@ def _zone_checks(L, dossier):
         out.append(("OK", "band_zone", f"{lo}x–{hi}x × {eps}"))
 
     passed = band.get("premium_tests_passed")
+    if "premium_tests" in band:
+        out.append(_premium_tests_check(band["premium_tests"], passed))
     ret, rf = L.get("band_ceiling_implied_return"), L.get("risk_free")
     if passed == 4:
         if not ret or rf is None:
@@ -147,6 +149,20 @@ def _zone_checks(L, dossier):
     else:
         out.append(("OK", "governing", "hurdle governs"))
     return out
+
+
+def _premium_tests_check(tests, passed):
+    """RMS.PA 2026-10-06: Hermès passed 1 of 4 and its band (€357–643) sat below
+    its hurdle (€911–1,076). The tests now have routes and UNPROVEN fails; the
+    listed four must hold the count Munger typed, so the band cannot govern on
+    a count its own list does not support."""
+    if (not isinstance(tests, list) or [t.get("test") if isinstance(t, dict) else None for t in tests] != [1, 2, 3, 4]
+            or any(t.get("result") not in ("pass", "fail", "unproven") for t in tests)):
+        return ("FAIL", "premium_tests", "premium_tests must list tests 1-4, each result 'pass', 'fail' or 'unproven'")
+    count = sum(t["result"] == "pass" for t in tests)
+    if count != passed:
+        return ("FAIL", "premium_tests", f"premium_tests_passed {passed} but {count} of the listed tests pass")
+    return ("OK", "premium_tests", f"{count} of 4 franchise-premium tests pass")
 
 
 def _prices(text):

@@ -72,14 +72,14 @@ The `**Buy Zone:**` line, the Trigger and the ledger's `floor`, `ceiling` and `c
 
 **Two prices, not two witnesses.** The zones are two prices for one business under two stated philosophies, both built on one owner EPS; they are not independent witnesses for each other. "The band confirms the hurdle" or "both methods land near $X" is TAUTOLOGICAL CORROBORATION (below). The gap measures the philosophy, not the business.
 
-## FRANCHISE PREMIUM ADJUSTMENT (MANDATORY FOR PLATFORM MONOPOLIES)
+## FRANCHISE PREMIUM TESTS (MANDATORY)
 
-**Dominant platform monopolies with deep switching costs deserve higher multiples.** These are the four franchise-premium tests; count the ones that pass (`premium_tests_passed`) and name any that fail:
+**A franchise with durable pricing power deserves a higher multiple.** Platforms, brands and franchisors show it differently, so each test has routes; the platform route is unchanged. Count the tests that pass (`premium_tests_passed`). For each test, name the route and cite the figure, or write UNPROVEN. UNPROVEN counts as a fail: the routes let a real franchise pass on evidence, not on reputation (RMS.PA, 2026-10-06: Hermès passed 1 of 4 on platform-only tests 3 and 4, and its band, €357–643, sat below its hurdle zone, €911–1,076).
 
 1. Moat Tribunal returned 0 SEVERE flags
-2. Pricing power shows in the economics, sustained over 3+ years: operating margins >35% **OR** ROIC >20% with acquired goodwill and intangibles in invested capital. The ROIC route is for capital-light compounders whose moat is redeployment, not markup (serial acquirers, distributors, franchisors — CSU.TO failed the margin test at 15% on 2026-09-24). Goodwill stays in the denominator so an acquirer cannot qualify by writing its purchases off the balance sheet. Name which route qualified and cite the figure.
-3. Revenue >75% recurring (subscriptions, contracts)
-4. Switching costs are organizational (multi-month migration), not individual (one-click)
+2. Pricing power shows in the economics, sustained over 3+ years: operating margins >35% **OR** ROIC >20% with acquired goodwill and intangibles in invested capital. The margin route is THE route for a markup moat (luxury, brands). The ROIC route is for capital-light compounders whose moat is redeployment, not markup (serial acquirers, distributors, franchisors — CSU.TO failed the margin test at 15% on 2026-09-24); a markup moat on the ROIC route is a misuse (RMS.PA Reality Check). Goodwill stays in the denominator so an acquirer cannot qualify by writing its purchases off the balance sheet.
+3. Durable demand, by one route with a sourced figure: (a) revenue >75% recurring (subscriptions, contracts); franchise royalties and rents under multi-year franchise agreements count as contracts (DPZ, MCD); (b) brand demand exceeding supply: sourced waitlists, allocation, order books or sold-out production covering the latest 2+ years (Ferrari's order book, Hermès' Birkin and Kelly allocation); (c) repeat demand: sourced customer-retention or repeat-purchase data showing the customer base is not shrinking over 3+ years.
+4. Customers cannot or will not switch, by one route: (a) switching costs are organizational (multi-month migration), not individual (one-click); (b) price-led growth: sourced price/mix increases at or above local inflation for 3+ years, with volumes flat or growing — customers who stay when prices rise. Without a price versus volume split in the dossier the route is UNPROVEN (RMS.PA Buffett: "Without a price versus volume split, I cannot say"); (c) a network or density moat shown in the economics (exchange, marketplace, route density), with a sourced figure.
 
 ### THE MULTIPLE BAND (the only place the band is set)
 
@@ -371,7 +371,13 @@ Check verify against. A memo without it is rejected unread.
   "governing": "hurdle",
   "zones": {
     "hurdle": {"floor": 175.0, "ceiling": 282.0, "central_value": 313.0},
-    "band": {"floor": 186.20, "ceiling": 335.16, "multiple_low": 10, "multiple_high": 18, "premium_tests_passed": 3}
+    "band": {"floor": 186.20, "ceiling": 335.16, "multiple_low": 10, "multiple_high": 18, "premium_tests_passed": 3,
+      "premium_tests": [
+        {"test": 1, "result": "pass", "route": "Moat Tribunal", "evidence": "0/5 SEVERE flags"},
+        {"test": 2, "result": "pass", "route": "ROIC with goodwill", "evidence": "[CALC] ROIC 24% incl. goodwill, FY2022-FY2025"},
+        {"test": 3, "result": "pass", "route": "recurring revenue", "evidence": "[SEC] 82% subscription revenue FY2025"},
+        {"test": 4, "result": "unproven", "route": "organizational switching costs", "evidence": "no migration-time or churn figure in dossier"}
+      ]}
   },
   "band_ceiling_implied_return": {"buy_at": 335.16, "eps_cagr": 0.08, "eps_cagr_source": "JUDGMENT — central-case owner-EPS growth, see §4", "exit_multiple": 15, "horizon_years": 5, "annual_return": 0.041},
   "risk_free": 0.042,
@@ -415,7 +421,10 @@ Rules:
 - **`governing` and `zones` carry the TWO BUY ZONES.** `ceiling`, `floor` and
   `central_value` stay the governing zone's, so every older check reads them
   unchanged. `zones.band` is `owner_eps` × `multiple_low`/`multiple_high`, and
-  `premium_tests_passed` counts the four franchise-premium tests. When it is 4,
+  `premium_tests_passed` counts the four franchise-premium tests; `premium_tests`
+  lists them, each with `result` (`pass`, `fail` or `unproven`), `route` and
+  `evidence`, and the pre-gate FAILs a count that is not the number of passes.
+  When it is 4,
   `band_ceiling_implied_return` (`buy_at` = the band ceiling, `exit_multiple` ≤
   `multiple_high`, `eps_cagr` sourced like an input) and `risk_free` (the
   dossier's COST OF EQUITY INPUTS 10-year in the price's currency, sourced) are

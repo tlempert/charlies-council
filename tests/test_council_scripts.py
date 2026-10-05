@@ -1580,7 +1580,8 @@ class TestLongCodexCallsStayInTheForeground:
 
 class TestCodexSolIsTheSixGeneration:
     """Codex 0.155 (2026-09-23) lists gpt-5.6-sol as "Older coding model";
-    gpt-6-sol is the current workhorse. Experts and the memo run on it."""
+    gpt-6-sol became the workhorse; since 2026-10-06 the experts run on
+    gpt-6.1-sol and the memo on gpt-6-astra."""
 
     def test_no_step_pins_the_old_sol(self):
         assert "gpt-5.6-sol" not in skill_text()
@@ -1597,10 +1598,16 @@ class TestCodexSolIsTheSixGeneration:
 
     def test_the_preflight_checks_the_model_the_run_uses(self):
         src = open(os.path.join(_SCRIPTS, "codex_preflight.py"), encoding="utf-8").read()
-        assert '"gpt-6-sol"' in src and "gpt-5.6-luna" not in src
+        assert '"gpt-6.1-sol"' in src and '"gpt-6-sol"' not in src and "gpt-5.6-luna" not in src
 
-    def test_the_experts_run_on_gpt_6_sol(self):
-        assert "-m gpt-6-sol" in skill_text()
+    def test_the_experts_run_on_gpt_6_1_sol(self):
+        """Pre-registered A/B, RMS.PA, 2026-10-06, Buffett/Burry/Psychologist,
+        two samples per model: format passed 5/6 on both, 0 unsourced numbers
+        on both, blind mean rank 2.0 for gpt-6.1-sol vs 3.0 for gpt-6-sol, at
+        1.30x the median latency. Low confidence: one dossier, and 6.1's 44%
+        longer output may have swayed the ranking."""
+        assert "-m gpt-6.1-sol -c model_reasoning_effort=high" in skill_text()
+        assert "-m gpt-6-sol" not in skill_text()
 
     def test_both_memo_drafts_run_on_astra_with_the_brief_last(self):
         """IBKR, 2026-10-03, same inputs: gpt-6-sol ran 110–153 words over the
@@ -1608,7 +1615,7 @@ class TestCodexSolIsTheSixGeneration:
         passed. Two calls a run fit Plus's astra allowance, and an exhausted
         allowance leaves an empty file, which the Claude leg already catches."""
         memo = open(os.path.join(_ROOT, "skills", "analyze-company", "08-memo.md"), encoding="utf-8").read()
-        assert memo.count("-m gpt-6-astra") == 2 and "-m gpt-6-sol" not in memo
+        assert memo.count("-m gpt-6-astra") == 2 and "-sol" not in memo
         assert memo.count("validate_memo.py --brief") == 2
 
 

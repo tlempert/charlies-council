@@ -3,7 +3,7 @@
 
     codex_preflight.py [TICKER]
 
-Exit 0 when a trivial gpt-6-sol call returns text within the timeout; exit 1
+Exit 0 when a trivial gpt-6.1-sol call returns text within the timeout; exit 1
 otherwise. Codex's exit code does not settle it — it has returned 0 with an
 empty output file and 1 at a usage limit — so this asks for one word and
 checks that a word came back. When Codex says when the limit lifts
@@ -46,7 +46,7 @@ def preflight(cx=None, timeout=45, run=subprocess.run):
     if cx is None:
         return False, f"Codex binary not found at {', '.join(CANDIDATES)}; the ChatGPT app moved it?"
     out = tempfile.NamedTemporaryFile(suffix=".txt", delete=False).name
-    cmd = [cx, "exec", "-", "-m", "gpt-6-sol", "-c", "model_reasoning_effort=low",
+    cmd = [cx, "exec", "-", "-m", "gpt-6.1-sol", "-c", "model_reasoning_effort=low",
            "--sandbox", "read-only", "--skip-git-repo-check", "--output-last-message", out]
     try:
         proc = run(cmd, input=b"Reply with the single word PONG.", capture_output=True, timeout=timeout)

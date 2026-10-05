@@ -62,6 +62,30 @@ def longest_sections(memo, n=3):
     return sorted(sizes, key=lambda s: -s[1])[:n]
 
 
+def _zones(L):
+    """(governing, {name: zone}) when the ledger carries two buy zones, else (None, {})."""
+    zones = L.get("zones")
+    if not isinstance(zones, dict) or L.get("governing") not in zones:
+        return None, {}
+    return L["governing"], {k: v for k, v in zones.items() if isinstance(v, dict)}
+
+
+def _zone_problems(L, memo):
+    """RACE, 2026-10-05: the hurdle and the band priced one business $170 apart
+    at the ceiling. The reader sees both ceilings and which zone governs."""
+    governing, zones = _zones(L)
+    out = []
+    for name, zone in zones.items():
+        v = zone.get("ceiling")
+        if isinstance(v, (int, float)) and not _appears(float(v), memo):
+            out.append(f"ledger {name} zone ceiling {v} appears nowhere in the memo")
+    if governing:
+        m = re.search(r"^## Valuation: the bet behind the price\s*\n(.*?)(?=^## |\Z)", memo, re.S | re.M)
+        if not re.search(r"\bgovern", m.group(1) if m else "", re.I):
+            out.append(f"the Valuation section must say which zone governs (the ledger says {governing})")
+    return out
+
+
 def problems(memo_path, verdict_path):
     memo = open(memo_path, encoding="utf-8").read()
     L = ledger_from(open(verdict_path, encoding="utf-8").read())
@@ -88,6 +112,7 @@ def problems(memo_path, verdict_path):
         v = L.get(key)
         if isinstance(v, (int, float)) and not _appears(float(v), memo):
             out.append(f"ledger {key} {v} appears nowhere in the memo")
+    out += _zone_problems(L, memo)
     verdict, pos = str(L.get("verdict", "")).upper(), L.get("position_pct")
     m = re.search(r"### Final investment view\s*\n(.*?)(?=^## |\Z)", memo, re.S | re.M)
     view = m.group(1) if m else ""
@@ -106,6 +131,12 @@ def brief(verdict_path):
         v = L.get(key)
         if isinstance(v, (int, float)):
             lines.append(f"- print the ledger {key.replace('_', ' ')} as ${float(v):.2f} (prose may round to ${float(v):.0f})")
+    governing, zones = _zones(L)
+    if governing:
+        cells = "; ".join(f"{name} ${float(z['floor']):.2f}–${float(z['ceiling']):.2f}" for name, z in zones.items()
+                          if isinstance(z.get("floor"), (int, float)) and isinstance(z.get("ceiling"), (int, float)))
+        lines.append(f"- in ## Valuation, a Zone | Floor | Ceiling table with both zones ({cells}); "
+                     f"say the {governing} zone governs, and why")
     if L.get("verdict") and L.get("position_pct") is not None:
         lines.append(f"- open ### Final investment view with **Verdict: {str(L['verdict']).upper()} — "
                      f"{L['position_pct']:g}% position.**")

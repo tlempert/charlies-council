@@ -48,6 +48,12 @@ Eight experts, one division, zero information about moat or management. And the
 claim was false as stated: three experts had published $292.79. One witness in
 nine hats, and a miscount, in the same sentence.
 
+The hurdle zone and the band zone (munger-synthesis.md, TWO BUY ZONES) are two
+prices for one owner EPS under two stated philosophies. Printing both is
+required, not circular; two zones presented as corroborating each other ("the
+band confirms the hurdle", "both methods land near $X") are one witness in two
+hats — FATAL.
+
 Also check for **assumption smuggling**: when a sensitivity varies one input,
 verify every other input was not held at a value that determines the answer. In
 KSPI, cost of equity was varied across 13/16/20% while g was fixed at 6%; at the
@@ -67,6 +73,8 @@ condition, and the correction log's decomposition. A number that does not
 reproduce is MAJOR; one whose correction changes the verdict is FATAL.
 
 A perpetuity's inputs must share a currency: hurdle and perpetual growth in different currencies, or g above the local cap (the dossier's PERPETUAL GROWTH CAP), is MAJOR; FATAL if it decides the verdict.
+
+Which zone governs follows munger-synthesis.md's governing rule: band governing without all four franchise-premium tests, or with a ceiling return below the local risk-free rate, is MAJOR; FATAL if it decides the verdict. The pre-gate checks only the count Munger typed, so score the four tests yourself against the dossier (RACE, 2026-10-05: the band and the hurdle put Ferrari's ceiling $170 apart, so the choice is the verdict).
 
 Run the deterministic pre-gate output you were handed (`scripts/pregate_check.py`)
 as your starting list, not your finishing list — it catches geometry, sourcing,

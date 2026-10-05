@@ -1621,3 +1621,190 @@ class TestPerpetualGrowthIsCappedInTheHurdlesCurrency:
     def test_reality_check_grades_a_currency_or_cap_breach_major(self):
         text = self._read("reality-check.md")
         assert "hurdle and perpetual growth in different currencies, or g above the local cap" in text
+
+
+# --- two buy zones, one governs ----------------------------------------------
+
+HURDLE_ZONE = {"floor": 175.0, "ceiling": 282.0, "central_value": 313.0}
+QUALITY_BAND = {"floor": 186.20, "ceiling": 335.16, "multiple_low": 10, "multiple_high": 18, "premium_tests_passed": 3}
+FRANCHISE_BAND = {"floor": 260.68, "ceiling": 465.50, "multiple_low": 14, "multiple_high": 25, "premium_tests_passed": 4}
+RF_DOSSIER = DOSSIER + PASSTHROUGH_BLOCKS + "    US 10-year: 4.20% [LIVE: ^TNX]\n"
+
+
+def _band_return(**over):
+    base = {"buy_at": 465.50, "eps_cagr": 0.08, "eps_cagr_source": "JUDGMENT — central scenario, see §4",
+            "exit_multiple": 25, "horizon_years": 5, "annual_return": 0.08}
+    base.update(over)
+    return base
+
+
+def _hurdle_governs(**over):
+    return _ledger(governing="hurdle", zones={"hurdle": dict(HURDLE_ZONE), "band": dict(QUALITY_BAND)}, **over)
+
+
+def _band_governs(**over):
+    base = dict(governing="band", zones={"hurdle": dict(HURDLE_ZONE), "band": dict(FRANCHISE_BAND)},
+                central_value=465.50, ceiling=465.50, floor=260.68, margin_of_safety=0,
+                verdict="BUY", position_pct=3, sizing_basis={"conviction": "Moderate", "unresolved": [], "cap_pct": 3},
+                band_ceiling_implied_return=_band_return(),
+                risk_free=0.042, risk_free_source="[CALC] COST OF EQUITY INPUTS: US 10-year 4.20%")
+    base.update(over)
+    return _ledger(**base)
+
+
+class TestPregateTwoZonesOneGoverns:
+    """RACE, 2026-10-05: April's 18–25× band gave $290–400, the October hurdle
+    $170–230; MC.PA's ceiling went from €395 at 18x to €330 on the EUR hurdle.
+    The user's decision: both methods, visible. The band may govern only when
+    all four franchise-premium tests pass and buying at its ceiling still earns
+    the local risk-free rate; the ledger's ceiling/floor are the governing zone's."""
+
+    def test_a_ledger_without_zones_is_checked_exactly_as_before(self, tmp_path):
+        status, _ = _run(tmp_path, _ledger(), dossier=RF_DOSSIER)
+        assert not any(n.startswith(("zones", "governing", "band_", "risk_free")) for n in status)
+
+    def test_the_hurdle_governing_with_both_zones_consistent_passes(self, tmp_path):
+        status, _ = _run(tmp_path, _hurdle_governs(), dossier=RF_DOSSIER)
+        assert "FAIL" not in status.values(), status
+        assert status["zones"] == "OK" and status["governing"] == "OK"
+
+    def test_zones_without_a_governing_word_fail(self, tmp_path):
+        led = _hurdle_governs()
+        del led["governing"]
+        status, _ = _run(tmp_path, led, dossier=RF_DOSSIER)
+        assert status["zones"] == "FAIL"
+
+    def test_a_ledger_ceiling_that_is_not_the_governing_zones_fails(self, tmp_path):
+        led = _hurdle_governs()
+        led["zones"]["hurdle"]["ceiling"] = 290.0
+        status, _ = _run(tmp_path, led, dossier=RF_DOSSIER)
+        assert status["zones"] == "FAIL"
+
+    def test_the_band_zone_is_owner_eps_times_its_multiples(self, tmp_path):
+        led = _hurdle_governs()
+        led["zones"]["band"]["ceiling"] = 372.40   # 20x, not the 18x it declares
+        status, _ = _run(tmp_path, led, dossier=RF_DOSSIER)
+        assert status["band_zone"] == "FAIL"
+
+    def test_the_band_governing_without_all_four_premium_tests_fails(self, tmp_path):
+        led = _band_governs()
+        led["zones"]["band"]["premium_tests_passed"] = 3
+        status, _ = _run(tmp_path, led, dossier=RF_DOSSIER)
+        assert status["governing"] == "FAIL"
+
+    def test_the_band_governing_with_all_four_tests_and_a_return_above_risk_free_passes(self, tmp_path):
+        status, results = _run(tmp_path, _band_governs(), dossier=RF_DOSSIER)
+        assert status["governing"] == "OK" and status["band_return"] == "OK", results
+        assert status["geometry"] == "OK" and status["zones"] == "OK" and status["risk_free_source"] == "OK"
+
+    def test_a_band_ceiling_returning_less_than_the_risk_free_rate_cannot_govern(self, tmp_path):
+        led = _band_governs(band_ceiling_implied_return=_band_return(eps_cagr=0.05, exit_multiple=20, annual_return=0.0042))
+        status, results = _run(tmp_path, led, dossier=RF_DOSSIER)
+        assert status["band_return"] == "OK", results
+        assert status["governing"] == "FAIL"
+
+    def test_the_implied_return_is_recomputed(self, tmp_path):
+        led = _band_governs(band_ceiling_implied_return=_band_return(exit_multiple=20, annual_return=0.08))  # 3.3%, not 8%
+        status, _ = _run(tmp_path, led, dossier=RF_DOSSIER)
+        assert status["band_return"] == "FAIL"
+
+    def test_the_implied_return_buys_at_the_band_ceiling(self, tmp_path):
+        r = (25 * 18.62 * 1.08 ** 5 / 400.0) ** 0.2 - 1
+        led = _band_governs(band_ceiling_implied_return=_band_return(buy_at=400.0, annual_return=round(r, 4)))
+        status, _ = _run(tmp_path, led, dossier=RF_DOSSIER)
+        assert status["band_return"] == "FAIL"
+
+    def test_the_implied_return_may_not_exit_above_the_band(self, tmp_path):
+        r = (30 / 25) ** 0.2 * 1.08 - 1
+        led = _band_governs(band_ceiling_implied_return=_band_return(exit_multiple=30, annual_return=round(r, 4)))
+        status, _ = _run(tmp_path, led, dossier=RF_DOSSIER)
+        assert status["band_return"] == "FAIL"
+
+    def test_all_four_tests_passing_requires_the_implied_return_and_the_risk_free_rate(self, tmp_path):
+        led = _band_governs()
+        del led["band_ceiling_implied_return"], led["risk_free"]
+        status, _ = _run(tmp_path, led, dossier=RF_DOSSIER)
+        assert status["band_return"] == "FAIL"
+
+    def test_the_risk_free_rate_is_sourced_like_an_input(self, tmp_path):
+        led = _band_governs(risk_free=0.031, risk_free_source="[CALC] COST OF EQUITY INPUTS: US 10-year 3.10%")
+        status, _ = _run(tmp_path, led, dossier=RF_DOSSIER)
+        assert status["risk_free_source"] == "FAIL"
+
+
+class TestValidateMemoTwoZones:
+    """RACE, 2026-10-05: the hurdle zone and the April band zone differ by
+    $170 at the ceiling. The reader sees both and which one governs."""
+
+    def _memo_with_zones(self, band_ceiling="$335.16", govern="The hurdle zone governs."):
+        table = (f"\n| Zone | Floor | Ceiling |\n|---|---|---|\n| Hurdle | $175.00 | $282.00 |\n"
+                 f"| Band (10–18x) | $186.20 | {band_ceiling} |\n\n{govern}\n")
+        return _memo().replace("## Valuation: the bet behind the price\n",
+                               "## Valuation: the bet behind the price\n" + table, 1)
+
+    def test_a_memo_with_both_zones_and_the_governing_one_named_passes(self, tmp_path):
+        assert _memo_run(tmp_path, self._memo_with_zones(), _hurdle_governs()) == []
+
+    def test_the_other_zones_ceiling_must_appear(self, tmp_path):
+        problems = _memo_run(tmp_path, self._memo_with_zones(band_ceiling="$340.00"), _hurdle_governs())
+        assert any("band" in p and "335.16" in p for p in problems), problems
+
+    def test_the_valuation_section_names_the_governing_zone(self, tmp_path):
+        problems = _memo_run(tmp_path, self._memo_with_zones(govern="Both are shown."), _hurdle_governs())
+        assert any("govern" in p for p in problems), problems
+
+    def test_without_zones_the_memo_is_checked_as_before(self, tmp_path):
+        assert _memo_run(tmp_path, _memo(), _ledger()) == []
+
+    def test_the_brief_lists_both_zones_and_the_governing_one(self, tmp_path):
+        (tmp_path / "verdict.md").write_text(f"```json model_ledger\n{json.dumps(_hurdle_governs())}\n```\n")
+        r = subprocess.run([sys.executable, os.path.join(_SCRIPTS, "validate_memo.py"), "--brief",
+                            str(tmp_path / "verdict.md")], capture_output=True, text=True)
+        assert r.returncode == 0, r.stderr
+        assert "335.16" in r.stdout and "282.00" in r.stdout
+        assert "hurdle zone governs" in r.stdout
+
+
+class TestTwoBuyZonesOneGoverns:
+    """RACE, 2026-10-05: April's 18–25× band gave $290–400, the October hurdle
+    $170–230. MC.PA went from €395 (18x) to €330 on the EUR hurdle. The user
+    chose both methods, visible: two prices for one business, one governs."""
+
+    def _read(self, name):
+        return open(os.path.join(_ROOT, "skills", name), encoding="utf-8").read()
+
+    def test_munger_states_the_governing_rule(self):
+        text = self._read("munger-synthesis.md")
+        assert "The band zone may govern only if all four franchise-premium tests pass." in text
+        assert "A band ceiling implying less than the local risk-free rate cannot govern; the hurdle zone governs." in text
+        assert "Otherwise the hurdle zone governs." in text
+
+    def test_munger_says_the_zones_are_not_witnesses_for_each_other(self):
+        text = self._read("munger-synthesis.md")
+        assert "two prices for one business under two stated philosophies" in text
+        assert "not independent witnesses" in text
+
+    def test_the_band_is_one_table_not_scattered_rules(self):
+        text = self._read("munger-synthesis.md")
+        assert text.count("15x-18x") == 1 and text.count("18x-25x") == 1
+
+    def test_the_ledger_example_carries_both_zones(self):
+        text = self._read("munger-synthesis.md")
+        ledger = json.loads(text.split("```json model_ledger\n", 1)[1].split("```", 1)[0])
+        assert ledger["governing"] == "hurdle"
+        assert set(ledger["zones"]) == {"hurdle", "band"}
+        assert ledger["ceiling"] == ledger["zones"]["hurdle"]["ceiling"]
+
+    def test_the_reality_check_grades_a_wrong_governing_choice(self):
+        text = self._read("reality-check.md")
+        assert ("band governing without all four franchise-premium tests, or with a ceiling return below "
+                "the local risk-free rate, is MAJOR; FATAL if it decides the verdict") in text
+        assert "two zones presented as corroborating each other" in text
+
+    def test_the_memo_prints_both_zones_and_names_the_governing_one(self):
+        text = self._read("investor-memo.md")
+        assert "Zone | Floor | Ceiling" in text and "governs" in text
+
+    def test_step_9_reports_both_zones(self):
+        step9 = skill_text().split("### Step 9: Report to User", 1)[1]
+        assert "both zones" in step9 and "governs" in step9

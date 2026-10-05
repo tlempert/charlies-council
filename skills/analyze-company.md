@@ -68,7 +68,7 @@ Every step below records itself twice: `./venv/bin/python3 scripts/council_manif
 ### Step 9: Report to User
 
 Display a summary:
-1. The Munger verdict (BUY/SELL/PASS + buy zone)
+1. The Munger verdict (BUY/SELL/PASS + buy zone); when the ledger carries `zones`, both zones and which one governs
 2. The reality check scorecard
 3. The file paths where reports were saved, including the investor memo and which leg wrote it (Codex gpt-6-astra or Claude sonnet) — or that Step 7 failed on both, with the validator's lines
 4. The GitHub Pages URLs: the interactive dashboard and the standalone memo page

@@ -84,6 +84,71 @@ def _strong_buy_check(ledger, price, floor, summaries):
     return "OK", "strong_buy", f"price {price} ≤ floor {floor}, High conviction, {buys} BUY votes, no SEVERE flag"
 
 
+def _close(a, b, rel=0.01):
+    return isinstance(a, (int, float)) and isinstance(b, (int, float)) and abs(a - b) <= rel * max(abs(b), 1e-9)
+
+
+def _zone_checks(L, dossier):
+    """Two buy zones, one governs (RACE 2026-10-05: April's 18–25x band gave
+    $290–400, the October hurdle $170–230). The ledger's ceiling and floor are
+    the governing zone's; the band zone is owner EPS × its multiples; the band
+    may govern only with all four premium tests and a ceiling return at or above
+    the local risk-free rate. A ledger without `zones` is not checked here."""
+    out = []
+    zones, governing = L.get("zones") or {}, L.get("governing")
+    hurdle, band = zones.get("hurdle") or {}, zones.get("band") or {}
+    gov = zones.get(governing) if governing in ("hurdle", "band") else None
+    if gov is None or not hurdle or not band:
+        return [("FAIL", "zones", f"zones needs 'hurdle' and 'band' and a governing of 'hurdle' or 'band', got {governing!r}")]
+    off = [k for k in ("ceiling", "floor") if not _close(L.get(k), gov.get(k), 0.005)]
+    if governing == "hurdle" and not _close(L.get("central_value"), hurdle.get("central_value"), 0.005):
+        off.append("central_value")
+    out.append(("FAIL", "zones", f"ledger {off} are not the governing {governing} zone's") if off
+               else ("OK", "zones", f"{governing} zone governs: {gov.get('floor')}–{gov.get('ceiling')}"))
+
+    eps, lo, hi = L.get("owner_eps"), band.get("multiple_low"), band.get("multiple_high")
+    if None in (eps, lo, hi) or not (_close(band.get("floor"), lo * eps) and _close(band.get("ceiling"), hi * eps)):
+        out.append(("FAIL", "band_zone", f"band {band.get('floor')}–{band.get('ceiling')} is not owner EPS {eps} × {lo}x–{hi}x"))
+    else:
+        out.append(("OK", "band_zone", f"{lo}x–{hi}x × {eps}"))
+
+    passed = band.get("premium_tests_passed")
+    ret, rf = L.get("band_ceiling_implied_return"), L.get("risk_free")
+    if passed == 4:
+        if not ret or rf is None:
+            out.append(("FAIL", "band_return", "all four premium tests pass: band_ceiling_implied_return and risk_free are required"))
+        else:
+            n = ret.get("horizon_years", 5)
+            try:
+                expected = (ret["exit_multiple"] * eps * (1 + ret["eps_cagr"]) ** n / ret["buy_at"]) ** (1 / n) - 1
+            except (KeyError, TypeError, ZeroDivisionError):
+                expected = None
+            if expected is None:
+                out.append(("FAIL", "band_return", "needs buy_at, eps_cagr, exit_multiple, annual_return"))
+            elif not _close(ret.get("buy_at"), band.get("ceiling"), 0.005):
+                out.append(("FAIL", "band_return", f"buy_at {ret.get('buy_at')} is not the band ceiling {band.get('ceiling')}"))
+            elif ret["exit_multiple"] > hi:
+                out.append(("FAIL", "band_return", f"exit at {ret['exit_multiple']}x above the band's {hi}x is a bet on multiple expansion"))
+            elif abs((ret.get("annual_return") or 0) - expected) > 0.003:
+                out.append(("FAIL", "band_return", f"annual_return {ret.get('annual_return')} vs expected {expected:.3f}"))
+            else:
+                out.append(("OK", "band_return", f"buying at {ret['buy_at']} returns {expected:.1%} a year"))
+            out.append(_source_check("eps_cagr_source", ret.get("eps_cagr"), ret.get("eps_cagr_source"), dossier))
+        if rf is not None:
+            out.append(_source_check("risk_free_source", rf, L.get("risk_free_source"), dossier))
+    if governing == "band":
+        why = []
+        if passed != 4:
+            why.append(f"{passed} of 4 franchise-premium tests passed")
+        if ret and rf is not None and (ret.get("annual_return") or 0) < rf:
+            why.append(f"band ceiling returns {ret.get('annual_return')} below the risk-free {rf}")
+        out.append(("FAIL", "governing", "the band may not govern: " + "; ".join(why) + " — the hurdle zone governs")
+                   if why else ("OK", "governing", "band governs: four tests passed, ceiling return at or above risk-free"))
+    else:
+        out.append(("OK", "governing", "hurdle governs"))
+    return out
+
+
 def _prices(text):
     """Every dollar figure in a trigger line, including the far end of '$186-233'."""
     out = []
@@ -180,6 +245,10 @@ def run_checks(d):
         add("FAIL", "ceiling", f"ceiling {ceiling} exceeds central value {central} — buying above the memo's own answer")
     if None not in (floor, ceiling) and floor > ceiling:
         add("FAIL", "floor", f"floor {floor} exceeds ceiling {ceiling}")
+
+    # 2b. two buy zones: the governing one is the ledger's ceiling and floor
+    if "zones" in L or "governing" in L:
+        results.extend(_zone_checks(L, dossier))
 
     # 3. position ↔ verdict
     if pos is not None:

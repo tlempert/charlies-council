@@ -40,25 +40,57 @@ If you find yourself writing significantly more than this, check whether you're 
 
 The "buy zone" uses Munger's framing, not a literal range:
 
-- **`buy_zone_low`** = absurdly cheap (Graham Floor, ~10x earnings) — where you back up the truck
-- **`buy_zone_high`** = fair value limit (Quality Floor/Ceiling, ~15-18x earnings) — where margin of safety is thinning
+- **`buy_zone_low`** = absurdly cheap — where you back up the truck
+- **`buy_zone_high`** = fair value limit — where margin of safety is thinning
 
-You buy **anywhere at or below buy_zone_high**, not only within the range. A price below the low end is an even stronger BUY, not a WAIT.
+Both are the **governing** zone's (TWO BUY ZONES, below). You buy **anywhere at or below buy_zone_high**, not only within the range. A price below the low end is an even stronger BUY, not a WAIT.
 
 **Decision rule:**
 - `current_price ≤ buy_zone_high` → BUY
 - `current_price > buy_zone_high` → WAIT (with specific trigger)
 
+## TWO BUY ZONES, ONE GOVERNS (MANDATORY)
+
+RACE (2026-10-05): April's 18–25x band put Ferrari's ceiling at $400; October's hurdle put it at $230. MC.PA: €395 at 18x, €330 on the EUR hurdle. Neither method is the truth, so the reader gets both and is told which one decides.
+
+1. **Hurdle zone** — owner earnings at the local cost of equity, growth under the PERPETUAL GROWTH CAP, the REQUIRED GROWTH TABLE below. Floor, ceiling and central value as always.
+2. **Band zone** — `owner_eps`, the same normalized cash base the hurdle uses, times THE MULTIPLE BAND below: floor = `multiple_low` × owner EPS, ceiling = `multiple_high` × owner EPS.
+
+**Governing rule:**
+- The band zone may govern only if all four franchise-premium tests pass. Then print the implied 5-year annual return of buying at the band ceiling, `r = (exit_multiple × owner_eps × (1 + eps_cagr)^5 ÷ band ceiling)^(1/5) − 1`, where `eps_cagr` is the owner-EPS growth your central case reads against the required-growth table and `exit_multiple` is no higher than `multiple_high` (a higher exit is a bet on multiple expansion). A band ceiling implying less than the local risk-free rate cannot govern; the hurdle zone governs. Choosing the band when it may govern is JUDGMENT: one sentence on why this franchise is worth the return the band gives up against the hurdle.
+- Otherwise the hurdle zone governs.
+
+Print both in the Final Decision section, in one short table, then one sentence on what the gap means — what a buyer at the band ceiling accepts against the hurdle:
+
+| Zone | Floor | Ceiling | Basis |
+|---|---|---|---|
+| Hurdle (governs) | $175 | $282 | owner EPS at an 8–10% cost of equity |
+| Band, 10x–18x | $186 | $335 | owner EPS × Quality band; 3 of 4 premium tests |
+| Gap at the ceiling | | +19% | |
+
+The `**Buy Zone:**` line, the Trigger and the ledger's `floor`, `ceiling` and `central_value` are the governing zone's; the other zone appears only in this table, never on a `Buy Zone:` line (the corpus index reads the first one). When the band governs, `central_value` is the band ceiling and `margin_of_safety` is 0: the band is a fair-value range and its discount is its floor.
+
+**Two prices, not two witnesses.** The zones are two prices for one business under two stated philosophies, both built on one owner EPS; they are not independent witnesses for each other. "The band confirms the hurdle" or "both methods land near $X" is TAUTOLOGICAL CORROBORATION (below). The gap measures the philosophy, not the business.
+
 ## FRANCHISE PREMIUM ADJUSTMENT (MANDATORY FOR PLATFORM MONOPOLIES)
 
-The default 10x-18x range assumes average-quality businesses. **Dominant platform monopolies with deep switching costs deserve higher multiples.** If ALL of the following are true, RAISE both the floor and ceiling:
+**Dominant platform monopolies with deep switching costs deserve higher multiples.** These are the four franchise-premium tests; count the ones that pass (`premium_tests_passed`) and name any that fail:
 
 1. Moat Tribunal returned 0 SEVERE flags
 2. Pricing power shows in the economics, sustained over 3+ years: operating margins >35% **OR** ROIC >20% with acquired goodwill and intangibles in invested capital. The ROIC route is for capital-light compounders whose moat is redeployment, not markup (serial acquirers, distributors, franchisors — CSU.TO failed the margin test at 15% on 2026-09-24). Goodwill stays in the denominator so an acquirer cannot qualify by writing its purchases off the balance sheet. Name which route qualified and cite the figure.
 3. Revenue >75% recurring (subscriptions, contracts)
 4. Switching costs are organizational (multi-month migration), not individual (one-click)
 
-**If all 4 are met:** Use 18x-25x as the quality range instead of 15x-18x. The Graham Floor rises to 14x (not 10x).
+### THE MULTIPLE BAND (the only place the band is set)
+
+| Row | When | `multiple_low` (Graham Floor) | Quality range | `multiple_high` |
+|---|---|---|---|---|
+| Franchise | All four franchise-premium tests pass | 14x | 18x-25x | 25x |
+| Quality | Default | 10x | 15x-18x | 18x |
+| Cautious Quality | Moat Tribunal: 2 SEVERE + 2 MODERATE | 10x | 12x–14x | 14x |
+| Moat Uncertainty Discount | Moat Tribunal: 3+ SEVERE | 10x | — | 10x |
+
+The Historian's "Casualty Trajectory" at >60% confidence caps `multiple_high` at 14x on any row.
 
 **CRITICAL DISTINCTION — capex-cycle compression vs structural decline:**
 - **Temporary**: FCF compressed because the company is building infrastructure against validated demand (contracted backlog, growing revenue). Use normalized post-cycle earnings for the multiple, not trough-cycle FCF.
@@ -94,9 +126,7 @@ Before any valuation, resolve the moat question using the structured summary blo
 
 **COUNT only SEVERE flags.** State: "Moat Tribunal: [count]/5 SEVERE flags raised by: [list expert names]. [count] MODERATE flags by: [list]. [count] MINOR/NONE."
 
-**SYNTHESIS RULE:** If 3+ SEVERE flags → apply "Moat Uncertainty Discount" — use the Graham Floor (10x). If 2 SEVERE + 2 MODERATE → use cautious Quality Floor (12x-14x). Otherwise → normal Quality Floor (15x-18x).
-
-**SYNTHESIS RULE:** If the Historian says "Casualty Trajectory" at >60% confidence, the maximum buy zone ceiling drops to 14x earnings.
+**SYNTHESIS RULE:** The flag count and the Historian's trajectory pick the row of THE MULTIPLE BAND (3+ SEVERE → Moat Uncertainty Discount; 2 SEVERE + 2 MODERATE → Cautious Quality; Casualty Trajectory >60% → `multiple_high` capped at 14x).
 
 **ALSO REQUIRED:** Cite the STRESS TEST TABLE from the dossier in your valuation section. State the revenue decline level at which FCF turns negative.
 
@@ -123,10 +153,7 @@ Before making your final decision, you MUST explicitly:
 2. **Assess Product Soul:** Does **Jobs** confirm "Insanely Great"?
 3. **Assess Ecosystem Health:** Does the **Biologist** confirm a thriving ecosystem?
 4. **Assess Cultural Durability:** Does the **Anthropologist** confirm generational staying power?
-5. **Calculate the Adjustment:**
-   - Weak moat, bad product, or decaying ecosystem → keep "Graham Floor" (~10x)
-   - High-quality compounder with healthy ecosystem → **RAISE** Floor to "Quality Floor" (15x-18x)
-   - Dominant platform monopoly meeting all 4 Franchise Premium criteria → **RAISE** Floor to "Franchise Floor" (18x-25x)
+5. **Calculate the Adjustment:** pick the row of THE MULTIPLE BAND — weak moat, bad product or decaying ecosystem → a row below Quality; high-quality compounder with a healthy ecosystem → Quality; all four franchise-premium tests → Franchise.
 
 ## TOO UNCERTAIN FRAMING (REQUIRED FOR TOO UNCERTAIN VERDICTS)
 
@@ -161,6 +188,7 @@ Include these fields as natural paragraphs in your prose synthesis:
 - **Moat Tribunal Result:** [Strong/Uncertain/Decaying] — list which experts agreed and disagreed
 - **The "Munger Buy Zone":** $[Absurdly Cheap] - $[Fair Value Limit]
   - Explicitly state if you adjusted the Floor for Moat Quality or the Ceiling for Hidden Value
+- **Two zones:** the TWO BUY ZONES table, which zone governs and why, and the one sentence on the gap
 - **Why is it mispriced?** (CRITICAL): If BUY, explain WHY (Complexity/Fear/Boredom/Hidden Value)
 - **Moat Half-Life:** How many years until the moat erodes materially?
 
@@ -175,6 +203,7 @@ After your complete prose synthesis, add a `---` horizontal rule and then this e
 
 **Decision:** [STRONG BUY | BUY | WAIT | HOLD | PASS | SELL | TOO UNCERTAIN]
 **Trigger:** [For WAIT: "Buy anywhere ≤ $X (absurdly cheap floor $Y | fair value limit $X)" | For BUY: "At current price" | For STRONG BUY: "At current price (at or below the $Y floor)" | For others: "none" or the key evidence that would change the decision]
+**Zones:** [hurdle $A–$B | band $C–$D (Lx–Hx) | the hurdle or the band governs]
 **Conviction:** [High | Moderate | Low | Too Uncertain]
 **Council Vote:** [N BUY, N HOLD, N PASS, N SELL]
 **Thesis in One Sentence:** [The single sentence that captures the entire judgment]
@@ -236,7 +265,7 @@ If the raw dossier carries a `PRIOR COUNCIL RUN:` line and this run's buy-zone
 ceiling differs from that run's by more than 20%, the verdict must contain a
 **Why the zone moved** paragraph. It names the changed FACT (a new filing,
 guidance, the price) or the changed METHOD (the hurdle, the multiple band, the
-cycle base), and sizes how much of the move each one explains. A reader holding
+cycle base, which zone governs), and sizes how much of the move each one explains. A reader holding
 both memos cannot otherwise tell a business that changed from a council that
 did. A move with neither named is a defect. MC.PA (2026-10-04) is why: the
 hurdle's risk-free leg changed currency between runs, and that alone moves a
@@ -248,7 +277,8 @@ Before presenting any metric as independent confirmation of another, derive the
 second from the first symbolically. If it reduces, it is one witness in two hats.
 `P/B ÷ ROE ≡ P/E` — presenting a price-to-book-per-unit-of-ROE comparison as a
 check on a P/E claim is circular, and it is how the KSPI synthesis reached its
-headline conclusion.
+headline conclusion. The hurdle zone and the band zone are one owner EPS
+priced twice: neither corroborates the other.
 
 Equally: when you run a sensitivity on one input, do not silently hold another at
 a value that determines the answer. Varying cost of equity while fixing g at 6%
@@ -338,6 +368,14 @@ Check verify against. A memo without it is rejected unread.
   "ceiling": 282.0,
   "floor": 175.0,
   "margin_of_safety": 0.10,
+  "governing": "hurdle",
+  "zones": {
+    "hurdle": {"floor": 175.0, "ceiling": 282.0, "central_value": 313.0},
+    "band": {"floor": 186.20, "ceiling": 335.16, "multiple_low": 10, "multiple_high": 18, "premium_tests_passed": 3}
+  },
+  "band_ceiling_implied_return": {"buy_at": 335.16, "eps_cagr": 0.08, "eps_cagr_source": "JUDGMENT — central-case owner-EPS growth, see §4", "exit_multiple": 15, "horizon_years": 5, "annual_return": 0.041},
+  "risk_free": 0.042,
+  "risk_free_source": "[CALC] COST OF EQUITY INPUTS: US 10-year 4.20%",
   "verdict": "WAIT",
   "position_pct": 0,
   "sizing_basis": {"conviction": "Moderate", "unresolved": ["organic ARR growth", "CFO seat"], "cap_pct": 3},
@@ -374,6 +412,15 @@ Rules:
   requires `price > ceiling`; `ceiling ≤ central_value` always. ADBE draft 2
   recommended BUY at $292.79 with a central value of $282 and a $310 ceiling —
   buying above its own answer.
+- **`governing` and `zones` carry the TWO BUY ZONES.** `ceiling`, `floor` and
+  `central_value` stay the governing zone's, so every older check reads them
+  unchanged. `zones.band` is `owner_eps` × `multiple_low`/`multiple_high`, and
+  `premium_tests_passed` counts the four franchise-premium tests. When it is 4,
+  `band_ceiling_implied_return` (`buy_at` = the band ceiling, `exit_multiple` ≤
+  `multiple_high`, `eps_cagr` sourced like an input) and `risk_free` (the
+  dossier's COST OF EQUITY INPUTS 10-year in the price's currency, sourced) are
+  mandatory. The pre-gate recomputes the band and the return, and FAILs a band
+  that governs without four tests or below the risk-free rate.
 - **Print your implied multiple** in the prose: `central_value ÷ owner_eps` and
   `÷ GAAP EPS`, beside the traded multiple and the peer median. A central value
   below the traded multiple for a business you grade A− is the tell of an

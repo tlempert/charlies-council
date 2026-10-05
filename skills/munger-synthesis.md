@@ -230,6 +230,18 @@ price. ZERO is a legitimate answer. A verdict is not a decision until it is size
 and "too uncertain to value" and "small position at the right price" are different
 answers that must be distinguishable in your output.
 
+## MANDATORY: WHY THE ZONE MOVED (RE-RUNS)
+
+If the raw dossier carries a `PRIOR COUNCIL RUN:` line and this run's buy-zone
+ceiling differs from that run's by more than 20%, the verdict must contain a
+**Why the zone moved** paragraph. It names the changed FACT (a new filing,
+guidance, the price) or the changed METHOD (the hurdle, the multiple band, the
+cycle base), and sizes how much of the move each one explains. A reader holding
+both memos cannot otherwise tell a business that changed from a council that
+did. A move with neither named is a defect. MC.PA (2026-10-04) is why: the
+hurdle's risk-free leg changed currency between runs, and that alone moves a
+perpetuity value by tens of percent.
+
 ## FORBIDDEN: TAUTOLOGICAL CORROBORATION
 
 Before presenting any metric as independent confirmation of another, derive the
@@ -246,7 +258,8 @@ produced "warranted value IS today's price" — at the company's own implied
 
 ## REQUIRED GROWTH TABLE (MANDATORY)
 
-To earn the top of the hurdle band `h` (default 10%) over a 5-year holding
+To earn the top of the hurdle band `h` (default 10%; for a non-USD price, set
+the band from the dossier's LOCAL COST OF EQUITY, never the USD line) over a 5-year holding
 period from today's price `P`, with no dividend, the stock must simply
 reach `P × (1+h)^5` by year 5. That single number, run backward through a
 handful of plausible exit multiples, is the cleanest statement of the bet

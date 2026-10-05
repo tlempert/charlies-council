@@ -1572,3 +1572,32 @@ class TestAFinishedRunIsNeverResumed:
 
     def test_the_skill_never_stops_to_ask_whether_to_rerun(self):
         assert "never ask" in self._rule().lower()
+
+
+class TestAMovedZoneIsExplained:
+    """MC.PA 2026-10-04: a re-run's buy zone can move a long way on a changed
+    hurdle alone (the EUR risk-free fix moves LVMH's), and a reader comparing
+    runs cannot tell a new fact from a new method unless the memo names which
+    one moved it."""
+
+    def _text(self):
+        return open(os.path.join(_ROOT, "skills", "munger-synthesis.md"), encoding="utf-8").read()
+
+    def test_a_ceiling_move_beyond_twenty_percent_requires_a_why_paragraph(self):
+        text = self._text()
+        assert "PRIOR COUNCIL RUN" in text and "20%" in text
+        assert "Why the zone moved" in text
+
+    def test_the_paragraph_names_a_changed_fact_or_a_changed_method(self):
+        text = self._text()
+        assert "FACT" in text and "METHOD" in text and "defect" in text
+
+
+class TestTheLocalHurdleStartsFromTheLocalRate:
+    """MC.PA 2026-10-04: a EUR valuation discounted at a USD risk-free rate."""
+
+    def test_refine_dossier_builds_a_non_usd_hurdle_on_the_local_ten_year(self):
+        text = open(os.path.join(_ROOT, "skills", "refine-dossier.md"), encoding="utf-8").read()
+        section = text.split("### LOCAL COST OF EQUITY", 1)[1].split("\n### ", 1)[0]
+        assert "LOCAL ({CUR}) COST OF EQUITY" in section
+        assert "never the US 10-year" in section

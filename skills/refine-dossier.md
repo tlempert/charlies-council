@@ -133,9 +133,11 @@ Experts MUST adjust their analysis to the problem type. For cyclicals: cite whic
 
 ### LOCAL COST OF EQUITY (MANDATORY — STATE IT BEFORE ANY VALUATION)
 
-Build it from the raw dossier's **COST OF EQUITY INPUTS** block — `COUNTRY:`, the US 10-year, and Damodaran's mature-market and country risk premiums — not from memory:
+Build it from the raw dossier's **COST OF EQUITY INPUTS** block — `COUNTRY:`, the 10-year in the PRICE currency, and Damodaran's mature-market and country risk premiums — not from memory:
 
-`LOCAL COST OF EQUITY: X–Y% — US 10-year A% + Damodaran total ERP B% [DATA: Damodaran, <edition>] = C% at beta 1; + D% [JUDGMENT: named reason] for [capital controls / VIE / governance / sector / non-USD inflation gap]. [one sentence of justification]`
+`LOCAL COST OF EQUITY: X–Y% — <CUR> 10-year A% [LIVE: source, date] + Damodaran total ERP B% [DATA: Damodaran, <edition>] = C% at beta 1; + D% [JUDGMENT: named reason] for [capital controls / VIE / governance / sector]. [one sentence of justification]`
+
+For a USD price the 10-year is the US one. For any other price the valuation runs in that currency, so start from the block's `<CUR> 10-year` and `LOCAL ({CUR}) COST OF EQUITY` lines, never the US 10-year or the `USD COST OF EQUITY` line; the local yield already carries the currency's inflation gap. MC.PA (2026-10-04) is why: LVMH's EUR cash flows were discounted at a 10.3% hurdle built on the US 10-year. If the block says the local 10-year is unavailable, state one with its source; do not fall back to the US rate.
 
 Every point above the Damodaran figure is JUDGMENT and must be named and sized. YUMC (2026-09-26) is why: an unsourced China hurdle moved from 10.2% to 14% across review passes and spanned ~$14 a share. If the block says the country is not in the table, state and justify a premium explicitly.
 
@@ -199,7 +201,7 @@ Verbatim includes the header line: keep each block's `--- … ---` line exactly 
 4. **LATEST QUARTER (8-K Ex.99.1)** — without it, no expert sees a primary source newer than the 10-K: share count, guidance, and acquisition contribution can all be a full year stale.
 5. **CASH CONVERSION** — without it, no expert can check revenue growth against cash growth; it is the only block that puts the two side by side.
 6. **BALANCE SHEET** — cash and short-term investments, borrowings, leases and long-term financial assets, with the net debt the valuation anchors use. Without it (YUMC, 2026-09-25) the synthesist inferred the cash pile from interest income, a ±$8/share guess on a company whose balance sheet was one API call away.
-7. **COST OF EQUITY INPUTS** — the sourced country risk premium and US 10-year the LOCAL COST OF EQUITY is built from; without it the hurdle is a judgment no one can check.
+7. **COST OF EQUITY INPUTS** — the sourced country risk premium and the price currency's 10-year the LOCAL COST OF EQUITY is built from; without it the hurdle is a judgment no one can check.
 
 This rule exists because they were dropped on NXPI (2026-08-21) and it cost real analysis:
 

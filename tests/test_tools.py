@@ -2738,6 +2738,115 @@ class TestCostOfEquityBlock:
         assert "US 10-year: unavailable" in block
 
 
+# --- the hurdle's risk-free leg is in the currency the stock is priced in ---
+# MC.PA 2026-10-04: the dossier valued LVMH in EUR but the hurdle was the US
+# 10-year + Damodaran ERP (10.3%); the memo itself said the USD leg overstated
+# a EUR hurdle and the record had no EUR rate to size it.
+
+_FRED_CSV = ("observation_date,IRLTLT01DEM156N\n"
+             "2026-06-01,2.96\n2026-07-01,3.07\n2026-08-01,3.18\n2026-09-01,\n")
+
+
+class TestLocalTenYear:
+    def test_eur_reads_the_latest_bund_yield_from_fred(self):
+        from modules.tools import local_ten_year
+        with patch("modules.tools.requests.get") as get:
+            get.return_value = MagicMock(status_code=200, text=_FRED_CSV)
+            rate, source = local_ten_year("EUR")
+        assert "IRLTLT01DEM156N" in get.call_args[0][0]
+        assert rate == pytest.approx(0.0318)
+        assert source == "FRED IRLTLT01DEM156N, 2026-08"
+
+    def test_each_listed_currency_reads_its_own_government_s_series(self):
+        from modules.tools import local_ten_year
+        for cur, series in [("CHF", "CHM"), ("GBP", "GBM"), ("JPY", "JPM"), ("CAD", "CAM"),
+                            ("SEK", "SEM"), ("DKK", "DKM"), ("NOK", "NOM"), ("AUD", "AUM")]:
+            with patch("modules.tools.requests.get") as get:
+                get.return_value = MagicMock(status_code=200, text=_FRED_CSV)
+                local_ten_year(cur)
+            assert f"IRLTLT01{series}156N" in get.call_args[0][0], cur
+
+    def test_usd_and_the_usd_pegged_hkd_use_the_us_ten_year(self):
+        from modules.tools import local_ten_year
+        with patch("modules.tools._us_ten_year", return_value=0.042):
+            assert local_ten_year("USD") == (0.042, "^TNX")
+            rate, source = local_ten_year("HKD")
+        assert rate == 0.042 and "^TNX" in source and "peg" in source
+
+    def test_an_unmapped_currency_or_a_failed_fetch_is_none_never_a_raise(self):
+        from modules.tools import local_ten_year
+        assert local_ten_year("PLN") is None
+        assert local_ten_year(None) is None
+        with patch("modules.tools.requests.get", side_effect=Exception("timeout")):
+            assert local_ten_year("EUR") is None
+        with patch("modules.tools.requests.get") as get:
+            get.return_value = MagicMock(status_code=500, text="")
+            assert local_ten_year("CHF") is None
+
+
+class TestLocalCostOfEquity:
+    def test_a_eur_price_gets_a_local_hurdle_built_on_the_bund(self):
+        from modules.tools import build_cost_of_equity_block
+        block = build_cost_of_equity_block("France", 0.042, currency="EUR",
+                                           local_risk_free=(0.0318, "FRED IRLTLT01DEM156N, 2026-08"))
+        assert "US 10-year: 4.20% [LIVE: ^TNX]" in block
+        assert "EUR 10-year: 3.18% [LIVE: FRED IRLTLT01DEM156N, 2026-08]" in block
+        assert "LOCAL (EUR) COST OF EQUITY (beta 1): 8.19%" in block   # 3.18% + 4.23% + 0.78%
+        assert "valuation in EUR" in block
+        assert "already carries the EUR inflation gap" in block and "a non-USD price's inflation gap" not in block
+
+    def test_a_missing_local_rate_is_declared_and_the_us_rate_is_not_substituted(self):
+        from modules.tools import build_cost_of_equity_block
+        block = build_cost_of_equity_block("Switzerland", 0.042, currency="CHF", local_risk_free=None)
+        assert "CHF 10-year: unavailable" in block
+        assert "do not substitute the US rate" in block
+        assert "LOCAL (CHF) COST OF EQUITY" not in block
+
+    def test_a_usd_price_prints_no_local_line(self):
+        from modules.tools import build_cost_of_equity_block
+        block = build_cost_of_equity_block("United States", 0.042, currency="USD", local_risk_free=(0.042, "^TNX"))
+        assert "LOCAL (" not in block and "USD COST OF EQUITY (beta 1)" in block
+
+    def test_the_dossier_passes_the_price_currency_and_its_local_rate(self):
+        import inspect
+        from modules import tools
+        src = inspect.getsource(tools.build_initial_dossier)
+        assert "currency=_norm(price_curr)" in src
+        assert "local_risk_free=local_ten_year(_norm(price_curr))" in src
+
+
+# --- a re-run must explain a moved buy zone; the prior run is on file ---
+
+_CORPUS = """# Silicon Council — Corpus Index
+
+| Ticker | Held | Decision | Δ vs Prior | Buy Zone | Price @ Analysis | Conv. | Council Vote | Date | Runs | Stale |
+|--------|------|----------|-----------|---------|------------------|-------|-------------|------|------|-------|
+| [MC.PA](MC.PA_Analysis_2026-10-04.md) |  | **WAIT** | ＝ | €233–€280 | €378.55 | Moderate | 0 BUY, 5 WAIT | 2026-10-04 | 2 |  |
+| [MC](MC_Analysis_2026-01-01.md) |  | **PASS** | NEW | — | $50.00 | Low | — | 2026-01-01 | 1 |  |
+"""
+
+
+class TestPriorCouncilRun:
+    def test_the_prior_verdict_zone_and_price_come_from_the_corpus_index(self, tmp_path):
+        from modules.tools import prior_council_run
+        index = tmp_path / "CORPUS_INDEX.md"
+        index.write_text(_CORPUS, encoding="utf-8")
+        assert prior_council_run("MC.PA", str(index)) == \
+            "PRIOR COUNCIL RUN: 2026-10-04 WAIT, buy zone €233–€280, price €378.55"
+
+    def test_a_first_run_or_a_missing_index_prints_nothing(self, tmp_path):
+        from modules.tools import prior_council_run
+        index = tmp_path / "CORPUS_INDEX.md"
+        index.write_text(_CORPUS, encoding="utf-8")
+        assert prior_council_run("NESN.SW", str(index)) == ""
+        assert prior_council_run("MC.PA", str(tmp_path / "missing.md")) == ""
+
+    def test_the_dossier_carries_the_prior_run_line(self):
+        import inspect
+        from modules import tools
+        assert "prior_council_run(ticker)" in inspect.getsource(tools.build_initial_dossier)
+
+
 # --- IFRS filers spell debt, payables, receivables and revenue differently ---
 
 class TestIfrsAlternateConcepts:

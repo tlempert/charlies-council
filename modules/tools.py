@@ -1711,7 +1711,7 @@ _COUNTRY_ALIASES = {"South Korea": "Korea", "Czechia": "Czech Republic", "Türki
                     "North Macedonia": "Macedonia", "Eswatini": "Swaziland", "Macau": "Macao"}
 
 
-def build_cost_of_equity_block(country, risk_free):
+def build_cost_of_equity_block(country, risk_free, currency=None, local_risk_free=None):
     """A sourced hurdle: the US 10-year plus the country's total equity risk
     premium from Damodaran's January table, in USD terms at a beta of one.
 
@@ -1719,15 +1719,24 @@ def build_cost_of_equity_block(country, risk_free):
     judgment, and it moved from 10.2% to 14% across review passes — ~$14 of
     value on one unsourced number. Anything added on top is the council's
     JUDGMENT and must be named as such.
+
+    MC.PA (2026-10-04) is why a non-USD price also gets a LOCAL line: the
+    dossier valued LVMH in EUR against a 10.3% hurdle built on the US 10-year,
+    and its own memo said the USD leg overstated a EUR hurdle it could not size.
+    `local_risk_free` is local_ten_year(currency): (rate, source) or None.
     """
     with open(_COUNTRY_RISK, encoding="utf-8") as f:
         table = json.load(f)
     tag = f"[DATA: Damodaran, {table['edition']}]"
     mature = table["mature_market_erp"]
+    local = currency if currency and currency != "USD" else None
     lines = ["    --- 🌍 COST OF EQUITY INPUTS ---",
              f"    COUNTRY: {country or 'not reported'} (headquarters, per Yahoo — check where the revenue is)",
-             f"    US 10-year: {f'{risk_free:.2%}' if risk_free is not None else 'unavailable'} [LIVE: ^TNX]",
-             f"    Mature-market equity risk premium: {mature:.2%} {tag}"]
+             f"    US 10-year: {f'{risk_free:.2%}' if risk_free is not None else 'unavailable'} [LIVE: ^TNX]"]
+    if local:
+        lines.append(f"    {local} 10-year: {local_risk_free[0]:.2%} [LIVE: {local_risk_free[1]}]" if local_risk_free
+                     else f"    {local} 10-year: unavailable — state one; do not substitute the US rate.")
+    lines.append(f"    Mature-market equity risk premium: {mature:.2%} {tag}")
     crp = table["country_risk_premium"].get(_COUNTRY_ALIASES.get(country, country)) if country else None
     if crp is None:
         lines.append(f"    Country risk premium: not in the Damodaran table for '{country}' — state and justify one.")
@@ -1736,8 +1745,15 @@ def build_cost_of_equity_block(country, risk_free):
                   f"    Total equity risk premium: {mature + crp:.2%}"]
         if risk_free is not None:
             lines.append(f"    USD COST OF EQUITY (beta 1): {risk_free + mature + crp:.2%}")
-    lines.append("    Any premium above this (capital controls, VIE, governance, a non-USD price's inflation gap) "
-                 "is JUDGMENT: name it and size it.")
+        if local and local_risk_free:
+            lines.append(f"    LOCAL ({local}) COST OF EQUITY (beta 1): {local_risk_free[0] + mature + crp:.2%} "
+                         f"— the hurdle for a valuation in {local}, the currency this dossier's figures are in.")
+    if local and local_risk_free:
+        lines.append("    Any premium above this (capital controls, VIE, governance) is JUDGMENT: name it and size it. "
+                     f"The {local} 10-year already carries the {local} inflation gap; do not add one.")
+    else:
+        lines.append("    Any premium above this (capital controls, VIE, governance, a non-USD price's inflation gap) "
+                     "is JUDGMENT: name it and size it.")
     return "\n".join(lines)
 
 
@@ -1745,6 +1761,38 @@ def _us_ten_year():
     """The US 10-year yield as a fraction, or None when Yahoo will not say."""
     try:
         return float(yf.Ticker("^TNX").history(period="5d")["Close"].dropna().iloc[-1]) / 100
+    except Exception:
+        return None
+
+
+# Price currency → FRED's copy of the OECD 10-year government yield (monthly,
+# percent). EUR reads the Bund: the euro's default-free rate.
+_LOCAL_TEN_YEAR = {"EUR": "DE", "CHF": "CH", "GBP": "GB", "JPY": "JP", "CAD": "CA",
+                   "SEK": "SE", "DKK": "DK", "NOK": "NO", "AUD": "AU"}
+
+
+def local_ten_year(currency):
+    """The 10-year government yield for the currency a stock is PRICED in, as
+    (fraction, source), or None when unmapped or unreachable — never the US rate
+    standing in for another currency's. HKD is pegged to the dollar, so it is
+    the US rate by construction.
+
+    MC.PA, 2026-10-04: a EUR valuation was discounted at a USD risk-free rate.
+    """
+    if currency in ("USD", "HKD"):
+        rate = _us_ten_year()
+        return None if rate is None else (rate, "^TNX" if currency == "USD" else "^TNX — HKD is pegged to USD")
+    country = _LOCAL_TEN_YEAR.get(currency)
+    if not country:
+        return None
+    series = f"IRLTLT01{country}M156N"
+    try:
+        r = requests.get(f"https://fred.stlouisfed.org/graph/fredgraph.csv?id={series}", timeout=8)
+        if r.status_code != 200:
+            return None
+        rows = [line.split(",") for line in r.text.strip().splitlines()[1:]]
+        date, value = [row for row in rows if len(row) == 2 and row[1].strip() not in ("", ".")][-1]
+        return float(value) / 100, f"FRED {series}, {date[:7]}"
     except Exception:
         return None
 
@@ -3011,6 +3059,7 @@ def build_initial_dossier(ticker):
     TARGET: {ticker}
     COMPANY: {company_name}
     CURRENCY: {price_curr}{f" (converted from {fin_curr} filings @ {_fx_rate:.6f})" if _fx_rate != 1.0 else ""}
+    {prior_council_run(ticker)}
     REVENUE TREND: {trend_line}
     {val_report}
 
@@ -3075,7 +3124,8 @@ def build_initial_dossier(ticker):
     {build_earnings_velocity([q * _fx_rate for q in quarterly_revenues], c_sym, quarter_labels)}
     {build_cash_conversion(stock.quarterly_cashflow, stock.quarterly_financials, c_sym, _fx_rate)}
     {_balance_sheet_section(stock, _fx_rate, c_sym)}
-    {build_cost_of_equity_block(info.get('country'), _us_ten_year())}
+    {build_cost_of_equity_block(info.get('country'), _us_ten_year(), currency=_norm(price_curr),
+                                local_risk_free=local_ten_year(_norm(price_curr)))}
     """
 
     # --- Data quality warning: count empty Tavily-dependent sections ---
@@ -3097,6 +3147,27 @@ def build_initial_dossier(ticker):
             print(f"   SEC sections populated: {', '.join(_sec_ok)}")
 
 DEFAULT_REPORT_DIR = "/Users/tallempert/Library/Mobile Documents/iCloud~md~obsidian/Documents/Tal/reports"
+
+
+def prior_council_run(ticker, index_path=None):
+    """The last council verdict on this ticker, from the corpus index, as one
+    dossier line, or "" on a first run or when the index cannot be read.
+
+    MC.PA, 2026-10-04: a re-run's buy zone can move a long way on a changed
+    method alone (here, the hurdle's risk-free leg). The synthesist must see
+    the prior zone to say what moved it.
+    """
+    path = index_path or os.path.join(DEFAULT_REPORT_DIR, "CORPUS_INDEX.md")
+    try:
+        with open(path, encoding="utf-8") as f:
+            rows = [[c.strip() for c in line.strip().strip("|").split("|")]
+                    for line in f if line.startswith("|")]
+        row = next(r for r in rows[1:] if r[0].startswith(f"[{ticker}]("))
+        cell = dict(zip(rows[0], row))
+        return (f"PRIOR COUNCIL RUN: {cell['Date']} {cell['Decision'].strip('*')}, "
+                f"buy zone {cell['Buy Zone']}, price {cell['Price @ Analysis']}")
+    except Exception:
+        return ""
 
 def clean_ansi(text):
     """Remove ANSI color codes from text."""

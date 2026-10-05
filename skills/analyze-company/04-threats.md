@@ -86,7 +86,7 @@ On `jev: CACHED`, the drops and pairing are in `raw_moat_threats.jev.md`; read i
 Mechanical, high-volume, zero judgment — offload it:
 
 ```bash
-CX=/Applications/ChatGPT.app/Contents/Resources/codex; D=/tmp/silicon_council/{TICKER}; { echo "Condense the raw moat-threat search results below into a structured threat register for an investment analyst.
+CX=$(/Users/tallempert/src-tal/investor/scripts/codex_bin.sh); D=/tmp/silicon_council/{TICKER}; { echo "Condense the raw moat-threat search results below into a structured threat register for an investment analyst.
 
 Rules:
 - One entry per distinct threat. Merge duplicates that appear across queries.

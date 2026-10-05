@@ -18,7 +18,11 @@ import sys
 import tempfile
 import time
 
-CX = "/Applications/ChatGPT.app/Contents/Resources/codex"
+# Mirrors scripts/codex_bin.sh, newest location first. The 2026-10-04 ChatGPT
+# app update moved Codex to codex-cli/bin/codex; a missing binary must fail
+# the preflight, never pass as a silent all-Claude run (MC.PA, 2026-10-06).
+CANDIDATES = ("/Applications/ChatGPT.app/Contents/Resources/codex-cli/bin/codex",
+              "/Applications/ChatGPT.app/Contents/Resources/codex")
 LIMIT_RE = re.compile(r"usage limit|rate limit|too many requests", re.I)
 RESET_RE = re.compile(r"try again (?:at|in|after) ([^.\n]+)", re.I)
 
@@ -31,8 +35,16 @@ def limit_note(stderr):
     return "usage limit" + (f", try again at {m.group(1).strip()}" if m else "")
 
 
-def preflight(cx=CX, timeout=45, run=subprocess.run):
+def find_codex():
+    """The first executable Codex in CANDIDATES, or None."""
+    return next((c for c in CANDIDATES if os.access(c, os.X_OK)), None)
+
+
+def preflight(cx=None, timeout=45, run=subprocess.run):
     """(ok, note): note is '' when Codex answered, else why it did not."""
+    cx = cx or find_codex()
+    if cx is None:
+        return False, f"Codex binary not found at {', '.join(CANDIDATES)}; the ChatGPT app moved it?"
     out = tempfile.NamedTemporaryFile(suffix=".txt", delete=False).name
     cmd = [cx, "exec", "-", "-m", "gpt-6-sol", "-c", "model_reasoning_effort=low",
            "--sandbox", "read-only", "--skip-git-repo-check", "--output-last-message", out]

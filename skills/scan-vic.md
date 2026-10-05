@@ -122,7 +122,7 @@ Pick 3–5 from the `live` rows (plus any `broken` name whose collapse looks lik
 Only finalists. For each, with `{TICKER}` and `{URL}` from the shortlist:
 
 ```bash
-CX=/Applications/ChatGPT.app/Contents/Resources/codex; D=/tmp/vic_scan/{TICKER}; mkdir -p $D
+CX=$(/Users/tallempert/src-tal/investor/scripts/codex_bin.sh); D=/tmp/vic_scan/{TICKER}; mkdir -p $D
 $CX exec "Use the Browser skill via mcp__node_repl__js to control the user's ALREADY-RUNNING Chrome (their normal profile and cookies). Do not launch a fresh or incognito browser.
 
 Open {URL}. Extract the full 'Description' and 'Catalyst' sections of the write-up, plus any author-stated valuation, and reproduce them VERBATIM. Do not summarise, do not paraphrase, do not add commentary of your own.

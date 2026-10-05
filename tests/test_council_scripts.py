@@ -82,6 +82,13 @@ class TestValidateWorker:
 # --- codex_preflight.py -------------------------------------------------------
 
 class TestCodexPreflight:
+    def _mod(self):
+        """The preflight with a binary that exists on any machine, so these
+        tests exercise the probe, not where the ChatGPT app keeps Codex."""
+        mod = _load("codex_preflight")
+        mod.CANDIDATES = (sys.executable,)
+        return mod
+
     def _run_writing(self, text):
         def run(cmd, **kw):
             out = cmd[cmd.index("--output-last-message") + 1]
@@ -99,32 +106,32 @@ class TestCodexPreflight:
         return run
 
     def test_reachable_when_the_model_answers(self):
-        assert _load("codex_preflight").preflight(run=self._run_writing("PONG")) == (True, "")
+        assert self._mod().preflight(run=self._run_writing("PONG")) == (True, "")
 
     def test_unavailable_when_the_answer_is_empty(self):
-        ok, note = _load("codex_preflight").preflight(run=self._run_writing(""))
+        ok, note = self._mod().preflight(run=self._run_writing(""))
         assert ok is False and note
 
     def test_unavailable_when_the_binary_is_missing(self):
         def run(cmd, **kw):
             raise FileNotFoundError(cmd[0])
-        assert _load("codex_preflight").preflight(run=run)[0] is False
+        assert self._mod().preflight(run=run)[0] is False
 
     def test_unavailable_on_timeout(self):
         def run(cmd, **kw):
             raise subprocess.TimeoutExpired(cmd, 45)
-        assert _load("codex_preflight").preflight(run=run)[0] is False
+        assert self._mod().preflight(run=run)[0] is False
 
     def test_reports_the_reset_time_when_codex_is_at_its_limit(self):
         """ADBE 2026-09-13: codex exec returned rc=1 with the reset time on stderr,
         and the preflight said only UNAVAILABLE. The user had to grep the log."""
-        assert _load("codex_preflight").preflight(run=self._run_at_limit()) == (False, "usage limit, try again at 7:51 PM")
+        assert self._mod().preflight(run=self._run_at_limit()) == (False, "usage limit, try again at 7:51 PM")
 
     def test_records_the_verdict_in_the_manifest(self, tmp_path, monkeypatch, capsys):
         monkeypatch.setenv("COUNCIL_ROOT", str(tmp_path))
         monkeypatch.delitem(sys.modules, "council_manifest", raising=False)
         _load("council_manifest").init("ADBE")
-        rc = _load("codex_preflight").main(["codex_preflight.py", "ADBE"], run=self._run_at_limit())
+        rc = self._mod().main(["codex_preflight.py", "ADBE"], run=self._run_at_limit())
         assert rc == 1
         codex = json.load(open(tmp_path / "ADBE" / "manifest.json"))["codex"]
         assert codex["ok"] is False and codex["note"] == "usage limit, try again at 7:51 PM" and codex["ts"] > 0
@@ -133,7 +140,65 @@ class TestCodexPreflight:
     def test_no_manifest_is_not_an_error(self, tmp_path, monkeypatch):
         monkeypatch.setenv("COUNCIL_ROOT", str(tmp_path))
         monkeypatch.delitem(sys.modules, "council_manifest", raising=False)
-        assert _load("codex_preflight").main(["codex_preflight.py", "NOPE"], run=self._run_writing("PONG")) == 0
+        assert self._mod().main(["codex_preflight.py", "NOPE"], run=self._run_writing("PONG")) == 0
+
+    def test_fails_loud_when_no_codex_binary_exists(self, tmp_path, capsys):
+        """MC.PA 2026-10-06: the ChatGPT app update of 2026-10-04 moved Codex,
+        every empty output file read as "Codex down", and the run went
+        all-Claude without a word. A missing binary must fail the preflight."""
+        mod = _load("codex_preflight")
+        gone = str(tmp_path / "codex")
+        mod.CANDIDATES = (gone,)
+        def run(cmd, **kw):
+            raise AssertionError("probed without a binary")
+        assert mod.main(["codex_preflight.py"], run=run) == 1
+        out = capsys.readouterr().out
+        assert "Codex binary not found at " + gone in out and "moved it?" in out
+
+    def test_mirrors_the_resolver_script_candidates(self):
+        sh = open(os.path.join(_SCRIPTS, "codex_bin.sh"), encoding="utf-8").read()
+        found = re.findall(r"/Applications/\S+?codex(?=[\s\"';])", sh)
+        assert tuple(found) == _load("codex_preflight").CANDIDATES
+        assert found[0].endswith("codex-cli/bin/codex")
+
+
+class TestCodexBinaryIsResolved:
+    """The 2026-10-04 ChatGPT app update moved Codex from Resources/codex to
+    Resources/codex-cli/bin/codex. Every skill pinned the old path."""
+
+    _RESOLVER = "CX=$(/Users/tallempert/src-tal/investor/scripts/codex_bin.sh)"
+
+    def _skills(self):
+        files = glob.glob(os.path.join(_ROOT, "skills", "**", "*.md"), recursive=True)
+        return {f: open(f, encoding="utf-8").read() for f in files}
+
+    def test_no_skill_pins_a_literal_codex_path(self):
+        pinned = [f for f, t in self._skills().items() if re.search(r"ChatGPT\.app/Contents/Resources/codex", t)]
+        assert pinned == []
+
+    def test_every_cx_assignment_goes_through_the_resolver(self):
+        cx = [(f, m) for f, t in self._skills().items() for m in re.findall(r"CX=\S+", t)]
+        assert len(cx) >= 7
+        assert all(m.startswith(self._RESOLVER) for _, m in cx), cx
+
+    def test_the_resolver_prints_nothing_and_fails_when_codex_is_gone(self, tmp_path):
+        sh = open(os.path.join(_SCRIPTS, "codex_bin.sh"), encoding="utf-8").read()
+        fake = tmp_path / "codex_bin.sh"
+        fake.write_text(re.sub(r"/Applications/\S+?codex(?=[\s\"';])", str(tmp_path / "nope"), sh))
+        proc = subprocess.run(["bash", str(fake)], capture_output=True, text=True)
+        assert proc.returncode == 1 and proc.stdout == ""
+
+    def test_the_resolver_prints_the_first_executable(self, tmp_path):
+        sh = open(os.path.join(_SCRIPTS, "codex_bin.sh"), encoding="utf-8").read()
+        paths = re.findall(r"/Applications/\S+?codex(?=[\s\"';])", sh)
+        new, old = tmp_path / "new", tmp_path / "old"
+        old.write_text(""); old.chmod(0o755)
+        for p, q in zip(paths, (new, old)):
+            sh = sh.replace(p, str(q))
+        fake = tmp_path / "codex_bin.sh"; fake.write_text(sh)
+        assert subprocess.run(["bash", str(fake)], capture_output=True, text=True).stdout.strip() == str(old)
+        new.write_text(""); new.chmod(0o755)
+        assert subprocess.run(["bash", str(fake)], capture_output=True, text=True).stdout.strip() == str(new)
 
 
 # --- council_manifest.py ------------------------------------------------------

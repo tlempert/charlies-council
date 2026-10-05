@@ -37,6 +37,13 @@ LABELS = {
     "airline": {"frame": "seat capacity, fuel and the travel cycle",
                 "required": [r"load factor", r"RASK|unit revenue|yield per", r"CASK|unit cost|cost per seat"],
                 "forbidden": [r"trailing (peak )?margins? (are|is) durable"]},
+    "luxury_house": {"frame": "scarcity-priced brands and the aspirational customer cycle",
+                     "required": [r"organic (growth|revenue)|constant[- ]currency", r"gross margin"],
+                     "forbidden": []},
+    "franchisor": {"frame": "royalties on franchisees' sales — an asset-light system",
+                   "required": [r"same[- ]store sales|comparable sales|\bcomps\b", r"system[- ]wide sales|royalt",
+                                r"unit growth|net (new )?units|store count"],
+                   "forbidden": []},
     "unknown": {"frame": "operating_product by default", "required": [], "forbidden": []},
 }
 
@@ -80,6 +87,8 @@ def deterministic_evidence(sic, xbrl_latest, industry):
         ev.setdefault("insurer_pc", []).append(f"industry:{industry}")
     if "airline" in ind:
         ev.setdefault("airline", []).append(f"industry:{industry}")
+    if "luxury" in ind:
+        ev.setdefault("luxury_house", []).append(f"industry:{industry}")
     return ev
 
 

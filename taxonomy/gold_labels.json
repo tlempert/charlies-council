@@ -137,6 +137,16 @@
     "status": "proposed",
     "source": "seed 2026-09-19"
   },
+  "DPZ": {
+    "primary": "franchisor",
+    "status": "confirmed",
+    "source": "user",
+    "confirmed_by": "user",
+    "date": "2026-10-05",
+    "also": [
+      "consumer_brand"
+    ]
+  },
   "ECHO": {
     "primary": "operating_product",
     "status": "proposed",
@@ -218,9 +228,19 @@
     "source": "seed 2026-09-19"
   },
   "MC.PA": {
-    "primary": "consumer_brand",
+    "primary": "luxury_house",
+    "status": "confirmed",
+    "source": "user",
+    "confirmed_by": "user",
+    "date": "2026-10-05",
+    "also": [
+      "holding_conglomerate"
+    ]
+  },
+  "MCD": {
+    "primary": "franchisor",
     "status": "proposed",
-    "source": "seed 2026-09-19"
+    "source": "manager 2026-10-05"
   },
   "MELI": {
     "primary": "exchange_marketplace",
@@ -307,6 +327,11 @@
     "status": "proposed",
     "source": "seed 2026-09-19"
   },
+  "PEP": {
+    "primary": "consumer_brand",
+    "status": "proposed",
+    "source": "run 2026-10-04"
+  },
   "PLTR": {
     "primary": "software_subscription",
     "status": "proposed",
@@ -331,6 +356,11 @@
     "primary": "consumer_brand",
     "status": "proposed",
     "source": "seed 2026-09-19"
+  },
+  "RMS.PA": {
+    "primary": "luxury_house",
+    "status": "proposed",
+    "source": "manager 2026-10-05"
   },
   "RMV.L": {
     "primary": "exchange_marketplace",

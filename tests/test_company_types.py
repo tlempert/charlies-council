@@ -73,6 +73,32 @@ class TestAirline:
         assert "load factor" in required and "RASK" in required and "CASK" in required
 
 
+class TestLuxuryHouse:
+    """MC.PA: the classifier answered operating_product at 0.48 — there was
+    no label for a business that prices on scarcity and rides the aspirational
+    customer, so its memo was held to no luxury metric at all."""
+
+    def test_the_luxury_goods_industry_supports_luxury_house(self):
+        assert ct.deterministic_evidence(None, {}, "Luxury Goods") == {"luxury_house": ["industry:Luxury Goods"]}
+
+    def test_a_luxury_memo_must_speak_organic_growth_and_gross_margin(self):
+        required = " ".join(ct.LABELS["luxury_house"]["required"])
+        assert "organic" in required and "constant" in required and "gross margin" in required
+
+
+class TestFranchisor:
+    """DPZ: Domino's earns royalties on franchisees' sales, not restaurant
+    margins; consumer_brand held its memo to pricing power and volume, not
+    to the system metrics a franchisor turns on."""
+
+    def test_eating_places_sic_is_not_franchisor_evidence(self):
+        assert "franchisor" not in ct.deterministic_evidence("5812", {}, None)
+
+    def test_a_franchisor_memo_must_speak_comps_system_sales_and_unit_growth(self):
+        required = " ".join(ct.LABELS["franchisor"]["required"])
+        assert "same" in required and "system" in required and "unit growth" in required
+
+
 class TestGoldLabels:
     def test_load_gold_reads_the_json_file(self, tmp_path):
         p = tmp_path / "gold.json"

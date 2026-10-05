@@ -1711,7 +1711,7 @@ _COUNTRY_ALIASES = {"South Korea": "Korea", "Czechia": "Czech Republic", "Türki
                     "North Macedonia": "Macedonia", "Eswatini": "Swaziland", "Macau": "Macao"}
 
 
-def build_cost_of_equity_block(country, risk_free, currency=None, local_risk_free=None):
+def build_cost_of_equity_block(country, risk_free, currency=None, local_risk_free=None, geography=None):
     """A sourced hurdle: the US 10-year plus the country's total equity risk
     premium from Damodaran's January table, in USD terms at a beta of one.
 
@@ -1724,6 +1724,10 @@ def build_cost_of_equity_block(country, risk_free, currency=None, local_risk_fre
     dossier valued LVMH in EUR against a 10.3% hurdle built on the US 10-year,
     and its own memo said the USD leg overstated a EUR hurdle it could not size.
     `local_risk_free` is local_ten_year(currency): (rate, source) or None.
+
+    RACE (2026-10-05) is why `geography` (get_revenue_geography) adds a
+    revenue-weighted CRP: Italy's 2.46% on HQ alone moved Ferrari's value from
+    $278 to $186, and without the split the council could only bracket it.
     """
     with open(_COUNTRY_RISK, encoding="utf-8") as f:
         table = json.load(f)
@@ -1748,6 +1752,12 @@ def build_cost_of_equity_block(country, risk_free, currency=None, local_risk_fre
         if local and local_risk_free:
             lines.append(f"    LOCAL ({local}) COST OF EQUITY (beta 1): {local_risk_free[0] + mature + crp:.2%} "
                          f"— the hurdle for a valuation in {local}, the currency this dossier's figures are in.")
+    if geography and geography.get("rows"):
+        lines += _revenue_weighted_crp_lines(geography, table["country_risk_premium"], table["edition"], country,
+                                             crp, mature, risk_free, local, local_risk_free)
+    elif crp is not None:
+        lines.append(f"    Revenue geography unavailable — bracket the CRP between 0% and the HQ premium ({crp:.2%}) "
+                     "and state which end you use and why.")
     # NESN.SW, 2026-10-05: a 4.70% CHF hurdle less a USD-ish 3% growth is a
     # 1.7-point spread, ~59x cash. In stable growth a business cannot outgrow
     # its own currency's economy; the risk-free rate is the proxy (Damodaran).
@@ -1763,6 +1773,280 @@ def build_cost_of_equity_block(country, risk_free, currency=None, local_risk_fre
         lines.append("    Any premium above this (capital controls, VIE, governance, a non-USD price's inflation gap) "
                      "is JUDGMENT: name it and size it.")
     return "\n".join(lines)
+
+
+# --- Revenue by geography: the filing's own XBRL instance -------------------
+# RACE, 2026-10-05: Italy's 2.46% CRP, keyed on headquarters, moved Ferrari's
+# hurdle from 9.5% to 12% and its value from $278 to $186; the memo had "no
+# revenue-by-region table". companyfacts has no dimensions and yfinance has no
+# geography, but the filing's XBRL instance (`*_htm.xml`) tags revenue on a
+# geographic axis (srt:StatementGeographicalAxis, ifrs-full:GeographicalAreasAxis)
+# or on segment axes whose members are regions (MCD, NKE).
+_REVENUE_CONCEPTS = ("Revenues", "RevenueFromContractWithCustomerExcludingAssessedTax",
+                     "RevenueFromContractWithCustomerIncludingAssessedTax", "Revenue",
+                     "RevenueFromContractsWithCustomers")
+_GEO_AXES = ("StatementGeographicalAxis", "GeographicalAreasAxis")
+_SEGMENT_AXES = ("StatementBusinessSegmentsAxis", "SubsegmentsAxis", "SegmentsAxis")
+_GEO_WORDS = re.compile(r"america|europe|emea|asia|apac|apla|pacific|china|japan|africa|middle east|"
+                        r"international|region|countr|domestic|foreign|rest of|world|latin|\bus\b|united states",
+                        re.I)
+# XBRL `country:` members (ISO 3166 alpha-2) → the row name in Damodaran's table
+_ISO_COUNTRY = {"US": "United States", "CA": "Canada", "MX": "Mexico", "BR": "Brazil", "AR": "Argentina",
+                "CL": "Chile", "CO": "Colombia", "PE": "Peru", "GB": "United Kingdom", "IE": "Ireland",
+                "FR": "France", "DE": "Germany", "IT": "Italy", "ES": "Spain", "PT": "Portugal",
+                "NL": "Netherlands", "BE": "Belgium", "LU": "Luxembourg", "CH": "Switzerland", "AT": "Austria",
+                "SE": "Sweden", "NO": "Norway", "DK": "Denmark", "FI": "Finland", "PL": "Poland",
+                "CZ": "Czech Republic", "GR": "Greece", "TR": "Turkey", "RU": "Russia", "IL": "Israel",
+                "AE": "United Arab Emirates", "SA": "Saudi Arabia", "ZA": "South Africa", "EG": "Egypt",
+                "CN": "China", "HK": "Hong Kong", "TW": "Taiwan", "MO": "Macao", "JP": "Japan", "KR": "Korea",
+                "IN": "India", "SG": "Singapore", "AU": "Australia", "NZ": "New Zealand", "ID": "Indonesia",
+                "TH": "Thailand", "MY": "Malaysia", "PH": "Philippines", "VN": "Vietnam"}
+# Filing regions → the countries in Damodaran's table whose simple average
+# stands in for them. First match wins, on the label with any "excluding …"
+# clause removed; the excluded countries leave the basket. A region dominated by
+# one economy is that country (Americas/North America → United States: the US is
+# most of it for the SEC filers this reads). Baskets are the region's largest
+# economies, unweighted — an audit-friendly proxy, not a GDP model. Anything not
+# matched here or by a country name is UNMAPPED and charged the HQ premium.
+_EUROPE = ("France", "Germany", "Italy", "Netherlands", "Spain", "Switzerland", "United Kingdom")
+_APAC = ("Japan", "Korea", "Australia", "Singapore", "India")
+_LATAM = ("Brazil", "Mexico", "Argentina", "Chile", "Colombia", "Peru")
+_REGION_PROXIES = [
+    (r"greater china|mainland china|china.*hong kong", "Greater China", ("China", "Hong Kong", "Taiwan")),
+    (r"\bapla\b|asia pacific and latin america", "APAC and Latin America", _APAC + _LATAM),
+    (r"latin america|south america", "Latin America", _LATAM),
+    (r"\bapac\b|asia|pacific", "APAC", _APAC),
+    (r"\bemea\b|europe", "Europe", _EUROPE),
+    (r"america", "United States", ("United States",)),
+    (r"^us\b|united states", "United States", ("United States",)),
+]
+_UNALLOCATED = "Not allocated to a region in the filing"
+
+
+def _member_label(member):
+    """`race:EMEAExcludingItalyMember` → 'EMEA excluding Italy'; `country:IT` → 'Italy'."""
+    prefix, _, name = member.partition(":")
+    if prefix == "country":
+        return _ISO_COUNTRY.get(name, name)
+    name = re.sub(r"(Segment)?Member$", "", name)
+    words = re.sub(r"(?<=[a-z])(?=[A-Z])|(?<=[A-Z])(?=[A-Z][a-z])", " ", name).split()
+    return " ".join(w.lower() if w in ("And", "Excluding", "Of", "The") else w for w in words)
+
+
+def _is_geographic(axis, label, table):
+    return (axis in _GEO_AXES or bool(_GEO_WORDS.search(label))
+            or any(re.search(rf"\b{re.escape(c)}\b", label, re.I) for c in table))
+
+
+def _nested(pick, baskets):
+    """True when two members' CRP baskets share a country — Ferrari's US
+    inside its Americas, Germany inside EMEA: one is part of the other."""
+    seen = set()
+    for label, _ in pick:
+        basket = baskets[label]
+        if basket & seen:
+            return True
+        seen |= basket
+    return False
+
+
+def _best_partition(members, total, table):
+    """The subset of one axis's members that best adds up to total revenue:
+    the closest sum (exact = within 0.1%), then the most members; else the
+    largest sum covering at least 90%. Subsets with nested members are skipped
+    (RACE: US + Americas + … came within 0.02% of revenue by coincidence).
+    None when nothing covers 90%."""
+    members = sorted(members, key=lambda m: -m[1])[:16]
+    baskets = {label: set((_proxy_basket(label, table) or (None, ()))[1]) for label, _ in members}
+    best, best_key = None, None
+    for mask in range(1, 1 << len(members)):
+        pick = [m for i, m in enumerate(members) if mask >> i & 1]
+        cover = sum(v for _, v in pick) / total
+        if len(pick) < 2 or not 0.9 <= cover <= 1.001 or _nested(pick, baskets):
+            continue
+        key = _partition_key(pick, total)
+        if best_key is None or key > best_key:
+            best, best_key = pick, key
+    return best
+
+
+def _partition_key(pick, total):
+    cover = sum(v for _, v in pick) / total
+    exact = cover >= 0.999
+    return exact, -round(abs(1 - cover), 4) if exact else cover, len(pick)
+
+
+def _xbrl_contexts(root):
+    xbrli, xbrldi = "{http://www.xbrl.org/2003/instance}", "{http://xbrl.org/2006/xbrldi}"
+    contexts = {}
+    for c in root.iter(f"{xbrli}context"):
+        period = c.find(f"{xbrli}period")
+        start, end = period.find(f"{xbrli}startDate"), period.find(f"{xbrli}endDate")
+        if start is None or end is None:
+            continue
+        dims = tuple((m.get("dimension", "").split(":")[-1], (m.text or "").strip())
+                     for m in c.iter(f"{xbrldi}explicitMember"))
+        contexts[c.get("id")] = (dims, start.text.strip(), end.text.strip())
+    units = {u.get("id"): (u.findtext(f".//{xbrli}measure") or "").split(":")[-1]
+             for u in root.iter(f"{xbrli}unit")}
+    return contexts, units
+
+
+def _annual(start, end):
+    return 330 <= (datetime.fromisoformat(end) - datetime.fromisoformat(start)).days <= 380
+
+
+def parse_revenue_geography(xml_bytes):
+    """The latest fiscal year's revenue by region from an XBRL instance:
+    {'period_end', 'currency', 'total', 'rows': [(label, amount)], 'unallocated'},
+    or None when no geographic split covers 90% of revenue. Never raises."""
+    import xml.etree.ElementTree as ET
+    try:
+        root = ET.fromstring(xml_bytes)
+        contexts, units = _xbrl_contexts(root)
+        with open(_COUNTRY_RISK, encoding="utf-8") as f:
+            table = json.load(f)["country_risk_premium"]
+        facts = []
+        for el in root:
+            concept = el.tag.split("}")[-1]
+            if concept in _REVENUE_CONCEPTS and el.get("contextRef") in contexts and (el.text or "").strip():
+                dims, start, end = contexts[el.get("contextRef")]
+                facts.append((concept, dims, start, end, float(el.text), units.get(el.get("unitRef"), "")))
+        for concept in _REVENUE_CONCEPTS:
+            totals = [f for f in facts if f[0] == concept and not f[1] and _annual(f[2], f[3])]
+            if not totals:
+                continue
+            _, _, start, end, total, currency = max(totals, key=lambda f: f[3])
+            families = {}
+            for c, dims, s, e, value, _ in facts:
+                if c != concept or (s, e) != (start, end):
+                    continue
+                for axis, member in dims:
+                    label = _member_label(member)
+                    if (axis in _GEO_AXES or axis in _SEGMENT_AXES) and _is_geographic(axis, label, table):
+                        rest = frozenset(d for d in dims if d[0] != axis)
+                        families.setdefault((axis, rest), {})[label] = value
+            picks = [p for p in (_best_partition(list(m.items()), total, table) for m in families.values()) if p]
+            if not picks:
+                continue
+            pick = max(picks, key=lambda p: _partition_key(p, total))
+            covered = sum(v for _, v in pick)
+            return {"period_end": end, "currency": currency, "total": total,
+                    "rows": sorted(pick, key=lambda m: -m[1]),
+                    "unallocated": total - covered if covered / total < 0.999 else 0}
+    except Exception:
+        return None
+    return None
+
+
+def _latest_annual_filing(cik):
+    """(form, dashed accession, primary document) of the newest 10-K, 20-F or 40-F."""
+    r = requests.get(f"https://data.sec.gov/submissions/CIK{cik}.json", headers=SEC_HEADERS, timeout=10)
+    recent = r.json()["filings"]["recent"]
+    for target in ("10-K", "20-F", "40-F"):
+        for i, form in enumerate(recent["form"]):
+            if form == target:
+                return form, recent["accessionNumber"][i], recent["primaryDocument"][i]
+    return None
+
+
+def get_revenue_geography(cik):
+    """Revenue by region from the latest annual filing's XBRL instance, with the
+    form and accession it came from; None when unavailable. Never raises."""
+    if not cik:
+        return None
+    try:
+        filing = _latest_annual_filing(cik)
+        if not filing:
+            return None
+        form, accession, _ = filing
+        base = f"https://www.sec.gov/Archives/edgar/data/{int(cik)}/{accession.replace('-', '')}/"
+        names = [i["name"] for i in requests.get(base + "index.json", headers=SEC_HEADERS,
+                                                  timeout=10).json()["directory"]["item"]]
+        instance = next((n for n in names if n.endswith("_htm.xml")), None) or next(
+            (n for n in names if n.endswith(".xml") and n != "FilingSummary.xml"
+             and not re.search(r"_(cal|def|lab|pre)\.xml$", n)), None)
+        if not instance:
+            return None
+        r = requests.get(base + instance, headers=SEC_HEADERS, timeout=20)
+        geo = parse_revenue_geography(r.content) if r.status_code == 200 else None
+        return dict(geo, form=form, accession=accession) if geo else None
+    except Exception:
+        return None
+
+
+def build_revenue_geography_block(geography, sec_filer):
+    """REVENUE BY GEOGRAPHY: the latest annual revenue by region, sourced and
+    dated, or a plain statement that it is unsourced. RACE (2026-10-05) is why."""
+    lines = ["    --- 🗺️ REVENUE BY GEOGRAPHY ---"]
+    if not geography:
+        why = ("the latest annual filing's XBRL has no revenue split by region that adds up to revenue"
+               if sec_filer else "no SEC filing for this listing")
+        return "\n".join(lines + [f"    REVENUE BY GEOGRAPHY: not available from filings — revenue geography "
+                                  f"unsourced ({why}). Do not infer it."])
+    cur, total = geography["currency"], geography["total"]
+    rows = geography["rows"] + ([(_UNALLOCATED, geography["unallocated"])] if geography["unallocated"] else [])
+    lines += [f"    Source: {geography['form']}, fiscal year ended {geography['period_end']}, accession "
+              f"{geography.get('accession', 'n/a')} — revenue facts on the filing's geographic or "
+              "regional-segment axis [DATA: SEC XBRL instance]",
+              "    | Region | Revenue | Share |", "    |---|---|---|"]
+    lines += [f"    | {label} | {cur} {amount / 1e6:,.0f}m | {amount / total:.1%} |" for label, amount in rows]
+    lines += [f"    | Total revenue | {cur} {total / 1e6:,.0f}m | 100% |",
+              "    Regions are the members of one axis that add up to revenue; single countries the filing "
+              "also shows inside a region are not counted twice."]
+    return "\n".join(lines)
+
+
+def _proxy_basket(label, table):
+    """(proxy name, Damodaran countries it averages) for a filing region, or None when unmapped."""
+    head, _, excluded = label.lower().partition(" excluding ")
+    for pattern, name, basket in _REGION_PROXIES:
+        if re.search(pattern, head):
+            kept = tuple(c for c in basket if c.lower() not in excluded)
+            dropped = [c for c in basket if c not in kept]
+            return (name + (" excluding " + ", ".join(dropped) if dropped else ""), kept) if kept else None
+    match = next((c for c in table if re.search(rf"\b{re.escape(c)}\b", head, re.I)), None)
+    return (match, (match,)) if match else None
+
+
+def _crp_proxy(label, table):
+    """(proxy description, CRP) for a filing region, or None when unmapped."""
+    found = _proxy_basket(label, table)
+    if not found:
+        return None
+    name, kept = found
+    crp = sum(table[c] for c in kept) / len(kept)
+    return (name if len(kept) == 1 else f"{name} — average of {', '.join(kept)}"), crp
+
+
+def _revenue_weighted_crp_lines(geography, table, edition, hq, hq_crp, mature, risk_free, local, local_risk_free):
+    total = geography["total"]
+    rows = geography["rows"] + ([(_UNALLOCATED, geography["unallocated"])] if geography["unallocated"] else [])
+    parts, audit = [], []
+    for label, amount in rows:
+        proxy = _crp_proxy(label, table) if label != _UNALLOCATED else None
+        if proxy:
+            audit.append(f"      {label} → {proxy[0]} {proxy[1]:.2%}")
+        else:
+            audit.append(f"      {label} → UNMAPPED, charged the HQ premium "
+                         f"({hq} {f'{hq_crp:.2%}' if hq_crp is not None else 'not in the table'})")
+        parts.append((label, amount / total, proxy[1] if proxy else hq_crp))
+    if any(crp is None for _, _, crp in parts):
+        return ["    Country risk premium, revenue-weighted: not computed — a region is unmapped and the HQ "
+                "premium is not in the table.", "    Region proxies:"] + audit
+    weighted = sum(share * crp for _, share, crp in parts)
+    terms = ", ".join(f"{label} {crp:.2%} × {share:.0%}" for label, share, crp in parts)
+    lines = [f"    Country risk premium, revenue-weighted: {weighted:.2%} ({terms}) "
+             f"[DATA: {geography['form']} FY ended {geography['period_end']} + Damodaran, {edition}]",
+             "    Region proxies (Damodaran rows; unmapped regions pay the HQ premium):"] + audit
+    if risk_free is not None:
+        lines.append(f"    USD COST OF EQUITY, revenue-weighted (beta 1): {risk_free + mature + weighted:.2%}")
+    if local and local_risk_free:
+        lines.append(f"    LOCAL ({local}) COST OF EQUITY, revenue-weighted (beta 1): "
+                     f"{local_risk_free[0] + mature + weighted:.2%}")
+    lines.append("    Damodaran weights the CRP by where the revenue is, not the headquarters: build the hurdle "
+                 "on the revenue-weighted line unless you name and size a reason not to.")
+    return lines
 
 
 def _us_ten_year():
@@ -2816,6 +3100,7 @@ def build_initial_dossier(ticker):
         cik = fut_cik.result()
         fut_xbrl = pool.submit(get_xbrl_facts, cik) if cik else None
         fut_release = pool.submit(get_latest_earnings_release, cik) if cik else None
+        fut_geography = pool.submit(get_revenue_geography, cik) if cik else None
         fut_sec_sections = pool.submit(get_sec_sections, ticker, "10-K", cik)
         fut_sec_ars = pool.submit(get_sec_text, ticker, "ARS", cik)
 
@@ -2823,6 +3108,7 @@ def build_initial_dossier(ticker):
         val_report = fut_val.result()
         xbrl_data = fut_xbrl.result() if fut_xbrl else None
         release_block = fut_release.result() if fut_release else ""
+        geography = fut_geography.result() if fut_geography else None
 
         # Extract quarterly revenues for velocity display
         quarterly_revenues, quarter_labels = [], []
@@ -3132,8 +3418,9 @@ def build_initial_dossier(ticker):
     {build_earnings_velocity([q * _fx_rate for q in quarterly_revenues], c_sym, quarter_labels)}
     {build_cash_conversion(stock.quarterly_cashflow, stock.quarterly_financials, c_sym, _fx_rate)}
     {_balance_sheet_section(stock, _fx_rate, c_sym)}
+    {build_revenue_geography_block(geography, sec_filer=bool(cik))}
     {build_cost_of_equity_block(info.get('country'), _us_ten_year(), currency=_norm(price_curr),
-                                local_risk_free=local_ten_year(_norm(price_curr)))}
+                                local_risk_free=local_ten_year(_norm(price_curr)), geography=geography)}
     """
 
     # --- Data quality warning: count empty Tavily-dependent sections ---

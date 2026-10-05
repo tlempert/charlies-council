@@ -137,6 +137,8 @@ Build it from the raw dossier's **COST OF EQUITY INPUTS** block — `COUNTRY:`, 
 
 `LOCAL COST OF EQUITY: X–Y% — <CUR> 10-year A% [LIVE: source, date] + Damodaran total ERP B% [DATA: Damodaran, <edition>] = C% at beta 1; + D% [JUDGMENT: named reason] for [capital controls / VIE / governance / sector]. [one sentence of justification]`
 
+When the block prints `Country risk premium, revenue-weighted`, build the hurdle on it and its `revenue-weighted` cost-of-equity line, not the headquarters premium: Damodaran weights the CRP by where the revenue is. Cite the region proxies it lists; an UNMAPPED region was charged the HQ premium. When it says revenue geography is unavailable, bracket the CRP between 0% and the HQ premium and state which end you use and why. RACE (2026-10-05) is why: Italy's 2.46% on HQ alone moved Ferrari's value from $278 to $186, and the council had no revenue split to weigh it.
+
 For a USD price the 10-year is the US one. For any other price the valuation runs in that currency, so start from the block's `<CUR> 10-year` and `LOCAL ({CUR}) COST OF EQUITY` lines, never the US 10-year or the `USD COST OF EQUITY` line; the local yield already carries the currency's inflation gap. MC.PA (2026-10-04) is why: LVMH's EUR cash flows were discounted at a 10.3% hurdle built on the US 10-year. If the block says the local 10-year is unavailable, state one with its source; do not fall back to the US rate.
 
 Perpetual or terminal growth must be stated in the same currency as the hurdle and must not exceed the block's `PERPETUAL GROWTH CAP` (the 10-year in that currency). Any g above the cap is JUDGMENT: name it and size it. Nestlé (2026-10-05) is why: a CHF cost of equity of 4.70% less a USD-ish 3% growth is a 1.7-point spread, about 59x cash — the local hurdle fixed one error and the foreign g made a bigger one.
@@ -203,7 +205,8 @@ Verbatim includes the header line: keep each block's `--- … ---` line exactly 
 4. **LATEST QUARTER (8-K Ex.99.1)** — without it, no expert sees a primary source newer than the 10-K: share count, guidance, and acquisition contribution can all be a full year stale.
 5. **CASH CONVERSION** — without it, no expert can check revenue growth against cash growth; it is the only block that puts the two side by side.
 6. **BALANCE SHEET** — cash and short-term investments, borrowings, leases and long-term financial assets, with the net debt the valuation anchors use. Without it (YUMC, 2026-09-25) the synthesist inferred the cash pile from interest income, a ±$8/share guess on a company whose balance sheet was one API call away.
-7. **COST OF EQUITY INPUTS** — the sourced country risk premium and the price currency's 10-year the LOCAL COST OF EQUITY is built from; without it the hurdle is a judgment no one can check.
+7. **REVENUE BY GEOGRAPHY** — the latest annual revenue by region from the filing, or the statement that it is unsourced; the revenue-weighted country risk premium is built from it.
+8. **COST OF EQUITY INPUTS** — the sourced country risk premium and the price currency's 10-year the LOCAL COST OF EQUITY is built from; without it the hurdle is a judgment no one can check.
 
 This rule exists because they were dropped on NXPI (2026-08-21) and it cost real analysis:
 

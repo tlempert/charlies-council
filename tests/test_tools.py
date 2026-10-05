@@ -2967,3 +2967,217 @@ class TestBookValuePerPriceUnit:
         block = build_carry_block({'bookValue': 36.07, 'returnOnEquity': 0.1}, 115.68, 0.0548,
                                   book_per_share=39.39)
         assert "P/B: 2.94x" in block and "58." not in block
+
+
+# --- revenue by geography: the CRP weighted by where the revenue is ----------
+# RACE 2026-10-05: Italy's 2.46-point CRP, keyed on Ferrari's headquarters, was
+# the swing input — it moved the hurdle from 9.5% to 12% and the value from $278
+# to $186. Ferrari sells worldwide; the memo said "no revenue-by-region table"
+# was available, so the council could only bracket it. Damodaran weights the
+# CRP by where the revenue is, and the filing's XBRL instance tags it.
+
+def _xbrl(facts, unit="EUR"):
+    """A small XBRL instance: facts are (concept, start, end, [(axis, member)], value)."""
+    ctxs, body = [], []
+    for i, (concept, start, end, dims, value) in enumerate(facts):
+        members = "".join(f'<xbrldi:explicitMember dimension="{a}">{m}</xbrldi:explicitMember>' for a, m in dims)
+        seg = f"<xbrli:segment>{members}</xbrli:segment>" if dims else ""
+        ctxs.append(f'<xbrli:context id="c{i}"><xbrli:entity><xbrli:identifier scheme="http://www.sec.gov/CIK">1'
+                    f'</xbrli:identifier>{seg}</xbrli:entity><xbrli:period><xbrli:startDate>{start}</xbrli:startDate>'
+                    f'<xbrli:endDate>{end}</xbrli:endDate></xbrli:period></xbrli:context>')
+        body.append(f'<{concept} contextRef="c{i}" unitRef="u1" decimals="-3">{value}</{concept}>')
+    return ('<?xml version="1.0" encoding="utf-8"?><xbrli:xbrl xmlns:xbrli="http://www.xbrl.org/2003/instance" '
+            'xmlns:xbrldi="http://xbrl.org/2006/xbrldi" xmlns:iso4217="http://www.xbrl.org/2003/iso4217" '
+            'xmlns:ifrs-full="https://xbrl.ifrs.org/taxonomy/2025-03-27/ifrs-full" '
+            'xmlns:us-gaap="http://fasb.org/us-gaap/2025">'
+            f'<xbrli:unit id="u1"><xbrli:measure>iso4217:{unit}</xbrli:measure></xbrli:unit>'
+            + "".join(ctxs) + "".join(body) + "</xbrli:xbrl>").encode()
+
+
+_GEO = "ifrs-full:GeographicalAreasAxis"
+# Ferrari's 20-F FY2025 (EUR): the five regions sum to revenue; the country
+# members (US, DE, GB, CN) sit INSIDE them and must not be double-counted.
+_RACE = _xbrl([("ifrs-full:Revenue", "2025-01-01", "2025-12-31", [], "7145768000"),
+               ("ifrs-full:Revenue", "2024-01-01", "2024-12-31", [], "6677468000"),
+               ("ifrs-full:Revenue", "2025-01-01", "2025-12-31", [(_GEO, "country:IT")], "527727000"),
+               ("ifrs-full:Revenue", "2025-01-01", "2025-12-31", [(_GEO, "race:EMEAExcludingItalyMember")], "2996719000"),
+               ("ifrs-full:Revenue", "2025-01-01", "2025-12-31", [(_GEO, "srt:AmericasMember")], "2252780000"),
+               ("ifrs-full:Revenue", "2025-01-01", "2025-12-31",
+                [(_GEO, "race:MainlandChinaHongKongAndTaiwanMember")], "491285000"),
+               ("ifrs-full:Revenue", "2025-01-01", "2025-12-31", [(_GEO, "race:APACExcludingChinaMember")], "877257000"),
+               ("ifrs-full:Revenue", "2025-01-01", "2025-12-31", [(_GEO, "country:US")], "1981359000"),
+               ("ifrs-full:Revenue", "2025-01-01", "2025-12-31", [(_GEO, "country:DE")], "576371000"),
+               ("ifrs-full:Revenue", "2025-01-01", "2025-12-31", [(_GEO, "country:GB")], "617361000"),
+               ("ifrs-full:Revenue", "2025-01-01", "2025-12-31", [(_GEO, "country:CN")], "311732000"),
+               ("ifrs-full:Revenue", "2024-01-01", "2024-12-31", [(_GEO, "country:IT")], "462832000")])
+
+# Nike's 10-K FY2026 (USD): geography is the NIKE Brand subsegments; Converse
+# and corporate are not allocated; a lone country:US fact sits on the geo axis.
+_R = "us-gaap:RevenueFromContractWithCustomerExcludingAssessedTax"
+_SEG = [("srt:ConsolidationItemsAxis", "us-gaap:OperatingSegmentsMember"),
+        ("us-gaap:StatementBusinessSegmentsAxis", "nke:NIKEBrandMember")]
+_NKE = _xbrl([(_R, "2025-06-01", "2026-05-31", [], "46398000000"),
+              (_R, "2025-06-01", "2026-05-31", [("srt:StatementGeographicalAxis", "country:US")], "20358000000"),
+              (_R, "2025-06-01", "2026-05-31", _SEG + [("us-gaap:SubsegmentsAxis", "nke:NorthAmericaSegmentMember")],
+               "20511000000"),
+              (_R, "2025-06-01", "2026-05-31",
+               _SEG + [("us-gaap:SubsegmentsAxis", "nke:EuropeMiddleEastAndAfricaSegmentMember")], "12572000000"),
+              (_R, "2025-06-01", "2026-05-31", _SEG + [("us-gaap:SubsegmentsAxis", "nke:GreaterChinaSegmentMember")],
+               "5847000000"),
+              (_R, "2025-06-01", "2026-05-31",
+               _SEG + [("us-gaap:SubsegmentsAxis", "nke:AsiaPacificAndLatinAmericaSegmentMember")], "6243000000"),
+              (_R, "2025-06-01", "2026-05-31", [("srt:ProductOrServiceAxis", "nke:FootwearMember")], "30538000000"),
+              (_R, "2025-06-01", "2026-05-31", [("srt:ProductOrServiceAxis", "nke:ApparelMember")], "15860000000")],
+             unit="USD")
+
+# McDonald's 10-K FY2025: geography is the segment axis itself.
+_MCD_SEG = "us-gaap:StatementBusinessSegmentsAxis"
+_MCD = _xbrl([("us-gaap:Revenues", "2025-01-01", "2025-12-31", [], "26885000000"),
+              ("us-gaap:Revenues", "2025-01-01", "2025-12-31", [(_MCD_SEG, "mcd:USMarketMember")], "10825000000"),
+              ("us-gaap:Revenues", "2025-01-01", "2025-12-31",
+               [(_MCD_SEG, "mcd:InternationalOperatedMarketsMember")], "13633000000"),
+              ("us-gaap:Revenues", "2025-01-01", "2025-12-31",
+               [(_MCD_SEG, "mcd:InternationalDevelopmentalLicensedMarketsandCorporateMember")], "2427000000")],
+             unit="USD")
+
+
+class TestParseRevenueGeography:
+    def test_a_20f_picks_the_regions_that_sum_to_revenue_not_the_nested_countries(self):
+        from modules.tools import parse_revenue_geography
+        geo = parse_revenue_geography(_RACE)
+        assert geo["period_end"] == "2025-12-31" and geo["currency"] == "EUR"
+        assert geo["total"] == 7145768000
+        assert [label for label, _ in geo["rows"]] == ["EMEA excluding Italy", "Americas", "APAC excluding China",
+                                                       "Italy", "Mainland China Hong Kong and Taiwan"]
+        assert geo["unallocated"] == 0
+
+    def test_a_10k_reads_geographic_subsegments_and_states_the_unallocated_rest(self):
+        from modules.tools import parse_revenue_geography
+        geo = parse_revenue_geography(_NKE)
+        assert geo["period_end"] == "2026-05-31" and geo["currency"] == "USD"
+        assert dict(geo["rows"]) == {"North America": 20511000000, "Europe Middle East and Africa": 12572000000,
+                                     "Asia Pacific and Latin America": 6243000000, "Greater China": 5847000000}
+        assert geo["unallocated"] == 46398000000 - 45173000000
+
+    def test_geographic_segments_count_as_geography(self):
+        from modules.tools import parse_revenue_geography
+        geo = parse_revenue_geography(_MCD)
+        assert dict(geo["rows"])["US Market"] == 10825000000
+        assert len(geo["rows"]) == 3 and geo["unallocated"] == 0
+
+    def test_no_geographic_split_or_a_broken_document_is_none_never_a_raise(self):
+        from modules.tools import parse_revenue_geography
+        product_only = _xbrl([(_R, "2025-01-01", "2025-12-31", [], "100"),
+                              (_R, "2025-01-01", "2025-12-31", [("srt:ProductOrServiceAxis", "x:AMember")], "60"),
+                              (_R, "2025-01-01", "2025-12-31", [("srt:ProductOrServiceAxis", "x:BMember")], "40")])
+        assert parse_revenue_geography(product_only) is None
+        assert parse_revenue_geography(b"<html>not xbrl") is None
+        assert parse_revenue_geography(b"") is None
+
+
+class TestGetRevenueGeography:
+    def _responses(self, instance):
+        def get(url, **kwargs):
+            if "submissions" in url:
+                return MagicMock(status_code=200, json=lambda: {"filings": {"recent": {
+                    "form": ["6-K", "20-F"], "accessionNumber": ["0001-26-000001", "0001648416-26-000024"],
+                    "primaryDocument": ["x.htm", "race-20251231.htm"]}}})
+            if url.endswith("index.json"):
+                return MagicMock(status_code=200, json=lambda: {"directory": {"item": [
+                    {"name": "race-20251231.htm"}, {"name": "race-20251231_cal.xml"},
+                    {"name": "race-20251231_htm.xml"}, {"name": "FilingSummary.xml"}]}})
+            assert url.endswith("race-20251231_htm.xml")
+            return MagicMock(status_code=200, content=instance)
+        return get
+
+    def test_it_reads_the_latest_annual_filing_s_xbrl_instance_and_names_it(self):
+        from modules.tools import get_revenue_geography
+        with patch("modules.tools.requests.get", side_effect=self._responses(_RACE)) as get:
+            geo = get_revenue_geography("0001648416")
+        assert geo["form"] == "20-F" and geo["accession"] == "0001648416-26-000024"
+        assert len(geo["rows"]) == 5
+        assert all(c.kwargs.get("timeout") for c in get.call_args_list)
+
+    def test_a_network_failure_is_none_never_a_raise(self):
+        from modules.tools import get_revenue_geography
+        with patch("modules.tools.requests.get", side_effect=Exception("timeout")):
+            assert get_revenue_geography("0001648416") is None
+        assert get_revenue_geography(None) is None
+
+
+class TestRevenueGeographyBlock:
+    def test_the_block_prints_each_region_s_amount_and_share_sourced_and_dated(self):
+        from modules.tools import parse_revenue_geography, build_revenue_geography_block
+        geo = dict(parse_revenue_geography(_RACE), form="20-F", accession="0001648416-26-000024")
+        block = build_revenue_geography_block(geo, sec_filer=True)
+        assert "--- 🗺️ REVENUE BY GEOGRAPHY ---" in block
+        assert "20-F" in block and "2025-12-31" in block and "0001648416-26-000024" in block
+        assert "Italy" in block and "EUR 528m" in block and "7.4%" in block
+        assert "EUR 7,146m" in block
+
+    def test_unallocated_revenue_is_a_row_of_its_own(self):
+        from modules.tools import parse_revenue_geography, build_revenue_geography_block
+        block = build_revenue_geography_block(dict(parse_revenue_geography(_NKE), form="10-K", accession="a"), True)
+        assert "Not allocated to a region in the filing" in block and "USD 1,225m" in block
+
+    def test_a_non_sec_filer_is_told_plainly_and_nothing_is_guessed(self):
+        from modules.tools import build_revenue_geography_block
+        block = build_revenue_geography_block(None, sec_filer=False)
+        assert "not available from filings — revenue geography unsourced" in block
+        assert "%" not in block
+
+    def test_an_sec_filer_without_a_geographic_split_says_so(self):
+        from modules.tools import build_revenue_geography_block
+        block = build_revenue_geography_block(None, sec_filer=True)
+        assert "revenue geography unsourced" in block and "XBRL" in block
+
+
+class TestRevenueWeightedCrp:
+    def _race(self):
+        from modules.tools import parse_revenue_geography
+        return dict(parse_revenue_geography(_RACE), form="20-F")
+
+    def test_ferrari_s_crp_is_weighted_by_where_it_sells(self):
+        from modules.tools import build_cost_of_equity_block
+        block = build_cost_of_equity_block("Italy", 0.042, currency="EUR", local_risk_free=(0.0318, "FRED"),
+                                           geography=self._race())
+        assert "Country risk premium: 2.46%" in block          # the HQ line is kept
+        line = next(l for l in block.splitlines() if "revenue-weighted:" in l)
+        # IT 2.46×7.4% + Europe-ex-Italy 0.52×41.9% + US 0.23×31.5% + CN/HK/TW 0.82×6.9% + APAC 0.88×12.3%
+        assert "Country risk premium, revenue-weighted: 0.64%" in line
+        assert "Italy 2.46% × 7%" in line and "[DATA: 20-F FY ended 2025-12-31 + Damodaran" in line
+        assert "LOCAL (EUR) COST OF EQUITY, revenue-weighted (beta 1): 8.05%" in block   # 3.18+4.23+0.64
+
+    def test_each_region_s_proxy_is_printed_for_audit(self):
+        from modules.tools import build_cost_of_equity_block
+        block = build_cost_of_equity_block("Italy", 0.042, geography=self._race())
+        assert "Americas → United States" in block
+        assert "EMEA excluding Italy → Europe excluding Italy — average of France, Germany" in block
+        assert "Mainland China Hong Kong and Taiwan → Greater China — average of China, Hong Kong, Taiwan" in block
+        assert "USD COST OF EQUITY, revenue-weighted (beta 1): 9.07%" in block      # 4.20+4.23+0.64
+
+    def test_an_unmapped_region_is_named_and_charged_the_hq_premium(self):
+        from modules.tools import parse_revenue_geography, build_cost_of_equity_block
+        block = build_cost_of_equity_block("United States", 0.042, currency="USD",
+                                           geography=dict(parse_revenue_geography(_MCD), form="10-K"))
+        assert "International Operated Markets → UNMAPPED, charged the HQ premium (United States 0.23%)" in block
+        assert "US Market → United States" in block
+
+    def test_unallocated_revenue_is_charged_the_hq_premium(self):
+        from modules.tools import parse_revenue_geography, build_cost_of_equity_block
+        block = build_cost_of_equity_block("United States", 0.042, currency="USD",
+                                           geography=dict(parse_revenue_geography(_NKE), form="10-K"))
+        assert "Not allocated to a region in the filing → UNMAPPED, charged the HQ premium" in block
+
+    def test_without_geography_the_council_is_told_to_bracket_the_crp(self):
+        from modules.tools import build_cost_of_equity_block
+        block = build_cost_of_equity_block("Italy", 0.042, geography=None)
+        assert "revenue-weighted:" not in block
+        assert "bracket the CRP between 0% and the HQ premium (2.46%)" in block
+        assert "state which end" in block
+
+    def test_the_dossier_prints_the_geography_and_passes_it_to_the_hurdle(self):
+        import inspect
+        from modules import tools
+        src = inspect.getsource(tools.build_initial_dossier)
+        assert "build_revenue_geography_block(" in src and "geography=" in src

@@ -345,7 +345,8 @@ DOSSIER = ("CURRENT PRICE: $292.79\n| 2025 | $1.94B | 8.2% | $2.34B | 413M |\n"
 
 PASSTHROUGH_BLOCKS = ("--- FORENSIC BLOCK ---\n--- BUYBACK ANALYSIS ---\n--- WORKING CAPITAL ---\n"
                        "--- LATEST QUARTER (8-K Ex.99.1 filed 2026-06-12) ---\n--- CASH CONVERSION ---\n"
-                       "--- 🏦 BALANCE SHEET (2026-06-30) ---\n--- 🌍 COST OF EQUITY INPUTS ---\n")
+                       "--- 🏦 BALANCE SHEET (2026-06-30) ---\n--- 🗺️ REVENUE BY GEOGRAPHY ---\n"
+                       "--- 🌍 COST OF EQUITY INPUTS ---\n")
 
 TALLY = {"BUY": 3, "HOLD": 6, "PASS": 2, "SELL": 1}
 
@@ -534,6 +535,14 @@ class TestPregatePassthroughAndEngagement:
     def test_a_missing_passthrough_block_fails(self, tmp_path):
         status, _ = _run(tmp_path, _ledger(), dossier=DOSSIER + self.BLOCKS.replace("--- CASH CONVERSION ---\n", ""))
         assert status["passthrough:CASH CONVERSION"] == "FAIL"
+
+    def test_a_dropped_revenue_geography_block_fails(self, tmp_path):
+        # RACE 2026-10-05: the CRP swung the value $278 → $186 for want of a revenue split.
+        status, _ = _run(tmp_path, _ledger(), dossier=DOSSIER + PASSTHROUGH_BLOCKS.replace(
+            "--- 🗺️ REVENUE BY GEOGRAPHY ---\n", ""))
+        assert status["passthrough:REVENUE BY GEOGRAPHY"] == "FAIL"
+        status, _ = _run(tmp_path, _ledger(), dossier=DOSSIER + PASSTHROUGH_BLOCKS)
+        assert status["passthrough:REVENUE BY GEOGRAPHY"] == "OK"
 
     def test_a_declared_absent_block_passes(self, tmp_path):
         status, _ = _run(tmp_path, _ledger(), dossier=DOSSIER + self.BLOCKS.replace("--- CASH CONVERSION ---", "CASH CONVERSION: not present in the raw dossier"))

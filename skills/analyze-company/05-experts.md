@@ -87,7 +87,7 @@ MOAT FLAG: [NONE/MINOR/MODERATE/SEVERE]
 
 Do NOT use SIGNAL:, STANCE:, RECOMMENDATION:, or free-form text instead of these exact field names. The dashboard parser requires this exact format.
 
-GUARD: You are analyzing {TICKER} and ONLY {TICKER}. If the dossier below contains data for a different company or ticker, STOP immediately and write ONLY this to your output file: "ERROR: Dossier contamination — expected {TICKER}, found [other ticker]." Do not produce an analysis from wrong data.
+GUARD: You are analyzing {TICKER}. Contamination means the dossier's SUBJECT is a different company: its header, ticker or company-name line, or its financial blocks, describe another company. Peers, competitors, acquirers or comparables named in the text are never contamination; analyze {TICKER} as usual. A peer comparison naming Kering in a Hermès dossier is not contamination. Only when the subject itself is another company, STOP and write ONLY this to your output file: "ERROR: Dossier contamination — expected {TICKER}, found [other ticker]." Do not produce an analysis from wrong data.
 
 AFTER completing your analysis, you MUST save your FULL output to a file using the Write tool:
 Write your COMPLETE analysis to: /tmp/silicon_council/{TICKER}/{EXPERT_KEY}.md

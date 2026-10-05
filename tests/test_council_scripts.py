@@ -1619,6 +1619,26 @@ class TestCodexSolIsTheSixGeneration:
         assert memo.count("validate_memo.py --brief") == 2
 
 
+class TestTheContaminationGuardReadsTheSubjectNotPeers:
+    """RMS.PA, 2026-10-06: 2 of 12 expert calls, on both gpt-6-sol and
+    gpt-6.1-sol, returned only "ERROR: Dossier contamination — expected RMS.PA,
+    found Kering." The dossier quoted Kering as a peer. The guard must fire on
+    a dossier whose subject is another company, never on a named peer."""
+
+    def _guard(self):
+        return skill_text().split("GUARD:", 1)[1].split("\n\n", 1)[0]
+
+    def test_the_guard_fires_only_when_the_subject_is_another_company(self):
+        guard = self._guard()
+        assert "SUBJECT" in guard and "header, ticker or company-name line" in guard
+        assert "contains data for a different company" not in guard
+
+    def test_peers_never_trigger_it(self):
+        guard = self._guard()
+        assert "Peers, competitors, acquirers or comparables" in guard and "never contamination" in guard
+        assert "A peer comparison naming Kering in a Hermès dossier is not contamination." in guard
+
+
 class TestTheFranchiseBandReadsReturnsNotOnlyMargins:
     """CSU.TO 2026-09-24: a serial acquirer with organisational switching costs
     and recurring maintenance revenue was held to the 18x Quality band because

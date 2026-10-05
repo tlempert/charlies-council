@@ -139,6 +139,8 @@ Build it from the raw dossier's **COST OF EQUITY INPUTS** block — `COUNTRY:`, 
 
 For a USD price the 10-year is the US one. For any other price the valuation runs in that currency, so start from the block's `<CUR> 10-year` and `LOCAL ({CUR}) COST OF EQUITY` lines, never the US 10-year or the `USD COST OF EQUITY` line; the local yield already carries the currency's inflation gap. MC.PA (2026-10-04) is why: LVMH's EUR cash flows were discounted at a 10.3% hurdle built on the US 10-year. If the block says the local 10-year is unavailable, state one with its source; do not fall back to the US rate.
 
+Perpetual or terminal growth must be stated in the same currency as the hurdle and must not exceed the block's `PERPETUAL GROWTH CAP` (the 10-year in that currency). Any g above the cap is JUDGMENT: name it and size it. Nestlé (2026-10-05) is why: a CHF cost of equity of 4.70% less a USD-ish 3% growth is a 1.7-point spread, about 59x cash — the local hurdle fixed one error and the foreign g made a bigger one.
+
 Every point above the Damodaran figure is JUDGMENT and must be named and sized. YUMC (2026-09-26) is why: an unsourced China hurdle moved from 10.2% to 14% across review passes and spanned ~$14 a share. If the block says the country is not in the table, state and justify a premium explicitly.
 
 For a US-domiciled company this is roughly 8–10% and the pipeline's anchors are usable as printed. For an emerging market it is frequently 15–20%, and the pipeline's DCF and Graham Floor — which are computed with developed-market discount rates — are then **not usable as printed**. In that case add:

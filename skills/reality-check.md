@@ -66,6 +66,8 @@ value, every scenario cell, the ceiling, the implied multiple, every flip
 condition, and the correction log's decomposition. A number that does not
 reproduce is MAJOR; one whose correction changes the verdict is FATAL.
 
+A perpetuity's inputs must share a currency: hurdle and perpetual growth in different currencies, or g above the local cap (the dossier's PERPETUAL GROWTH CAP), is MAJOR; FATAL if it decides the verdict.
+
 Run the deterministic pre-gate output you were handed (`scripts/pregate_check.py`)
 as your starting list, not your finishing list — it catches geometry, sourcing,
 tally and echo defects; it does not catch a risk charged twice in different

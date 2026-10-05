@@ -1748,6 +1748,14 @@ def build_cost_of_equity_block(country, risk_free, currency=None, local_risk_fre
         if local and local_risk_free:
             lines.append(f"    LOCAL ({local}) COST OF EQUITY (beta 1): {local_risk_free[0] + mature + crp:.2%} "
                          f"— the hurdle for a valuation in {local}, the currency this dossier's figures are in.")
+    # NESN.SW, 2026-10-05: a 4.70% CHF hurdle less a USD-ish 3% growth is a
+    # 1.7-point spread, ~59x cash. In stable growth a business cannot outgrow
+    # its own currency's economy; the risk-free rate is the proxy (Damodaran).
+    cap = local_risk_free[0] if local and local_risk_free else (risk_free if currency == "USD" else None)
+    if cap is not None:
+        lines.append(f"    PERPETUAL GROWTH CAP ({currency}): g ≤ {cap:.2%} — perpetual growth is stated in "
+                     f"{currency}, like the hurdle, and cannot outgrow the {currency} risk-free rate; "
+                     "any g above it is JUDGMENT: name it and size it.")
     if local and local_risk_free:
         lines.append("    Any premium above this (capital controls, VIE, governance) is JUDGMENT: name it and size it. "
                      f"The {local} 10-year already carries the {local} inflation gap; do not add one.")

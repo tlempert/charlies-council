@@ -255,6 +255,13 @@ a value that determines the answer. Varying cost of equity while fixing g at 6%
 produced "warranted value IS today's price" — at the company's own implied
 `g = ROE × retention` the conclusion inverted.
 
+Perpetual or terminal growth — including a `g = ROE × retention` carried into a
+perpetuity — must be stated in the same currency as the hurdle and must not
+exceed the dossier's PERPETUAL GROWTH CAP (that currency's 10-year). Any g
+above the cap is JUDGMENT: name it and size it. Nestlé (2026-10-05) is why: a
+CHF cost of equity of 4.70% less a USD-ish 3% growth is a 1.7-point spread,
+about 59x cash.
+
 
 ## REQUIRED GROWTH TABLE (MANDATORY)
 

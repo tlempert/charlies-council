@@ -1601,3 +1601,23 @@ class TestTheLocalHurdleStartsFromTheLocalRate:
         section = text.split("### LOCAL COST OF EQUITY", 1)[1].split("\n### ", 1)[0]
         assert "LOCAL ({CUR}) COST OF EQUITY" in section
         assert "never the US 10-year" in section
+
+
+class TestPerpetualGrowthIsCappedInTheHurdlesCurrency:
+    """NESN.SW 2026-10-05: a CHF cost of equity of 4.70% against a USD-ish 3%
+    perpetual growth leaves a 1.7-point spread, ~59x cash. Growth must be in the
+    hurdle's currency and no faster than that currency's risk-free rate."""
+
+    def _read(self, name):
+        return open(os.path.join(_ROOT, "skills", name), encoding="utf-8").read()
+
+    def test_munger_and_refine_cap_g_at_the_local_rate_in_the_hurdles_currency(self):
+        for name in ("munger-synthesis.md", "refine-dossier.md"):
+            text = self._read(name)
+            assert "PERPETUAL GROWTH CAP" in text, name
+            assert "same currency as the hurdle" in text, name
+            assert "4.70%" in text, name
+
+    def test_reality_check_grades_a_currency_or_cap_breach_major(self):
+        text = self._read("reality-check.md")
+        assert "hurdle and perpetual growth in different currencies, or g above the local cap" in text

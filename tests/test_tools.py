@@ -2802,6 +2802,22 @@ class TestLocalCostOfEquity:
         assert "do not substitute the US rate" in block
         assert "LOCAL (CHF) COST OF EQUITY" not in block
 
+    def test_perpetual_growth_is_capped_at_the_local_ten_year(self):
+        # NESN.SW 2026-10-05: CHF CoE 4.70% less a USD-ish 3% growth is ~59x cash.
+        from modules.tools import build_cost_of_equity_block
+        block = build_cost_of_equity_block("Switzerland", 0.0527, currency="CHF",
+                                           local_risk_free=(0.0047, "FRED IRLTLT01CHM156N, 2026-08"))
+        assert "PERPETUAL GROWTH CAP (CHF): g ≤ 0.47%" in block
+
+    def test_a_usd_price_caps_growth_at_the_us_ten_year(self):
+        from modules.tools import build_cost_of_equity_block
+        block = build_cost_of_equity_block("United States", 0.042, currency="USD")
+        assert "PERPETUAL GROWTH CAP (USD): g ≤ 4.20%" in block
+
+    def test_no_local_rate_means_no_cap_is_invented(self):
+        from modules.tools import build_cost_of_equity_block
+        assert "PERPETUAL GROWTH CAP" not in build_cost_of_equity_block("Switzerland", 0.042, currency="CHF")
+
     def test_a_usd_price_prints_no_local_line(self):
         from modules.tools import build_cost_of_equity_block
         block = build_cost_of_equity_block("United States", 0.042, currency="USD", local_risk_free=(0.042, "^TNX"))

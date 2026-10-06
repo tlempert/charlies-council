@@ -729,6 +729,8 @@ def get_xbrl_facts(cik):
         'textblock_tags': list(textblock_map.keys()),  # for get_sec_sections to extract
         'source_currency': source_currency,
         'fx_rate': fx_rate,
+        # In the filing currency: margins are ratios and need no conversion.
+        'margin_history': margin_history(facts),
     }
     if latest_shares:
         result['latest_shares'] = latest_shares
@@ -1997,6 +1999,343 @@ def build_revenue_geography_block(geography, sec_filer):
     return "\n".join(lines)
 
 
+# --- Pricing-power evidence ---------------------------------------------------
+# RMS.PA and RACE, 2026-10-06: Munger's franchise-premium tests 2-4 (margins,
+# demand over supply, price-led growth) came back UNPROVEN for want of data.
+# Hermès had two sourced years of operating margin, Ferrari's order book was
+# [MEDIA] only, and neither dossier split price from volume. This block puts
+# the filed margins and the companies' own sentences in front of him.
+
+_MARGIN_CONCEPTS = {
+    "revenue": (("us-gaap", "Revenues"), ("us-gaap", "RevenueFromContractWithCustomerExcludingAssessedTax"),
+                ("us-gaap", "SalesRevenueNet"), ("ifrs-full", "Revenue"),
+                ("ifrs-full", "RevenueFromContractsWithCustomers")),
+    "gross_profit": (("us-gaap", "GrossProfit"), ("ifrs-full", "GrossProfit")),
+    "cost": (("us-gaap", "CostOfGoodsAndServicesSold"), ("us-gaap", "CostOfRevenue"),
+             ("us-gaap", "CostOfGoodsSold"), ("ifrs-full", "CostOfSales")),
+    "operating_income": (("us-gaap", "OperatingIncomeLoss"), ("ifrs-full", "ProfitLossFromOperatingActivities")),
+}
+_ANNUAL_FORMS = ("10-K", "20-F", "40-F")
+
+
+def _full_year(entry):
+    try:
+        days = (datetime.fromisoformat(entry["end"]) - datetime.fromisoformat(entry["start"])).days
+    except (KeyError, TypeError, ValueError):
+        return False
+    return 330 <= days <= 380
+
+
+def _annual_values(concept):
+    """{fiscal-year end: (value, currency, form, filed)}: full-year facts from
+    annual filings only; a restated value (latest filed) wins."""
+    best = {}
+    for unit, entries in concept.get("units", {}).items():
+        currency = _unit_currency(unit)
+        for e in entries if currency else ():
+            if e.get("form") not in _ANNUAL_FORMS or e.get("val") is None or not _full_year(e):
+                continue
+            if e["end"] not in best or e.get("filed", "") > best[e["end"]][3]:
+                best[e["end"]] = (e["val"], currency, e["form"], e.get("filed", ""))
+    return best
+
+
+def _component(facts, concepts):
+    values = {}
+    for taxonomy, name in concepts:
+        concept = facts.get("facts", {}).get(taxonomy, {}).get(name)
+        for end, v in (_annual_values(concept).items() if concept else ()):
+            values.setdefault(end, v)
+    return values
+
+
+def margin_history(facts, years=5):
+    """Revenue, gross profit and operating income for the last `years` fiscal
+    years from SEC companyfacts, newest first; None when none is filed. A
+    component the filing does not tag is None, never 0. Gross profit not
+    tagged is revenue less cost of sales, flagged gross_derived."""
+    comps = {k: _component(facts or {}, c) for k, c in _MARGIN_CONCEPTS.items()}
+    ends = sorted(set(comps["revenue"]) | set(comps["gross_profit"]) | set(comps["operating_income"]),
+                  reverse=True)[:years]
+    if not ends:
+        return None
+    val = lambda key, end: comps[key][end][0] if end in comps[key] else None
+    rows = []
+    for end in ends:
+        revenue, gross, cost = val("revenue", end), val("gross_profit", end), val("cost", end)
+        derived = gross is None and revenue is not None and cost is not None
+        rows.append({"end": end, "revenue": revenue, "gross_profit": revenue - cost if derived else gross,
+                     "gross_derived": derived, "operating_income": val("operating_income", end)})
+    _, currency, form, _ = next(comps[k][ends[0]] for k in ("revenue", "gross_profit", "operating_income")
+                                if ends[0] in comps[k])
+    return {"source": "SEC XBRL", "form": form, "currency": currency, "rows": rows}
+
+
+def yf_margin_history(stock, currency, years=5):
+    """The same table from yfinance's annual financials, for listings with no
+    SEC filing (RMS.PA, MC.PA). None when yfinance has nothing."""
+    try:
+        fin = stock.financials
+        if not isinstance(fin, pd.DataFrame) or fin.empty or "Total Revenue" not in fin.index:
+            return None
+
+        def cell(label, col):
+            v = fin.loc[label, col] if label in fin.index else None
+            return None if v is None or pd.isna(v) else float(v)
+        rows = [{"end": str(col)[:10], "revenue": cell("Total Revenue", col),
+                 "gross_profit": cell("Gross Profit", col), "gross_derived": False,
+                 "operating_income": cell("Operating Income", col)} for col in fin.columns]
+        rows = [r for r in rows if any(r[k] is not None for k in ("revenue", "gross_profit", "operating_income"))]
+        rows = sorted(rows, key=lambda r: r["end"], reverse=True)[:years]
+        if not rows:
+            return None
+        return {"source": "yfinance", "form": None, "currency": currency, "rows": rows}
+    except Exception:
+        return None
+
+
+_PRICE_VOLUME = re.compile(
+    r"\bpric(?:e|es|ing)\b|\bmix\b|average selling price|\bASPs?\b|\bvolumes?\b|\bshipments?\b|\bshipped\b"
+    r"|\bdeliveries\b|\bunits? (?:sold|shipped|delivered|sales|volumes?)\b|\bpairs\b", re.I)
+_ORDER_BOOK = re.compile(r"order[- ]?books?|order intake|backlog|waiting[- ]?lists?|wait[- ]?lists?|waiting time"
+                         r"|(?:dealer|model|product|vehicle|car) allocations?|allocations? (?:to|by|among) (?:dealers|clients)",
+                         re.I)
+_PRICING_NOISE = re.compile(
+    r"share price|stock price|price of (?:our|the) (?:common |ordinary )?shares|exercise price|strike price"
+    r"|purchase price|price paid|transfer pricing|market price|trading volume|option pricing|price per share"
+    r"|fair value|forward-looking|tax rate|earnings mix|\binventor(?:y|ies)\b", re.I)
+_NUMBER = re.compile(
+    r"\d(?:[\d,.]*\d)?\s*(?:%|percent\b|per cent\b|percentage points?\b|basis points\b|bps\b)"
+    r"|[€$£¥]\s?\d|\b\d[\d,.]*\s*(?:million|billion|thousand|units|cars|vehicles|pairs)\b|\b\d{1,3}(?:,\d{3})+\b",
+    re.I)
+_YEAR = re.compile(r"\b20\d\d\b")
+_BLOCK_TAGS = ("p", "div", "li", "td", "h1", "h2", "h3", "h4", "h5", "h6")
+_ITEM_HEADING = re.compile(r"^item\s+(\d{1,2}[a-z]?)\b", re.I)
+_RISK_ITEMS = {"1A", "3", "7A", "11"}          # 10-K risk factors / market risk; 20-F Items 3 and 11
+_MDNA_ITEMS = {"10-K": "7", "20-F": "5"}
+# Annual-report-layout 20-Fs (Ferrari) carry Item numbers only in a
+# cross-reference index; their body is headed by these.
+_SECTION_HEADINGS = {
+    "risk factors": "risk", "quantitative and qualitative disclosures about market risk": "risk",
+    "operating and financial review and prospects": "mdna", "financial overview": "mdna",
+    "results of operations": "mdna", "operating results": "mdna", "liquidity and capital resources": "mdna",
+    "management's discussion and analysis of financial condition and results of operations": "mdna",
+    "overview of our business": "other", "business overview": "other", "information on the company": "other",
+    "corporate governance": "other", "consolidated financial statements": "other",
+}
+_ABBREVIATION_END = re.compile(r"(?:\b[A-Z]\.){1,3}$|\b(?:Inc|Co|Corp|Ltd|No|approx|vs)\.$")
+
+
+def _paragraphs(html):
+    """The text of each innermost block element, inline spans joined as written."""
+    soup = BeautifulSoup(html, "html.parser")
+    for el in soup.find_all(_BLOCK_TAGS):
+        if el.find(_BLOCK_TAGS):
+            continue
+        text = re.sub(r"\s+", " ", el.get_text("")).strip()
+        if text:
+            yield text
+
+
+def _sentences(paragraph):
+    parts, merged = re.split(r"(?<=[.!?])\s+(?=[A-Z“\"(€$£])", paragraph), []
+    for part in parts:
+        if merged and _ABBREVIATION_END.search(merged[-1]):
+            merged[-1] += " " + part
+        else:
+            merged.append(part)
+    return merged
+
+
+def _section(paragraph, form):
+    """(label, kind) when the paragraph is a section heading, else None."""
+    if len(paragraph) > 200:
+        return None
+    m = _ITEM_HEADING.match(paragraph)
+    if m:
+        item = m.group(1).upper()
+        kind = "risk" if item in _RISK_ITEMS else "mdna" if _MDNA_ITEMS.get(form) == item else "other"
+        return f"Item {item}", kind
+    key = paragraph.lower().replace("’", "'").rstrip(" .:")
+    return (paragraph.rstrip(" .:"), _SECTION_HEADINGS[key]) if key in _SECTION_HEADINGS else None
+
+
+def extract_pricing_statements(html, source, by_item=False):
+    """Sentences, verbatim, that quantify or attribute price/mix, pricing, ASP,
+    volume, shipments or units, or that speak to an order book, backlog,
+    waiting list or allocation. With by_item (an annual filing) each is tagged
+    with its section; risk factors are skipped, and outside the MD&A only
+    sentences carrying a number are kept. Never raises."""
+    try:
+        form = source.split()[0]
+        label, kind, found, seen = None, None, [], set()
+        for para in _paragraphs(html):
+            heading = _section(para, form) if by_item else None
+            if heading:
+                # A named sub-heading inside a numbered Item keeps the Item.
+                if heading[0].startswith("Item ") or not (label or "").startswith("Item "):
+                    label, kind = heading
+                continue
+            if kind == "risk":
+                continue
+            for s in _sentences(para):
+                s = s.lstrip("•●▪–—- ")
+                if s in seen or not 30 <= len(s) <= 700 or _PRICING_NOISE.search(s):
+                    continue
+                book, price = bool(_ORDER_BOOK.search(s)), bool(_PRICE_VOLUME.search(s))
+                numeric = bool(_NUMBER.search(s)) or (book and bool(_YEAR.search(s)))
+                if not (book or (price and (numeric or kind in ("mdna", None)))):
+                    continue
+                seen.add(s)
+                tag = f"[SEC: {source}, {label}]" if by_item and label else f"[SEC: {source}]"
+                found.append({"text": s, "tag": tag, "numeric": numeric, "order_book": book,
+                              "mdna": kind != "other"})
+        return found
+    except Exception:
+        return []
+
+
+def select_pricing_statements(annual, latest, older, cap=12):
+    """At most `cap` sentences: dated order-book horizons first, then sentences
+    carrying numbers, then the rest, MD&A before elsewhere, taken in turn from
+    each document. Older releases add only order-book sentences, which show
+    the horizon over time."""
+    docs = [annual, latest] + [[s for s in doc if s["order_book"]] for doc in older]
+    tier = lambda s: (not (s["order_book"] and s["numeric"]), not s["numeric"], not s["order_book"],
+                      not s.get("mdna", True))
+    ranked = []
+    for d, doc in enumerate(docs):
+        for pos, s in enumerate(sorted(doc, key=tier)):
+            ranked.append((tier(s), pos, d, s))
+    picked, seen = [], set()
+    for *_, s in sorted(ranked, key=lambda r: r[:3]):
+        if s["text"] not in seen:
+            seen.add(s["text"])
+            picked.append(s)
+    return picked[:cap]
+
+
+def _sec_get(url, timeout=20):
+    r = requests.get(url, headers=SEC_HEADERS, timeout=timeout)
+    return r.content if r.status_code == 200 else None
+
+
+def _release_exhibit(cik_num, accession, primary):
+    """The press-release document of an 8-K or 6-K: its Ex-99 exhibit, else its
+    largest HTML document other than the cover."""
+    base = f"https://www.sec.gov/Archives/edgar/data/{cik_num}/{accession}/"
+    items = requests.get(base + "index.json", headers=SEC_HEADERS, timeout=10).json()["directory"]["item"]
+    pages = [i for i in items if i["name"].lower().endswith((".htm", ".html")) and "index" not in i["name"]]
+    ex99 = next((i["name"] for i in pages if re.search(r"ex-?99", i["name"], re.I)), None)
+    if ex99:
+        return base + ex99
+    others = [i for i in pages if i["name"] != primary] or pages
+    return base + max(others, key=lambda i: int(i.get("size") or 0))["name"] if others else None
+
+
+def _results_releases(recent, cik_num, limit):
+    """(label, url) of the latest `limit` earnings releases: 8-K Item 2.02
+    filings, or 6-Ks whose document name says results or earnings."""
+    found = []
+    for i, form in enumerate(recent["form"]):
+        if len(found) >= limit:
+            break
+        doc = recent["primaryDocument"][i]
+        if form == "8-K" and "2.02" in (recent.get("items", [""] * (i + 1))[i] or ""):
+            label = f"8-K {recent['filingDate'][i]} Ex.99.1"
+        elif form == "6-K" and re.search(r"result|earning", doc, re.I):
+            label = f"6-K {recent['filingDate'][i]} press release"
+        else:
+            continue
+        try:
+            url = _release_exhibit(cik_num, recent["accessionNumber"][i].replace("-", ""), doc)
+        except Exception:
+            continue
+        if url:
+            found.append((label, url))
+    return found
+
+
+def _read_statements(url, source, searched, by_item=False):
+    try:
+        html = _sec_get(url)
+    except Exception:
+        return []
+    if html is None:
+        return []
+    searched.append(source)
+    return extract_pricing_statements(html, source, by_item=by_item)
+
+
+def get_pricing_statements(cik, releases=4):
+    """Price/mix, volume and order-book sentences from the latest annual filing
+    (10-K MD&A, 20-F operating review) and the latest earnings releases (8-K
+    Ex.99.1, or a 20-F filer's results 6-K), with the documents searched.
+    None when the filing index cannot be read. Never raises."""
+    if not cik:
+        return None
+    try:
+        recent = requests.get(f"https://data.sec.gov/submissions/CIK{cik}.json", headers=SEC_HEADERS,
+                              timeout=10).json()["filings"]["recent"]
+    except Exception:
+        return None
+    cik_num, searched, annual = str(int(cik)), [], []
+    idx = next((i for target in _ANNUAL_FORMS for i, f in enumerate(recent["form"]) if f == target), None)
+    if idx is not None:
+        fy = (recent.get("reportDate", [""] * (idx + 1))[idx] or "")[:4]
+        source = f"{recent['form'][idx]} FY{fy}" if fy else recent["form"][idx]
+        url = (f"https://www.sec.gov/Archives/edgar/data/{cik_num}/"
+               f"{recent['accessionNumber'][idx].replace('-', '')}/{recent['primaryDocument'][idx]}")
+        annual = _read_statements(url, source, searched, by_item=True)
+    found = [_read_statements(url, label, searched) for label, url in _results_releases(recent, cik_num, releases)]
+    latest, older = (found[0], found[1:]) if found else ([], [])
+    return {"statements": select_pricing_statements(annual, latest, older), "searched": searched}
+
+
+def _pct(part, whole):
+    return f"{part / whole:.1%}" if part is not None and whole else "n/a"
+
+
+def _margin_lines(hist):
+    if not hist or not hist["rows"]:
+        return ["    Margin history: not available (no annual revenue, gross profit or operating income found)."]
+    if hist["source"] == "yfinance":
+        lines = ["    Margin history — yfinance annual financials, not from filings [yfinance]; margins [CALC]:"]
+        source = lambda r: "[yfinance]; margins [CALC]"
+    else:
+        lines = [f"    Margin history — filed figures (SEC XBRL companyfacts, latest {hist['form']}); "
+                 "margins computed [CALC]:"]
+        source = lambda r: (f"[SEC XBRL {hist['form']}]; margins [CALC]"
+                            + ("; gross profit = revenue − cost of sales [CALC]" if r["gross_derived"] else ""))
+    lines += ["    | FY end | Revenue | Gross margin | Operating margin | Source |", "    |---|---|---|---|---|"]
+    for r in hist["rows"]:
+        revenue = f"{hist['currency']} {r['revenue'] / 1e6:,.0f}m" if r["revenue"] is not None else "n/a"
+        lines.append(f"    | {r['end']} | {revenue} | {_pct(r['gross_profit'], r['revenue'])} | "
+                     f"{_pct(r['operating_income'], r['revenue'])} | {source(r)} |")
+    lines.append("    n/a means the source does not report that line for that year; it is not zero.")
+    return lines
+
+
+def _statement_lines(evidence, sec_filer):
+    head = "    Price/mix, volume and order-book statements"
+    if not sec_filer:
+        return [f"{head}: not available from filings (no SEC filing for this listing). Do not infer them."]
+    if not evidence:
+        return [f"{head}: not available — the SEC filing index could not be read."]
+    searched = "; ".join(evidence["searched"]) or "no readable filing"
+    if not evidence["statements"]:
+        return [f"{head}: no price/mix or order-book statement found in {searched}."]
+    return ([f"{head} — verbatim from the company's own filings, no paraphrase (searched: {searched}):"]
+            + [f'    - "{s["text"]}" {s["tag"]}' for s in evidence["statements"]])
+
+
+def build_pricing_power_block(margins, evidence, sec_filer):
+    """PRICING POWER EVIDENCE: margin history and the filings' own price/mix,
+    volume and order-book sentences, for franchise-premium tests 2-4."""
+    return "\n".join(["    --- 🏷️ PRICING POWER EVIDENCE ---"] + _margin_lines(margins)
+                     + _statement_lines(evidence, sec_filer))
+
+
 def _proxy_basket(label, table):
     """(proxy name, Damodaran countries it averages) for a filing region, or None when unmapped."""
     head, _, excluded = label.lower().partition(" excluding ")
@@ -3101,6 +3440,7 @@ def build_initial_dossier(ticker):
         fut_xbrl = pool.submit(get_xbrl_facts, cik) if cik else None
         fut_release = pool.submit(get_latest_earnings_release, cik) if cik else None
         fut_geography = pool.submit(get_revenue_geography, cik) if cik else None
+        fut_pricing = pool.submit(get_pricing_statements, cik) if cik else None
         fut_sec_sections = pool.submit(get_sec_sections, ticker, "10-K", cik)
         fut_sec_ars = pool.submit(get_sec_text, ticker, "ARS", cik)
 
@@ -3109,6 +3449,7 @@ def build_initial_dossier(ticker):
         xbrl_data = fut_xbrl.result() if fut_xbrl else None
         release_block = fut_release.result() if fut_release else ""
         geography = fut_geography.result() if fut_geography else None
+        pricing_evidence = fut_pricing.result() if fut_pricing else None
 
         # Extract quarterly revenues for velocity display
         quarterly_revenues, quarter_labels = [], []
@@ -3418,6 +3759,8 @@ def build_initial_dossier(ticker):
     {build_earnings_velocity([q * _fx_rate for q in quarterly_revenues], c_sym, quarter_labels)}
     {build_cash_conversion(stock.quarterly_cashflow, stock.quarterly_financials, c_sym, _fx_rate)}
     {_balance_sheet_section(stock, _fx_rate, c_sym)}
+    {build_pricing_power_block((xbrl_data or {}).get('margin_history') or yf_margin_history(stock, _norm(fin_curr)),
+                               pricing_evidence, sec_filer=bool(cik))}
     {build_revenue_geography_block(geography, sec_filer=bool(cik))}
     {build_cost_of_equity_block(info.get('country'), _us_ten_year(), currency=_norm(price_curr),
                                 local_risk_free=local_ten_year(_norm(price_curr)), geography=geography)}

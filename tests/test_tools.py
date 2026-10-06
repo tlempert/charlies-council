@@ -3181,3 +3181,357 @@ class TestRevenueWeightedCrp:
         from modules import tools
         src = inspect.getsource(tools.build_initial_dossier)
         assert "build_revenue_geography_block(" in src and "geography=" in src
+
+
+# --- pricing-power evidence: margin history, price/mix, order book ----------
+# RMS.PA and RACE, 2026-10-06: Munger's franchise-premium tests 2-4 came back
+# UNPROVEN for want of data, not for weak economics. Hermès had two sourced
+# years of operating margin; Ferrari's order book was [MEDIA] only; neither
+# dossier carried a price-versus-volume split. These tests pin the block that
+# puts the filed figures and the companies' own sentences in front of him.
+
+def _fact(end, val, form="20-F", filed="2026-02-19", start=None):
+    """One annual companyfacts entry; a calendar year unless `start` is given."""
+    return {"start": start or f"{end[:4]}-01-01", "end": end, "val": val, "form": form, "filed": filed}
+
+
+# Ferrari-like IFRS facts (EUR): no GrossProfit tag, so gross is revenue less
+# cost of sales. 2021's operating profit is missing on purpose.
+_RACE_FACTS = {"facts": {"ifrs-full": {
+    "Revenue": {"units": {"EUR": [
+        _fact("2021-12-31", 4271e6, filed="2022-02-22"), _fact("2022-12-31", 5095e6, filed="2023-02-23"),
+        _fact("2023-12-31", 5970e6, filed="2024-02-21"), _fact("2024-12-31", 6677e6, filed="2025-02-20"),
+        _fact("2025-12-31", 7146e6),
+        # a quarter carried in an annual filing is not a fiscal year
+        {"start": "2025-10-01", "end": "2025-12-31", "val": 1800e6, "form": "20-F", "filed": "2026-02-19"},
+    ]}},
+    "CostOfSales": {"units": {"EUR": [
+        _fact("2021-12-31", 2034e6, filed="2022-02-22"), _fact("2022-12-31", 2566e6, filed="2023-02-23"),
+        _fact("2023-12-31", 2867e6, filed="2024-02-21"), _fact("2024-12-31", 3243e6, filed="2025-02-20"),
+        _fact("2025-12-31", 3394e6),
+    ]}},
+    "ProfitLossFromOperatingActivities": {"units": {"EUR": [
+        _fact("2022-12-31", 1227e6, filed="2023-02-23"), _fact("2023-12-31", 1617e6, filed="2024-02-21"),
+        # restated in the next year's filing: the latest filed value wins
+        _fact("2024-12-31", 1880e6, filed="2025-02-20"), _fact("2024-12-31", 1888e6, filed="2026-02-19"),
+        _fact("2025-12-31", 2110e6),
+    ]}},
+}}}
+
+# Nike-like US GAAP facts (USD, May year end): GrossProfit is filed, but there
+# is no OperatingIncomeLoss line on Nike's income statement.
+_NKE_FACTS = {"facts": {"us-gaap": {
+    "RevenueFromContractWithCustomerExcludingAssessedTax": {"units": {"USD": [
+        _fact("2024-05-31", 51362e6, form="10-K", filed="2024-07-25", start="2023-06-01"),
+        _fact("2025-05-31", 46309e6, form="10-K", filed="2025-07-24", start="2024-06-01"),
+        _fact("2026-05-31", 46100e6, form="10-K", filed="2026-07-23", start="2025-06-01"),
+    ]}},
+    "GrossProfit": {"units": {"USD": [
+        _fact("2024-05-31", 22887e6, form="10-K", filed="2024-07-25", start="2023-06-01"),
+        _fact("2025-05-31", 19790e6, form="10-K", filed="2025-07-24", start="2024-06-01"),
+        _fact("2026-05-31", 19400e6, form="10-K", filed="2026-07-23", start="2025-06-01"),
+    ]}},
+}}}
+
+
+class TestMarginHistory:
+    def test_ifrs_margins_come_from_filed_revenue_cost_of_sales_and_operating_profit(self):
+        """RACE 2026-10-06: Test 2 needs 3+ years of gross AND operating margin."""
+        from modules.tools import margin_history
+        hist = margin_history(_RACE_FACTS)
+        assert hist["source"] == "SEC XBRL" and hist["currency"] == "EUR" and hist["form"] == "20-F"
+        ends = [r["end"] for r in hist["rows"]]
+        assert ends == ["2025-12-31", "2024-12-31", "2023-12-31", "2022-12-31", "2021-12-31"]
+        latest = hist["rows"][0]
+        assert latest["revenue"] == 7146e6  # the fiscal year, not the quarter
+        assert latest["gross_profit"] == 7146e6 - 3394e6 and latest["gross_derived"] is True
+        assert hist["rows"][1]["operating_income"] == 1888e6  # restated value
+
+    def test_a_missing_component_is_none_never_zero(self):
+        from modules.tools import margin_history
+        y2021 = margin_history(_RACE_FACTS)["rows"][-1]
+        assert y2021["operating_income"] is None
+
+    def test_a_filed_gross_profit_is_used_as_filed(self):
+        from modules.tools import margin_history
+        hist = margin_history(_NKE_FACTS)
+        assert hist["form"] == "10-K" and hist["currency"] == "USD"
+        assert hist["rows"][0]["gross_profit"] == 19400e6 and hist["rows"][0]["gross_derived"] is False
+        assert all(r["operating_income"] is None for r in hist["rows"])
+
+    def test_no_income_statement_facts_is_none(self):
+        from modules.tools import margin_history
+        assert margin_history({"facts": {"us-gaap": {}}}) is None
+        assert margin_history({}) is None
+
+    def test_get_xbrl_facts_carries_the_margin_history_from_the_same_fetch(self):
+        from modules.tools import get_xbrl_facts
+        resp = MagicMock(status_code=200, json=lambda: _NKE_FACTS)
+        with patch("modules.tools.requests.get", return_value=resp):
+            data = get_xbrl_facts("0000320187")
+        assert data["margin_history"]["rows"][0]["end"] == "2026-05-31"
+
+    def test_yfinance_fallback_is_tagged_as_yfinance(self):
+        """RMS.PA and MC.PA do not file with the SEC."""
+        import pandas as pd
+        from modules.tools import yf_margin_history
+        cols = [pd.Timestamp("2025-12-31"), pd.Timestamp("2024-12-31"), pd.Timestamp("2023-12-31")]
+        nan = float("nan")
+        cols.append(pd.Timestamp("2021-12-31"))  # yfinance pads an empty year: dropped, not printed as n/a
+        fin = pd.DataFrame({cols[0]: [15.2e9, 10.9e9, 6.1e9], cols[1]: [15.2e9, 10.8e9, 6.2e9],
+                            cols[2]: [13.4e9, 9.6e9, nan], cols[3]: [nan, nan, nan]},
+                           index=["Total Revenue", "Gross Profit", "Operating Income"])
+        stock = MagicMock(financials=fin)
+        hist = yf_margin_history(stock, "EUR")
+        assert hist["source"] == "yfinance" and hist["currency"] == "EUR"
+        assert hist["rows"][0]["end"] == "2025-12-31" and hist["rows"][0]["gross_profit"] == 10.9e9
+        assert hist["rows"][2]["operating_income"] is None
+        assert [r["end"] for r in hist["rows"]] == ["2025-12-31", "2024-12-31", "2023-12-31"]
+
+    def test_yfinance_without_financials_is_none(self):
+        from modules.tools import yf_margin_history
+
+        class _NoFinancials:
+            @property
+            def financials(self):
+                raise Exception("rate limited")
+        assert yf_margin_history(_NoFinancials(), "EUR") is None
+
+
+# A 20-F-like document: Item 3 risk factors (excluded), Item 4 business
+# (order-book wording), Item 5 operating review (price/mix and shipments).
+_TWENTY_F = """<html><body>
+<div><span>Item 3. Key Information</span></div>
+<div><span>Our controlled volume strategy may limit potential profits, and if volumes increase by 10 percent our brand exclusivity may be eroded.</span></div>
+<div><span>Item 4. Information on the Company</span></div>
+<div><span>We determine allocations by geography and dealers based on the current order book of dealers and the average waiting time of the end client.</span></div>
+<div><span>Item 5. Operating and Financial Review and Prospects</span></div>
+<div><span>Net revenues generated from cars and spare parts for 2025 were </span><span>€6,005 million</span><span>, an increase of 4.8 percent. The increase was primarily attributable to a richer product and country mix, as well as a higher contribution from personalization.</span></div>
+<div><span>–€77 million from higher inventories, driven by new models and an enriched product mix;</span></div>
+<div><span>Total shipments in 2025 were 13,640 cars, a decrease of 112 units, or 0.8 percent, compared to 13,752 cars in 2024.</span></div>
+<div><span>The share price of our common shares may be volatile and fell 12 percent in 2025.</span></div>
+<div><span>This document contains forward-looking statements about volumes and pricing in 2026.</span></div>
+<div><span>Corporate Governance</span></div>
+<div><span>The Board oversees resource allocation, and employees receive up to 15 percent of the value of the first allocation.</span></div>
+</body></html>""".encode()
+
+# A 10-K-like document: Item 1A excluded, Item 7 MD&A in scope.
+_TEN_K = """<html><body>
+<p>ITEM 1A. RISK FACTORS</p>
+<p>Price increases of 5% could reduce demand for our products.</p>
+<p>ITEM 7. MANAGEMENT'S DISCUSSION AND ANALYSIS OF FINANCIAL CONDITION AND RESULTS OF OPERATIONS</p>
+<p>RESULTS OF OPERATIONS</p>
+<p>NIKE Brand footwear revenues decreased 9% due to a 7% decrease in unit sales, while lower average selling price per pair contributed approximately 2 percentage points of the decrease.</p>
+<p>•Gross margin decreased 120 basis points, primarily due to higher discounts and lower full-price ASP.</p>
+<p>Our reporting units were tested for goodwill impairment.</p>
+</body></html>""".encode()
+
+_RELEASE = b"""<html><body>
+<p>FERRARI N.V. FY 2025 RESULTS</p>
+<p>Demand for Ferrari remains very solid and is managed with discipline in every market reflecting our exclusivity model: our order book extends towards the end of 2027.</p>
+<p>Net revenues were Euro 7,146 million, up 7.0%, thanks to a richer product mix and higher personalizations.</p>
+</body></html>"""
+
+
+class TestExtractPricingStatements:
+    def test_20f_sentences_are_verbatim_with_their_item(self):
+        """RACE 2026-10-06: Test 4(b) had no price-versus-volume split."""
+        from modules.tools import extract_pricing_statements
+        found = extract_pricing_statements(_TWENTY_F, "20-F FY2025", by_item=True)
+        texts = [s["text"] for s in found]
+        assert ("Total shipments in 2025 were 13,640 cars, a decrease of 112 units, or 0.8 percent, "
+                "compared to 13,752 cars in 2024.") in texts
+        assert ("The increase was primarily attributable to a richer product and country mix, as well as "
+                "a higher contribution from personalization.") in texts
+        shipments = next(s for s in found if s["text"].startswith("Total shipments"))
+        assert shipments["tag"] == "[SEC: 20-F FY2025, Item 5]" and shipments["numeric"]
+
+    def test_order_book_wording_is_caught_outside_the_md_and_a(self):
+        from modules.tools import extract_pricing_statements
+        found = extract_pricing_statements(_TWENTY_F, "20-F FY2025", by_item=True)
+        book = [s for s in found if s["order_book"]]
+        assert len(book) == 1 and book[0]["tag"] == "[SEC: 20-F FY2025, Item 4]"
+
+    def test_risk_factors_share_prices_and_forward_looking_boilerplate_are_not_evidence(self):
+        from modules.tools import extract_pricing_statements
+        texts = " ".join(s["text"] for s in extract_pricing_statements(_TWENTY_F, "20-F FY2025", by_item=True))
+        assert "may limit potential profits" not in texts
+        assert "share price" not in texts
+        assert "forward-looking" not in texts
+        assert "resource allocation" not in texts  # allocation of capital or shares is not supply rationing
+        assert "inventories" not in texts  # a working-capital line, not pricing
+
+    def test_10k_md_and_a_unit_and_asp_sentences_are_kept(self):
+        from modules.tools import extract_pricing_statements
+        found = extract_pricing_statements(_TEN_K, "10-K FY2026", by_item=True)
+        texts = [s["text"] for s in found]
+        assert any("7% decrease in unit sales" in t for t in texts)
+        assert "Gross margin decreased 120 basis points, primarily due to higher discounts and lower full-price ASP." in texts
+        assert not any("Price increases of 5%" in t for t in texts)
+        assert not any("reporting units" in t for t in texts)
+        assert all(s["tag"] == "[SEC: 10-K FY2026, Item 7]" for s in found)  # a sub-heading keeps the Item
+
+    def test_an_earnings_release_is_tagged_by_form_and_date(self):
+        from modules.tools import extract_pricing_statements
+        found = extract_pricing_statements(_RELEASE, "6-K 2026-02-10 press release")
+        book = next(s for s in found if s["order_book"])
+        assert book["text"].endswith("our order book extends towards the end of 2027.")
+        assert book["tag"] == "[SEC: 6-K 2026-02-10 press release]"
+
+    def test_unparseable_input_is_empty(self):
+        from modules.tools import extract_pricing_statements
+        assert extract_pricing_statements(b"", "10-K FY2026", by_item=True) == []
+
+
+class TestSelectPricingStatements:
+    def _s(self, text, numeric=True, order_book=False):
+        return {"text": text, "tag": "[SEC: x]", "numeric": numeric, "order_book": order_book}
+
+    def test_capped_at_twelve_with_order_books_then_numbers_first(self):
+        from modules.tools import select_pricing_statements
+        annual = [self._s(f"Mix sentence {i}.", numeric=False) for i in range(5)] + \
+                 [self._s(f"Shipments rose {i}%.") for i in range(10)]
+        latest = [self._s("Our order book extends into 2027.", order_book=True)]
+        picked = select_pricing_statements(annual, latest, [])
+        assert len(picked) == 12
+        assert picked[0]["order_book"]
+        assert all(s["numeric"] for s in picked[:7])
+
+    def test_a_sourced_price_volume_figure_outranks_an_undated_waiting_list_remark(self):
+        """RACE live: qualitative waiting-list sentences crowded out the 20-F's shipments and mix."""
+        from modules.tools import select_pricing_statements
+        annual = [self._s("We actively manage our waiting lists.", numeric=False, order_book=True)] * 1 + \
+                 [self._s(f"We monitor waiting list {i}.", numeric=False, order_book=True) for i in range(12)] + \
+                 [self._s("Total shipments were 13,640 cars, down 0.8 percent.")]
+        picked = select_pricing_statements(annual, [], [])
+        assert picked[0]["text"] == "Total shipments were 13,640 cars, down 0.8 percent."
+
+    def test_older_releases_contribute_order_book_sentences_only_without_repeats(self):
+        from modules.tools import select_pricing_statements
+        older = [[self._s("Price/mix added 6%."), self._s("Order book covers 2027.", order_book=True)],
+                 [self._s("Order book covers 2027.", order_book=True)]]
+        picked = select_pricing_statements([], [], older)
+        assert [s["text"] for s in picked] == ["Order book covers 2027."]
+
+
+def _submissions(forms, dates, accessions, docs, items=None, reports=None):
+    return {"filings": {"recent": {
+        "form": forms, "filingDate": dates, "accessionNumber": accessions, "primaryDocument": docs,
+        "items": items or [""] * len(forms), "reportDate": reports or [""] * len(forms)}}}
+
+
+class TestGetPricingStatements:
+    def _ferrari(self, fail_annual=False):
+        subs = _submissions(
+            ["6-K", "6-K", "20-F", "6-K"], ["2026-10-05", "2026-02-19", "2026-02-19", "2026-02-10"],
+            ["0001648416-26-000126", "0001648416-26-000025", "0001648416-26-000024", "0001648416-26-000018"],
+            ["fnvbb051026prcov.htm", "fnv19226prarcov.htm", "race-20251231.htm", "coverfnvfy2025resultspress.htm"],
+            reports=["", "", "2025-12-31", ""])
+
+        def get(url, **kwargs):
+            assert kwargs.get("timeout") and kwargs.get("headers")
+            if "submissions" in url:
+                return MagicMock(status_code=200, json=lambda: subs)
+            if url.endswith("race-20251231.htm"):
+                if fail_annual:
+                    raise Exception("timeout")
+                return MagicMock(status_code=200, content=_TWENTY_F)
+            if url.endswith("000164841626000018/index.json"):
+                return MagicMock(status_code=200, json=lambda: {"directory": {"item": [
+                    {"name": "coverfnvfy2025resultspress.htm", "size": "14063"},
+                    {"name": "fnvfy2025results.htm", "size": "337103"}]}})
+            if url.endswith("fnvfy2025results.htm"):
+                return MagicMock(status_code=200, content=_RELEASE)
+            raise AssertionError(f"unexpected fetch {url}")
+        return get
+
+    def test_ferrari_reads_its_20f_and_its_results_6k(self):
+        """RACE 2026-10-06: the order book was [MEDIA] only; the filings had it."""
+        from modules.tools import get_pricing_statements
+        with patch("modules.tools.requests.get", side_effect=self._ferrari()):
+            ev = get_pricing_statements("0001648416")
+        tags = {s["tag"] for s in ev["statements"]}
+        assert "[SEC: 20-F FY2025, Item 5]" in tags
+        assert "[SEC: 6-K 2026-02-10 press release]" in tags
+        assert any("towards the end of 2027" in s["text"] for s in ev["statements"])
+        assert ev["searched"] == ["20-F FY2025", "6-K 2026-02-10 press release"]
+
+    def test_a_failed_document_is_skipped_never_raised(self):
+        from modules.tools import get_pricing_statements
+        with patch("modules.tools.requests.get", side_effect=self._ferrari(fail_annual=True)):
+            ev = get_pricing_statements("0001648416")
+        assert ev["searched"] == ["6-K 2026-02-10 press release"]
+
+    def test_a_10k_filer_reads_its_8k_exhibit_99_1(self):
+        subs = _submissions(["8-K", "10-K"], ["2026-09-30", "2026-07-23"],
+                            ["0000320187-26-000050", "0000320187-26-000040"], ["nke-8k.htm", "nke-20260531.htm"],
+                            items=["2.02,9.01", ""], reports=["2026-09-30", "2026-05-31"])
+
+        def get(url, **kwargs):
+            if "submissions" in url:
+                return MagicMock(status_code=200, json=lambda: subs)
+            if url.endswith("nke-20260531.htm"):
+                return MagicMock(status_code=200, content=_TEN_K)
+            if url.endswith("index.json"):
+                return MagicMock(status_code=200, json=lambda: {"directory": {"item": [
+                    {"name": "nke-8k.htm", "size": "9000"}, {"name": "q1fy27pr-ex991.htm", "size": "90000"}]}})
+            if url.endswith("q1fy27pr-ex991.htm"):
+                return MagicMock(status_code=200, content=_RELEASE)
+            raise AssertionError(url)
+        from modules.tools import get_pricing_statements
+        with patch("modules.tools.requests.get", side_effect=get):
+            ev = get_pricing_statements("0000320187")
+        assert ev["searched"] == ["10-K FY2026", "8-K 2026-09-30 Ex.99.1"]
+        assert any(s["tag"] == "[SEC: 8-K 2026-09-30 Ex.99.1]" for s in ev["statements"])
+
+    def test_no_cik_or_no_network_is_none(self):
+        from modules.tools import get_pricing_statements
+        assert get_pricing_statements(None) is None
+        with patch("modules.tools.requests.get", side_effect=Exception("down")):
+            assert get_pricing_statements("0001648416") is None
+
+
+class TestPricingPowerBlock:
+    def test_the_block_prints_margins_by_year_tagged_and_na_for_gaps(self):
+        """RMS.PA 2026-10-06: two sourced years of operating margin failed Test 2."""
+        from modules.tools import margin_history, build_pricing_power_block
+        block = build_pricing_power_block(margin_history(_RACE_FACTS), None, sec_filer=True)
+        assert "--- 🏷️ PRICING POWER EVIDENCE ---" in block
+        assert "| 2025-12-31 | EUR 7,146m | 52.5% | 29.5% |" in block
+        assert "| 2021-12-31 | EUR 4,271m | 52.4% | n/a |" in block
+        assert "[SEC XBRL 20-F]" in block and "[CALC]" in block
+        assert "0.0%" not in block
+
+    def test_statements_are_quoted_with_their_tags(self):
+        from modules.tools import build_pricing_power_block
+        ev = {"statements": [{"text": "Our order book extends towards the end of 2027.",
+                              "tag": "[SEC: 6-K 2026-02-10 press release]", "numeric": True, "order_book": True}],
+              "searched": ["20-F FY2025", "6-K 2026-02-10 press release"]}
+        block = build_pricing_power_block(None, ev, sec_filer=True)
+        assert '- "Our order book extends towards the end of 2027." [SEC: 6-K 2026-02-10 press release]' in block
+
+    def test_nothing_found_names_the_documents_searched(self):
+        from modules.tools import build_pricing_power_block
+        block = build_pricing_power_block(None, {"statements": [], "searched": ["10-K FY2026", "8-K 2026-09-30 Ex.99.1"]},
+                                          sec_filer=True)
+        assert "no price/mix or order-book statement found in 10-K FY2026; 8-K 2026-09-30 Ex.99.1" in block
+
+    def test_a_non_sec_filer_gets_yfinance_margins_and_no_statements(self):
+        from modules.tools import build_pricing_power_block
+        hist = {"source": "yfinance", "currency": "EUR", "form": None,
+                "rows": [{"end": "2025-12-31", "revenue": 15.2e9, "gross_profit": 10.9e9,
+                          "gross_derived": False, "operating_income": 6.1e9}]}
+        block = build_pricing_power_block(hist, None, sec_filer=False)
+        assert "[yfinance]" in block and "not from filings" in block
+        assert "Price/mix, volume and order-book statements: not available from filings" in block
+
+    def test_no_margins_at_all_says_so(self):
+        from modules.tools import build_pricing_power_block
+        block = build_pricing_power_block(None, None, sec_filer=True)
+        assert "Margin history: not available" in block
+
+    def test_the_dossier_prints_the_block(self):
+        import inspect
+        from modules import tools
+        src = inspect.getsource(tools.build_initial_dossier)
+        assert "build_pricing_power_block(" in src and "get_pricing_statements" in src

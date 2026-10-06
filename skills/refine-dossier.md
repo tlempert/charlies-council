@@ -205,8 +205,9 @@ Verbatim includes the header line: keep each block's `--- … ---` line exactly 
 4. **LATEST QUARTER (8-K Ex.99.1)** — without it, no expert sees a primary source newer than the 10-K: share count, guidance, and acquisition contribution can all be a full year stale.
 5. **CASH CONVERSION** — without it, no expert can check revenue growth against cash growth; it is the only block that puts the two side by side.
 6. **BALANCE SHEET** — cash and short-term investments, borrowings, leases and long-term financial assets, with the net debt the valuation anchors use. Without it (YUMC, 2026-09-25) the synthesist inferred the cash pile from interest income, a ±$8/share guess on a company whose balance sheet was one API call away.
-7. **REVENUE BY GEOGRAPHY** — the latest annual revenue by region from the filing, or the statement that it is unsourced; the revenue-weighted country risk premium is built from it.
-8. **COST OF EQUITY INPUTS** — the sourced country risk premium and the price currency's 10-year the LOCAL COST OF EQUITY is built from; without it the hurdle is a judgment no one can check.
+7. **PRICING POWER EVIDENCE** — gross and operating margin for the last 3–5 fiscal years from filed figures, and the company's own sentences on price/mix, volume and order book, each with its source tag. Munger's franchise-premium tests 2–4 are scored on it: without it they are UNPROVEN, and UNPROVEN is a fail. RMS.PA and RACE (2026-10-06) failed them on missing data, not on weak economics. Keep every quoted sentence and its tag; do not paraphrase or trim them.
+8. **REVENUE BY GEOGRAPHY** — the latest annual revenue by region from the filing, or the statement that it is unsourced; the revenue-weighted country risk premium is built from it.
+9. **COST OF EQUITY INPUTS** — the sourced country risk premium and the price currency's 10-year the LOCAL COST OF EQUITY is built from; without it the hurdle is a judgment no one can check.
 
 This rule exists because they were dropped on NXPI (2026-08-21) and it cost real analysis:
 

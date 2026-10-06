@@ -410,8 +410,8 @@ DOSSIER = ("CURRENT PRICE: $292.79\n| 2025 | $1.94B | 8.2% | $2.34B | 413M |\n"
 
 PASSTHROUGH_BLOCKS = ("--- FORENSIC BLOCK ---\n--- BUYBACK ANALYSIS ---\n--- WORKING CAPITAL ---\n"
                        "--- LATEST QUARTER (8-K Ex.99.1 filed 2026-06-12) ---\n--- CASH CONVERSION ---\n"
-                       "--- 🏦 BALANCE SHEET (2026-06-30) ---\n--- 🗺️ REVENUE BY GEOGRAPHY ---\n"
-                       "--- 🌍 COST OF EQUITY INPUTS ---\n")
+                       "--- 🏦 BALANCE SHEET (2026-06-30) ---\n--- 🏷️ PRICING POWER EVIDENCE ---\n"
+                       "--- 🗺️ REVENUE BY GEOGRAPHY ---\n--- 🌍 COST OF EQUITY INPUTS ---\n")
 
 TALLY = {"BUY": 3, "HOLD": 6, "PASS": 2, "SELL": 1}
 
@@ -608,6 +608,14 @@ class TestPregatePassthroughAndEngagement:
         assert status["passthrough:REVENUE BY GEOGRAPHY"] == "FAIL"
         status, _ = _run(tmp_path, _ledger(), dossier=DOSSIER + PASSTHROUGH_BLOCKS)
         assert status["passthrough:REVENUE BY GEOGRAPHY"] == "OK"
+
+    def test_a_dropped_pricing_power_block_fails(self, tmp_path):
+        # RMS.PA and RACE 2026-10-06: franchise tests 2-4 were UNPROVEN for want of this evidence.
+        status, _ = _run(tmp_path, _ledger(), dossier=DOSSIER + PASSTHROUGH_BLOCKS.replace(
+            "--- 🏷️ PRICING POWER EVIDENCE ---\n", ""))
+        assert status["passthrough:PRICING POWER EVIDENCE"] == "FAIL"
+        status, _ = _run(tmp_path, _ledger(), dossier=DOSSIER + PASSTHROUGH_BLOCKS)
+        assert status["passthrough:PRICING POWER EVIDENCE"] == "OK"
 
     def test_a_declared_absent_block_passes(self, tmp_path):
         status, _ = _run(tmp_path, _ledger(), dossier=DOSSIER + self.BLOCKS.replace("--- CASH CONVERSION ---", "CASH CONVERSION: not present in the raw dossier"))

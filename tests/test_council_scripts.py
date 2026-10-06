@@ -1730,6 +1730,53 @@ class TestTheFranchiseTestsHaveBrandAndFranchisorRoutes:
         assert "is MAJOR; FATAL if it flips which zone governs" in text
 
 
+class TestFranchiseTestTwoHasABrandRoute:
+    """RACE 2026-10-06: Ferrari's EBIT is about 28% and its gross margin about
+    52%, so it can never clear the 35% operating-margin bar, which is a software
+    number. Under the strict test its hurdle ceiling ($230) governs; with all four
+    tests passed the band ceiling would be about $338. The brand route reads the
+    markup in gross margin: operating >=25% AND gross >=50%, both sourced, 3+
+    years. The >35% margin route and the ROIC route are unchanged."""
+
+    def _two(self):
+        text = open(os.path.join(_ROOT, "skills", "munger-synthesis.md"), encoding="utf-8").read()
+        section = text.split("## FRANCHISE PREMIUM TESTS", 1)[1].split("\n## ", 1)[0]
+        return section.split("\n2. ", 1)[1].split("\n3. ", 1)[0]
+
+    def test_the_brand_route_needs_both_margins_for_three_years(self):
+        two = self._two()
+        assert "brand route" in two
+        assert "operating margin ≥25% **AND** gross margin ≥50%, both sustained 3+ years" in two
+
+    def test_the_brand_route_is_for_physical_markup_moats(self):
+        two = self._two()
+        assert "luxury, autos and branded consumer goods" in two
+
+    def test_the_brand_route_reads_only_sourced_figures(self):
+        two = self._two()
+        assert "filing or [CALC] from filed numbers; not media" in two
+
+    def test_missing_years_on_the_brand_route_are_unproven_and_fail(self):
+        two = self._two()
+        assert "Missing years are UNPROVEN, and UNPROVEN fails" in two
+        assert "name the route and cite 3+ years of both margins" in two
+
+    def test_the_incident_is_cited(self):
+        assert ("RACE, 2026-10-06: EBIT ~28%, gross ~52%; the 35% bar is a software number — "
+                "the brand route reads the markup in gross margin.") in self._two()
+
+    def test_the_margin_and_roic_routes_are_unchanged(self):
+        two = self._two()
+        assert "operating margins >35%" in two
+        assert "ROIC >20% with acquired goodwill and intangibles in invested capital" in two
+        assert "a markup moat on the ROIC route is a misuse" in two
+
+    def test_reality_check_grades_a_misused_brand_route(self):
+        text = open(os.path.join(_ROOT, "skills", "reality-check.md"), encoding="utf-8").read()
+        assert ("The test-2 brand route used for a software or capital-light business, or without 3 sourced "
+                "years of BOTH margins, is MAJOR; FATAL if it flips which zone governs.") in text
+
+
 class TestAFinishedRunIsNeverResumed:
     """YUMC 2026-09-26: the dashboard re-queued a ticker whose manifest was
     complete. The headless session judged a rerun not worth it, asked the user

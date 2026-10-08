@@ -1751,10 +1751,22 @@ class TestFranchiseTestTwoHasABrandRoute:
         section = text.split("## FRANCHISE PREMIUM TESTS", 1)[1].split("\n## ", 1)[0]
         return section.split("\n2. ", 1)[1].split("\n3. ", 1)[0]
 
-    def test_the_brand_route_needs_both_margins_for_three_years(self):
+    def test_the_brand_route_reads_three_year_averages_with_floors(self):
+        """RACE 2026-10-08: filed gross 51.7/50.1/49.8 — an each-year >=50% bar
+        failed a strengthening brand by 0.2 points. The route reads the 3-year
+        average, and a per-year floor stops one good year hiding a bad one."""
         two = self._two()
         assert "brand route" in two
-        assert "operating margin ≥25% **AND** gross margin ≥50%, both sustained 3+ years" in two
+        assert ("over the latest 3 fiscal years, the **average** gross margin is ≥50% and no single year "
+                "is below 48%, **AND** the **average** operating margin is ≥25% and no single year is below 23%") in two
+        assert "both sustained 3+ years" not in two
+
+    def test_munger_prints_the_three_years_and_both_averages(self):
+        assert "print the three years of both margins and both averages" in self._two()
+
+    def test_the_average_rule_cites_the_ferrari_incident(self):
+        assert ("RACE, 2026-10-08: gross 51.7/50.1/49.8 — an each-year bar failed a strengthening brand by "
+                "0.2 points; the average reads the franchise, the floor stops one good year hiding a bad one.") in self._two()
 
     def test_the_brand_route_is_for_physical_markup_moats(self):
         two = self._two()
@@ -1766,8 +1778,8 @@ class TestFranchiseTestTwoHasABrandRoute:
 
     def test_missing_years_on_the_brand_route_are_unproven_and_fail(self):
         two = self._two()
-        assert "Missing years are UNPROVEN, and UNPROVEN fails" in two
-        assert "name the route and cite 3+ years of both margins" in two
+        assert "Fewer than 3 sourced years is UNPROVEN, and UNPROVEN fails" in two
+        assert "All three years must be sourced" in two
 
     def test_the_incident_is_cited(self):
         assert ("RACE, 2026-10-06: EBIT ~28%, gross ~52%; the 35% bar is a software number — "
@@ -1781,8 +1793,10 @@ class TestFranchiseTestTwoHasABrandRoute:
 
     def test_reality_check_grades_a_misused_brand_route(self):
         text = open(os.path.join(_ROOT, "skills", "reality-check.md"), encoding="utf-8").read()
-        assert ("The test-2 brand route used for a software or capital-light business, or without 3 sourced "
-                "years of BOTH margins, is MAJOR; FATAL if it flips which zone governs.") in text
+        assert ("The test-2 brand route used for a software or capital-light business is MAJOR; FATAL if it "
+                "flips which zone governs. Re-check the brand route's 3-year averages (gross ≥50%, operating ≥25%) "
+                "and floors (no year below 48% gross or 23% operating) against the dossier: a missing sourced year "
+                "or a floor breach is MAJOR; FATAL if it flips which zone governs.") in text
 
 
 class TestAFinishedRunIsNeverResumed:

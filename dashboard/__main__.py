@@ -1,7 +1,9 @@
 """`python -m dashboard` — the whole service: web server, runner, follow-ups.
 
 Run by launchd with KeepAlive, so the only startup duty that matters is
-admitting that anything left `running` did not survive the restart.
+admitting that anything left `running` did not survive the restart, and the only
+shutdown duty is not leaving the run in flight behind: its process tree has its
+own session, and the runner thread is a daemon that dies with this process.
 """
 import json
 import signal
@@ -9,6 +11,9 @@ import sys
 import threading
 
 from . import app, followup, runner, store as store_mod
+
+#: Past the runner's own SIGTERM-then-SIGKILL, inside launchd's 20 second allowance.
+SHUTDOWN_GRACE = 15
 
 
 def main():
@@ -44,6 +49,8 @@ def main():
         server.serve_forever()
     finally:
         server.server_close()
+        analysis_runner.stop()
+        analysis_runner.join(timeout=SHUTDOWN_GRACE)
     return 0
 
 

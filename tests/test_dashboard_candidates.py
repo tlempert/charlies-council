@@ -82,6 +82,30 @@ class TestCandidatesAndTheirRuns:
         store.request_cancel(job_id)
         assert store.list_candidates()[0]["job_state"] == "cancelled"
 
+    def linked(self, store, state):
+        store.add_candidate("ADBE", "manual", "first look")
+        job_id = store.enqueue("ADBE")
+        store.link_candidate_job("ADBE", job_id)
+        if state != "queued":
+            store.mark_running(job_id, "sess-1")
+        if state not in ("queued", "running"):
+            store.finish(job_id, state)
+        return job_id
+
+    def test_reproposing_a_name_whose_run_finished_puts_it_back_on_the_list(self, store):
+        self.linked(store, "done")
+        added = store.db.execute("SELECT added_at FROM candidates").fetchone()["added_at"]
+        store.add_candidate("ADBE", "find-candidates", "cheaper now")
+        listed = store.list_candidates()
+        assert [(c["ticker"], c["job_id"], c["note"]) for c in listed] == [("ADBE", None, "cheaper now")]
+        assert listed[0]["added_at"] == added
+
+    @pytest.mark.parametrize("state", ["queued", "running", "failed", "cancelled"])
+    def test_reproposing_a_name_with_any_other_run_keeps_the_link(self, store, state):
+        job_id = self.linked(store, state)
+        store.add_candidate("ADBE", "find-candidates", "cheaper now")
+        assert store.list_candidates()[0]["job_id"] == job_id
+
     def test_linking_a_ticker_nobody_proposed_changes_nothing(self, store):
         store.link_candidate_job("MSFT", store.enqueue("MSFT"))
         assert store.list_candidates() == []

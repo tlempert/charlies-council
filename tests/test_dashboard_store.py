@@ -177,6 +177,187 @@ class TestContinuingARunThatStoppedShort:
         assert store.get_job(job_id)["resume_requested"] == 0
 
 
+def settled(store, ticker="ADBE", state="failed"):
+    job_id = store.enqueue(ticker)
+    store.mark_running(job_id, "sess-" + job_id)
+    store.finish(job_id, state, exit_code=1)
+    return job_id
+
+
+class TestAJobThatWouldOtherwiseSitQueuedForever:
+    """Cancel, restart, Continue: the job came back queued with cancel_requested
+    still set, next_queued skipped it, and active_job blocked every new run."""
+
+    def test_continuing_a_job_clears_a_cancel_left_over_from_before(self, store):
+        job_id = settled(store)
+        store.db.execute("UPDATE jobs SET cancel_requested = 1 WHERE id = ?", (job_id,))
+        assert store.requeue_for_resume(job_id) is True
+        assert store.cancel_requested(job_id) is False
+        assert store.next_queued()["id"] == job_id
+
+    @pytest.mark.parametrize("state", ["done", "failed", "cancelled"])
+    def test_cancelling_a_job_that_is_already_over_changes_nothing(self, store, state):
+        job_id = settled(store, state=state)
+        before = store.get_job(job_id)
+        store.request_cancel(job_id)
+        assert store.get_job(job_id) == before
+
+    def test_a_restart_with_a_cancel_pending_settles_the_job_as_cancelled(self, store):
+        job_id = store.enqueue("ADBE")
+        store.mark_running(job_id, "sess-1")
+        store.request_cancel(job_id)
+        assert store.reset_running_jobs() == 1
+        job = store.get_job(job_id)
+        assert (job["state"], job["error"]) == ("cancelled", None)
+        assert job["finished_at"] is not None
+
+    def test_cancelling_a_run_queued_to_carry_on_drops_it_from_the_queue(self, store):
+        job_id = settled(store)
+        store.requeue_for_resume(job_id)
+        store.request_cancel(job_id)
+        assert store.get_job(job_id)["state"] == "cancelled"
+        assert store.next_queued() is None
+
+
+class TestOnlyTheNewestRunOfATickerCanBeContinued:
+    """Every run of a ticker shares one folder under /tmp/silicon_council. A
+    resume reads that folder, so it must be the run the folder belongs to."""
+
+    def test_an_older_run_is_refused_once_a_newer_run_has_finished(self, store):
+        old, new = settled(store), settled(store)
+        assert store.requeue_for_resume(old) is False
+        assert store.get_job(old)["state"] == "failed"
+        assert store.requeue_for_resume(new) is True
+
+    @pytest.mark.parametrize("running", [False, True])
+    def test_a_run_is_refused_while_a_newer_run_is_active(self, store, running):
+        old = settled(store)
+        new = store.enqueue("ADBE")
+        if running:
+            store.mark_running(new, "sess-new")
+        assert store.requeue_for_resume(old) is False
+        assert store.get_job(old)["state"] == "failed"
+
+    def test_a_run_is_refused_while_any_other_run_of_the_ticker_is_active(self, store):
+        """Only an older database can hold this shape, since enqueue forbids it."""
+        active, newest = settled(store), settled(store)
+        store.db.execute("UPDATE jobs SET state = 'running' WHERE id = ?", (active,))
+        assert store.requeue_for_resume(newest) is False
+
+    def test_another_ticker_has_no_say_in_it(self, store):
+        job_id = settled(store)
+        store.enqueue("MSFT")
+        assert store.requeue_for_resume(job_id) is True
+
+    def test_a_scan_sharing_the_label_has_no_say_in_it(self, store):
+        job_id = settled(store)
+        store.enqueue_discovery("ADBE")
+        assert store.requeue_for_resume(job_id) is True
+
+    def test_a_scan_cannot_be_continued(self, store):
+        job_id = store.enqueue_discovery("UK consumer")
+        store.mark_running(job_id, "sess-1")
+        store.finish(job_id, "failed", exit_code=1)
+        assert store.requeue_for_resume(job_id) is False
+
+    def test_the_page_can_ask_the_same_question_without_doing_it(self, store):
+        old, new = settled(store), settled(store)
+        assert (store.can_resume(old), store.can_resume(new)) == (False, True)
+        assert store.get_job(new)["state"] == "failed"
+
+
+class TestWhenARunFirstStarted:
+    """mark_running moves started_at on every Continue, so what the run did before
+    the Continue needs a clock of its own."""
+
+    def test_a_fresh_run_first_started_when_it_started(self, store):
+        job_id = store.enqueue("ADBE")
+        store.mark_running(job_id, "sess-1")
+        job = store.get_job(job_id)
+        assert job["first_started_at"] == job["started_at"]
+
+    def test_carrying_on_moves_the_start_but_not_the_first_start(self, store):
+        job_id = settled(store)
+        store.db.execute("UPDATE jobs SET started_at = 100, first_started_at = 100 WHERE id = ?", (job_id,))
+        store.requeue_for_resume(job_id)
+        store.mark_running(job_id, "ignored")
+        job = store.get_job(job_id)
+        assert job["first_started_at"] == 100
+        assert job["started_at"] > 100
+
+    def test_carrying_on_a_run_from_before_the_column_uses_its_last_start(self, store):
+        job_id = settled(store)
+        store.db.execute("UPDATE jobs SET started_at = 100, first_started_at = NULL WHERE id = ?", (job_id,))
+        store.requeue_for_resume(job_id)
+        store.mark_running(job_id, "ignored")
+        assert store.get_job(job_id)["first_started_at"] == 100
+
+
+class TestWhoHoldsASession:
+    """A session file takes one process at a time: the run or a follow-up."""
+
+    def test_a_question_on_a_run_that_never_started_waits(self, store):
+        store.add_question(store.enqueue("ADBE"), "why?")
+        assert store.next_pending_question() is None
+
+    def test_a_question_on_a_run_queued_to_carry_on_waits(self, store):
+        job_id = settled(store)
+        store.requeue_for_resume(job_id)
+        store.add_question(job_id, "why?")
+        assert store.next_pending_question() is None
+
+    @pytest.mark.parametrize("state", ["done", "failed", "cancelled"])
+    def test_a_question_on_a_settled_run_is_picked(self, store, state):
+        qid = store.add_question(settled(store, state=state), "why?")
+        assert store.next_pending_question()["id"] == qid
+
+    def test_a_claimed_question_is_not_picked_again(self, store):
+        qid = store.add_question(settled(store), "why?")
+        assert store.claim_question(qid) is True
+        assert store.claim_question(qid) is False
+        assert store.next_pending_question() is None
+
+    def test_a_question_cannot_be_claimed_once_the_run_went_back_on_the_queue(self, store):
+        job_id = settled(store)
+        qid = store.add_question(job_id, "why?")
+        store.requeue_for_resume(job_id)
+        assert store.claim_question(qid) is False
+        assert store.questions_for(job_id)[0]["started_at"] is None
+
+    def test_a_continue_waits_for_the_follow_up_in_flight_on_its_session(self, store):
+        job_id = settled(store)
+        qid = store.add_question(job_id, "why?")
+        store.claim_question(qid)
+        store.requeue_for_resume(job_id)
+        assert store.next_queued() is None
+        store.answer_question(qid, "because", 0)
+        assert store.next_queued()["id"] == job_id
+
+    def test_the_wait_does_not_hold_up_the_rest_of_the_queue(self, store):
+        job_id = settled(store)
+        qid = store.add_question(job_id, "why?")
+        store.claim_question(qid)
+        store.requeue_for_resume(job_id)
+        other = store.enqueue("MSFT")
+        assert store.next_queued()["id"] == other
+
+    def test_a_question_waiting_its_turn_does_not_hold_up_a_continue(self, store):
+        job_id = settled(store)
+        store.add_question(job_id, "why?")
+        store.requeue_for_resume(job_id)
+        assert store.next_queued()["id"] == job_id
+
+    def test_recovery_gives_back_claims_so_their_questions_are_asked_again(self, store):
+        job_id = settled(store)
+        asked, answered = store.add_question(job_id, "one"), store.add_question(job_id, "two")
+        store.claim_question(answered)
+        store.answer_question(answered, "because", 0)
+        store.claim_question(asked)
+        store.release_question_claims()
+        assert store.next_pending_question()["id"] == asked
+        assert store.questions_for(job_id)[1]["started_at"] is not None
+
+
 class TestQuestions:
     def test_a_question_waits_unanswered_until_the_worker_gets_to_it(self, store):
         job_id = store.enqueue("ADBE")
@@ -246,6 +427,24 @@ class TestMetrics:
         assert row["cost_usd"] == 12.5
         assert row["followup_cost_usd"] == pytest.approx(0.5)
         assert row["followup_turns"] == 5
+
+    def test_settling_again_after_a_continue_keeps_what_the_follow_ups_cost(self, store):
+        job_id = store.enqueue("ADBE")
+        store.save_metrics(job_id, {"cost_usd": 12.5})
+        store.add_followup_cost(job_id, 0.4, 3)
+        store.save_metrics(job_id, {"cost_usd": 20.0})
+        store.save_metrics(job_id, {"cost_usd": 21.0})
+        row = store.get_metrics(job_id)
+        assert row["cost_usd"] == 21.0
+        assert row["followup_cost_usd"] == pytest.approx(0.4)
+        assert row["followup_turns"] == 3
+
+    def test_settling_replaces_every_other_column(self, store):
+        job_id = store.enqueue("ADBE")
+        store.save_metrics(job_id, {"stopped_at": "experts", "verdict": "WAIT"})
+        store.save_metrics(job_id, {"cost_usd": 1.0})
+        row = store.get_metrics(job_id)
+        assert (row["stopped_at"], row["verdict"]) == (None, None)
 
     def test_every_metrics_row_carries_its_ticker_for_the_metrics_page(self, store):
         job_id = store.enqueue("ADBE")
@@ -351,6 +550,19 @@ class TestUpgradingAnOlderDatabase:
         store.save_metrics(job_id, {"resumes": 2, "stopped_at": "experts"})
         row = store.get_metrics(job_id)
         assert (row["resumes"], row["stopped_at"]) == (2, "experts")
+
+    def test_an_old_database_gains_the_columns_for_claims_and_first_starts(self, tmp_path):
+        path = tmp_path / "old.db"
+        db = sqlite3.connect(path)
+        db.executescript("CREATE TABLE questions (id INTEGER PRIMARY KEY AUTOINCREMENT, job_id TEXT NOT NULL, "
+                         "asked_at REAL NOT NULL, question TEXT NOT NULL, answered_at REAL, answer TEXT, "
+                         "exit_code INTEGER);")
+        db.execute("INSERT INTO questions (job_id, asked_at, question) VALUES ('j', 1, 'q')")
+        db.commit()
+        db.close()
+        store = store_mod.Store(path)
+        assert store.questions_for("j")[0]["started_at"] is None
+        assert store.get_job(store.enqueue("ADBE"))["first_started_at"] is None
 
     def test_reopening_an_already_migrated_database_is_a_no_op(self, tmp_path):
         store_mod.Store(tmp_path / "twice.db").enqueue("ADBE")

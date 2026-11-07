@@ -6,6 +6,7 @@ synthesis assuming X" are both just questions. The session file is single-use,
 which is why a run still in flight blocks its own questions.
 """
 import json
+import time
 
 import pytest
 
@@ -99,6 +100,76 @@ class TestAnsweringAQuestion:
         store.mark_running(job_id, "sess-1")
         store.add_question(job_id, "how far along?")
         assert make_worker().answer_next() is None
+
+
+class TestWhoHoldsTheSession:
+    def test_a_question_on_a_run_that_never_started_waits_rather_than_being_told_no(
+            self, make_worker, store):
+        """It used to get a permanent "never opened a session" the moment it was
+        asked, about a run that was about to open one."""
+        job_id = store.enqueue("ADBE")
+        store.add_question(job_id, "what will you look at?")
+        assert make_worker().answer_next() is None
+        assert store.questions_for(job_id)[0]["answer"] is None
+
+    def test_a_run_that_is_cancelled_before_it_starts_says_it_never_opened_a_session(
+            self, make_worker, store):
+        job_id = store.enqueue("ADBE")
+        store.add_question(job_id, "what will you look at?")
+        store.request_cancel(job_id)
+        make_worker().answer_next()
+        assert "never opened a session" in store.questions_for(job_id)[0]["answer"]
+
+    def test_a_run_queued_to_carry_on_keeps_its_session_from_the_follow_up(
+            self, make_worker, store, finished_job):
+        store.requeue_for_resume(finished_job)
+        store.add_question(finished_job, "why WAIT?")
+        assert make_worker().answer_next() is None
+
+    def test_a_continue_pressed_mid_answer_waits_for_the_answer(
+            self, make_worker, store, finished_job, monkeypatch):
+        worker = make_worker()
+        store.add_question(finished_job, "why WAIT?")
+        real_ask = worker._ask
+        seen = {}
+
+        def ask(job, question):
+            store.requeue_for_resume(finished_job)
+            seen["queue while answering"] = store.next_queued()
+            real_ask(job, question)
+
+        monkeypatch.setattr(worker, "_ask", ask)
+        worker.answer_next()
+        assert seen["queue while answering"] is None
+        assert store.next_queued()["id"] == finished_job
+
+    def test_a_timed_out_follow_up_lets_go_of_the_session(
+            self, make_worker, store, finished_job, monkeypatch):
+        worker = make_worker()
+        store.add_question(finished_job, "why WAIT?")
+
+        def too_slow(*args, **kwargs):
+            raise followup_mod.subprocess.TimeoutExpired("zsh", 1)
+
+        monkeypatch.setattr(followup_mod.subprocess, "run", too_slow)
+        worker.answer_next()
+        store.requeue_for_resume(finished_job)
+        assert store.next_queued()["id"] == finished_job
+
+    def test_a_question_cut_off_by_a_restart_is_asked_again_when_the_worker_comes_back(
+            self, make_worker, store, finished_job):
+        store.add_question(finished_job, "why WAIT?")
+        store.db.execute("UPDATE questions SET started_at = 1")     # the claim the old process died holding
+        worker = make_worker()
+        worker.poll_seconds = 0.05
+        worker.start()
+        try:
+            deadline = time.time() + 20
+            while store.questions_for(finished_job)[0]["answer"] is None and time.time() < deadline:
+                time.sleep(0.05)
+        finally:
+            worker.stop()
+        assert store.questions_for(finished_job)[0]["answer"] == ANSWER
 
 
 class TestWhenItGoesWrong:

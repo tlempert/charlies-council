@@ -307,7 +307,7 @@ def _run_progress(store, job):
     if job["kind"] == "discover":
         return ""
     if job["state"] not in ("running", "queued"):
-        stopped = stopped_step(job)
+        stopped = stopped_step(store, job)
         if job["state"] == "done" and stopped:
             return f"stopped at {e(stopped)}"
         return verdict((store.get_metrics(job["id"]) or {}).get("verdict"))
@@ -439,7 +439,7 @@ POLL_JS = """
 function set(id, text) { var el = document.getElementById(id); if (el) el.textContent = text; }
 setInterval(function () {
   fetch('status.json').then(function (r) { return r.json(); }).then(function (s) {
-    if (s.state !== 'running') { location.reload(); return; }
+    if (s.state !== '@STATE@') { location.reload(); return; }
     set('elapsed', s.elapsed);
     set('fallbacks', s.fallbacks);
     s.steps.forEach(function (st) {
@@ -466,44 +466,56 @@ EXPERT_SHORT = {"jeff_bezos": "Bezos", "warren_buffett": "Buffett", "michael_bur
                 "historian": "Historian", "anthropologist": "Anthro", "lynch": "Lynch"}
 
 
-def stopped_step(job):
+def stopped_step(store, job):
     """Where an analysis that is over got to, if its pipeline never finished.
 
-    An exit code says the process ended; the manifest says whether the pipeline
-    did. A run that stopped short has no report to show and can be carried on."""
+    An exit code says the process ended; the manifest said whether the pipeline
+    did, and what it said was recorded when the job settled. The manifest itself
+    is no evidence by now: /tmp gets cleaned, and a later run of the ticker
+    replaces it. A run that stopped short has no report to show."""
     if job["kind"] == "discover" or job["state"] not in ("done", "failed") or not job["session_id"]:
         return None
-    return progress.stopped_at(progress.read_manifest(job["ticker"]))
+    return (store.get_metrics(job["id"]) or {}).get("stopped_at")
+
+
+def can_continue(store, job):
+    """A run that stopped short can be carried on if it still owns the ticker's
+    folder and the manifest the resume prompt reads is still there."""
+    return (stopped_step(store, job) is not None and store.can_resume(job["id"])
+            and progress.read_manifest(job["ticker"]) is not None)
 
 
 def job_page(store, job):
     discover = job["kind"] == "discover"
-    snapshot = None if discover else progress.snapshot(job["ticker"])
-    body = _discovery_body(store, job) if discover else _pipeline_body(snapshot)
-    stopped = stopped_step(job)
+    # A later run of the ticker has replaced the manifest: none of it is this job's.
+    snapshot = None if discover or store.superseded(job["id"]) else progress.snapshot(job["ticker"])
+    body = _discovery_body(store, job) if discover else _pipeline_body(snapshot) if snapshot else ""
+    stopped = stopped_step(store, job)
+    active = job["state"] in ("running", "queued")
 
     label = f"Find candidates: {job['ticker']}" if discover else job["ticker"]
     head = (f"<h1>{e(label)} <span class=muted>{e(job['state'])}</span></h1>"
             f"<p class=muted>elapsed <span id=elapsed>{_ago(elapsed_of(job))}</span> · ")
-    if not discover:
+    if snapshot:
         head += f"fallbacks <span id=fallbacks>{_fallback_count(snapshot['workers'])}</span> · "
     head += f"session {e(job['session_id'] or '—')}"
     if job["resumes"]:
         head += f" · resumed {e(job['resumes'])}×"
     head += "</p>"
     if stopped:
-        head += (f"<p class=muted>Pipeline stopped at {e(stopped)}.</p>"
-                 f'<form method="post" action="/jobs/{e(job["id"])}/resume" style="margin:.5rem 0">'
-                 "<button>Continue run</button></form>")
+        head += f"<p class=muted>Pipeline stopped at {e(stopped)}.</p>"
+        if can_continue(store, job):
+            head += (f'<form method="post" action="/jobs/{e(job["id"])}/resume" style="margin:.5rem 0">'
+                     "<button>Continue run</button></form>")
     elif job["report_url"]:
-        memo = runner.memo_url(job["ticker"])
+        memo = runner.memo_url(job["ticker"], since=store_mod.first_start(job))
         head += (f'<p><a href="{e(job["report_url"])}"><b>Report →</b></a>'
                  + (f' · <a href="{e(memo)}"><b>Memo →</b></a>' if memo else "") + "</p>")
     elif job["state"] == "done" and not discover:
         head += f'<p><a href="/jobs/{e(job["id"])}/verdict"><b>Verdict →</b></a></p>'
     if job["error"]:
         head += f"<div class=err>{e(job['error'])}</div>"
-    if job["state"] == "running":
+    if active:
         head += (f'<form method="post" action="/jobs/{e(job["id"])}/cancel" style="margin:.5rem 0">'
                  "<button>Cancel run</button></form>")
 
@@ -515,12 +527,12 @@ def job_page(store, job):
            '<textarea name=question rows=3 placeholder="Ask this run a question — '
            'why WAIT? what fell over? re-run synthesis assuming X."></textarea>'
            "<p><button>Ask</button></p></form>")
-    if job["state"] == "running":
+    if active:
         ask = "<p class=muted>Questions can be asked once the run releases its session.</p>" + ask
 
     return page(f"{label} — council",
                 head + body + "<h2>Questions</h2>" + thread + ask +
-                (POLL_JS if job["state"] == "running" else ""))
+                (POLL_JS.replace("@STATE@", job["state"]) if active else ""))
 
 
 def _pipeline_body(snapshot):
@@ -783,7 +795,8 @@ class _Handler(BaseHTTPRequestHandler):
         if tail == "cancel":
             self.store.request_cancel(job_id)
         elif tail == "resume":
-            self.store.requeue_for_resume(job_id)
+            if can_continue(self.store, job):          # the page may be older than the state
+                self.store.requeue_for_resume(job_id)
         elif tail == "questions":
             question = (form.get("question") or "").strip()
             if question:

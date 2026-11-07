@@ -194,9 +194,11 @@ class TestWhetherThePipelineFinished:
         assert progress.is_complete(manifest) is False
         assert progress.stopped_at(manifest) == "experts"
 
-    def test_a_job_with_no_manifest_has_not_even_begun(self):
+    def test_a_missing_manifest_means_the_stopping_place_is_unknown(self):
+        """Live, 2026-11: fifty finished jobs read "stopped at dossier" because
+        /tmp had been cleaned, and a missing file is not evidence of anything."""
         assert progress.is_complete(None) is False
-        assert progress.stopped_at(None) == "dossier"
+        assert progress.stopped_at(None) is None
 
     def test_a_step_the_run_skipped_does_not_undo_a_finished_pipeline(self):
         manifest = {"steps": {name: {"status": "done"} for name in progress.STEP_NAMES
@@ -207,6 +209,80 @@ class TestWhetherThePipelineFinished:
     def test_the_first_unfinished_step_is_where_the_run_stopped(self):
         manifest = {"steps": {"dossier": {"status": "done"}, "forensic": {"status": "failed"}}}
         assert progress.stopped_at(manifest) == "forensic"
+
+
+THROUGH_MEMO = {n: {"status": "done"} for n in progress.STEP_NAMES
+                if n not in ("reports", "assemble")}
+
+
+class TestStepsThatDoNotHoldARunUp:
+    """`reports` only runs with --explainers and a failed memo is one the skill
+    continues past, so neither is where a run that died later actually stopped."""
+
+    def test_a_run_that_died_just_before_assemble_stopped_at_assemble(self):
+        assert progress.stopped_at({"steps": THROUGH_MEMO}) == "assemble"
+        assert progress.current_step({"steps": THROUGH_MEMO}) == "assemble"
+
+    def test_a_run_that_died_in_assemble_stopped_at_assemble(self):
+        manifest = {"steps": dict(THROUGH_MEMO, assemble={"status": "started"})}
+        assert progress.stopped_at(manifest) == "assemble"
+        assert progress.current_step(manifest) == "assemble"
+
+    def test_a_finished_run_without_explainers_has_no_current_step(self):
+        manifest = {"steps": dict(THROUGH_MEMO, assemble={"status": "done"})}
+        assert progress.current_step(manifest) is None
+
+    def test_a_reports_step_that_was_recorded_counts_like_any_other(self):
+        manifest = {"steps": dict(THROUGH_MEMO, reports={"status": "failed"})}
+        assert progress.stopped_at(manifest) == "reports"
+        assert progress.current_step(manifest) == "reports"
+
+    def test_a_failed_memo_with_later_activity_is_not_where_the_run_stopped(self):
+        manifest = {"steps": dict(THROUGH_MEMO, memo={"status": "failed"},
+                                  assemble={"status": "started", "started": 100})}
+        assert progress.stopped_at(manifest) == "assemble"
+
+    def test_a_failed_memo_with_nothing_after_it_is_where_the_run_stopped(self):
+        manifest = {"steps": dict(THROUGH_MEMO, memo={"status": "failed"})}
+        assert progress.stopped_at(manifest) == "memo"
+
+    def test_a_later_step_merely_listed_as_pending_is_not_later_activity(self):
+        manifest = {"steps": dict(THROUGH_MEMO, memo={"status": "failed"},
+                                  assemble={"status": "pending"})}
+        assert progress.stopped_at(manifest) == "memo"
+
+    def test_any_other_failed_step_still_stops_the_run_whatever_follows(self):
+        manifest = {"steps": dict(THROUGH_MEMO, gate={"status": "failed"},
+                                  assemble={"status": "started", "started": 100})}
+        assert progress.stopped_at(manifest) == "gate"
+
+
+class TestWhetherThisRunFinishedThePipeline:
+    """A finished manifest may be the previous run's. Only an `assemble` marked
+    at or after the job started says this job got there."""
+
+    DONE = {"steps": dict(THROUGH_MEMO, assemble={"status": "done", "ts": 1000})}
+
+    def test_an_assemble_marked_after_the_job_started_counts(self):
+        assert progress.finished_since(self.DONE, 900.5) is True
+
+    def test_an_assemble_marked_before_the_job_started_does_not(self):
+        assert progress.finished_since(self.DONE, 1001.0) is False
+
+    def test_an_assemble_marked_in_the_second_the_job_started_counts(self):
+        """The manifest's clock is whole seconds and the job's is not."""
+        assert progress.finished_since(self.DONE, 1000.9) is True
+
+    def test_an_assemble_with_no_mark_at_all_is_an_older_run(self):
+        manifest = {"steps": dict(THROUGH_MEMO, assemble={"status": "done"})}
+        assert progress.finished_since(manifest, 900) is False
+
+    def test_an_assemble_that_is_not_done_does_not_count(self):
+        manifest = {"steps": dict(THROUGH_MEMO, assemble={"status": "started", "ts": 1000})}
+        assert progress.finished_since(manifest, 900) is False
+
+    def test_no_manifest_does_not_count(self):
+        assert progress.finished_since(None, 900) is False
 
 
 class TestGatePasses:

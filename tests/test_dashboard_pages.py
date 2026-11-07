@@ -240,6 +240,7 @@ class TestContinuingARunThatStoppedShort:
         job_id = store.enqueue("ADBE")
         store.mark_running(job_id, "sess-1")
         store.finish(job_id, "done")
+        store.save_metrics(job_id, {"stopped_at": "experts"})
         return job_id
 
     def test_the_page_says_where_the_pipeline_stopped_and_offers_to_carry_on(self, client, stopped):
@@ -251,6 +252,7 @@ class TestContinuingARunThatStoppedShort:
     def test_a_run_that_finished_its_pipeline_is_offered_nothing(
             self, client, store, council_root, stopped):
         finish_the_pipeline(council_root)
+        store.save_metrics(stopped, {"stopped_at": None})
         body = client.get(f"/jobs/{stopped}")[1]
         assert "Continue run" not in body
         assert "Pipeline stopped" not in body
@@ -304,6 +306,193 @@ class TestContinuingARunThatStoppedShort:
         body = client.get("/")[1]
         assert "stopped at" not in body
         assert "<span class=d-wait>WAIT</span>" in body
+
+
+class TestASettledJobKeepsTheOutcomeItSettledWith:
+    """Live, 2026-11: 50 of 50 finished jobs read "stopped at dossier", with the
+    report link hidden and Continue offered, because the page read a /tmp manifest
+    that had since been cleaned up or replaced by a later run of the ticker."""
+
+    @pytest.fixture
+    def finished(self, store, council_root):
+        finish_the_pipeline(council_root)
+        job_id = store.enqueue("ADBE")
+        store.mark_running(job_id, "sess-1")
+        store.finish(job_id, "done", report_url="https://example.test/ADBE.html")
+        store.save_metrics(job_id, {"stopped_at": None, "verdict": "WAIT"})
+        return job_id
+
+    def assert_renders_finished(self, client, job_id):
+        body = client.get(f"/jobs/{job_id}")[1]
+        assert "https://example.test/ADBE.html" in body
+        assert "Pipeline stopped" not in body
+        assert "Continue run" not in body
+        table = client.get("/")[1]
+        assert "stopped at" not in table
+        assert "<span class=d-wait>WAIT</span>" in table
+
+    def test_a_finished_job_with_its_manifest_is_finished(self, client, finished):
+        self.assert_renders_finished(client, finished)
+
+    def test_a_finished_job_whose_manifest_was_cleaned_up_is_still_finished(
+            self, client, council_root, finished):
+        (council_root / "ADBE" / "manifest.json").unlink()
+        self.assert_renders_finished(client, finished)
+
+    def test_a_finished_job_whose_manifest_now_stops_short_is_still_finished(
+            self, client, council_root, finished):
+        stop_at_the_experts(council_root)
+        self.assert_renders_finished(client, finished)
+
+    def test_a_later_run_in_progress_does_not_show_on_the_older_jobs_page(
+            self, client, store, council_root, finished):
+        stop_at_the_experts(council_root)
+        store.mark_running(store.enqueue("ADBE"), "sess-2")
+        body = client.get(f"/jobs/{finished}")[1]
+        assert "https://example.test/ADBE.html" in body
+        assert 'id="step-experts"' not in body
+        assert "Pipeline stopped" not in body
+
+    def test_a_job_that_stopped_short_keeps_saying_where_when_a_later_run_moves_on(
+            self, client, store, council_root):
+        stop_at_the_experts(council_root)
+        old = store.enqueue("ADBE")
+        store.mark_running(old, "sess-1")
+        store.finish(old, "failed", exit_code=1)
+        store.save_metrics(old, {"stopped_at": "experts"})
+        finish_the_pipeline(council_root)
+        store.mark_running(store.enqueue("ADBE"), "sess-2")
+        assert "Pipeline stopped at experts." in client.get(f"/jobs/{old}")[1]
+
+    def test_a_job_with_a_stopping_place_but_no_manifest_says_so_without_the_button(
+            self, client, store, council_root):
+        (council_root / "ADBE" / "manifest.json").unlink()
+        job_id = store.enqueue("ADBE")
+        store.mark_running(job_id, "sess-1")
+        store.finish(job_id, "failed", exit_code=1)
+        store.save_metrics(job_id, {"stopped_at": "experts"})
+        body = client.get(f"/jobs/{job_id}")[1]
+        assert "Pipeline stopped at experts." in body
+        assert "Continue run" not in body
+
+    def test_pressing_a_stale_continue_with_no_manifest_changes_nothing(
+            self, client, store, council_root):
+        (council_root / "ADBE" / "manifest.json").unlink()
+        job_id = store.enqueue("ADBE")
+        store.mark_running(job_id, "sess-1")
+        store.finish(job_id, "failed", exit_code=1)
+        store.save_metrics(job_id, {"stopped_at": "experts"})
+        assert client.post(f"/jobs/{job_id}/resume", {})[0] == 303
+        assert store.get_job(job_id)["state"] == "failed"
+
+    def test_a_job_cut_off_by_a_restart_can_be_carried_on(
+            self, client, store, council_root, tmp_path):
+        stop_at_the_experts(council_root)
+        job_id = store.enqueue("ADBE")
+        store.mark_running(job_id, "sess-1")
+        runner_mod.Runner(store, {}, home=tmp_path / "home").recover()
+        body = client.get(f"/jobs/{job_id}")[1]
+        assert "Pipeline stopped at experts." in body
+        assert "Continue run" in body
+
+
+class TestContinueIsOnlyOfferedForTheNewestRun:
+    @pytest.fixture
+    def stopped_twice(self, store, council_root):
+        stop_at_the_experts(council_root)
+        jobs = []
+        for session in ("sess-1", "sess-2"):
+            job_id = store.enqueue("ADBE")
+            store.mark_running(job_id, session)
+            store.finish(job_id, "failed", exit_code=1)
+            store.save_metrics(job_id, {"stopped_at": "experts"})
+            jobs.append(job_id)
+        return jobs
+
+    def test_an_older_run_says_where_it_stopped_but_offers_no_button(self, client, stopped_twice):
+        old, new = stopped_twice
+        body = client.get(f"/jobs/{old}")[1]
+        assert "Pipeline stopped at experts." in body
+        assert "Continue run" not in body
+        assert "Continue run" in client.get(f"/jobs/{new}")[1]
+
+    def test_pressing_a_stale_continue_on_an_older_run_changes_nothing(self, client, store, stopped_twice):
+        old, _ = stopped_twice
+        client.post(f"/jobs/{old}/resume", {})
+        assert store.get_job(old)["state"] == "failed"
+
+    def test_the_newest_run_offers_no_button_while_it_is_back_on_the_queue(
+            self, client, store, stopped_twice):
+        _, new = stopped_twice
+        store.requeue_for_resume(new)
+        assert "Continue run" not in client.get(f"/jobs/{new}")[1]
+
+
+class TestAQueuedJobsPage:
+    @pytest.fixture
+    def queued(self, store, council_root):
+        return store.enqueue("ADBE")
+
+    def test_it_can_be_cancelled(self, client, queued):
+        body = client.get(f"/jobs/{queued}")[1]
+        assert "Cancel run" in body
+        assert f'action="/jobs/{queued}/cancel"' in body
+
+    def test_it_reloads_when_the_run_starts(self, client, queued):
+        body = client.get(f"/jobs/{queued}")[1]
+        assert "setInterval" in body
+        assert "s.state !== 'queued'" in body
+
+    def test_a_running_page_reloads_when_the_run_ends(self, client, store, queued):
+        store.mark_running(queued, "sess-1")
+        assert "s.state !== 'running'" in client.get(f"/jobs/{queued}")[1]
+
+    def test_it_says_questions_wait_for_the_session(self, client, queued):
+        assert "once the run releases its session" in client.get(f"/jobs/{queued}")[1]
+
+    def test_cancelling_it_settles_it(self, client, store, queued):
+        client.post(f"/jobs/{queued}/cancel", {})
+        assert store.get_job(queued)["state"] == "cancelled"
+
+
+class TestAPublishedMemoBelongsToTheRunThatMadeIt:
+    @pytest.fixture
+    def finished(self, store, council_root):
+        finish_the_pipeline(council_root)
+        job_id = store.enqueue("ADBE")
+        store.mark_running(job_id, "sess-1")
+        store.finish(job_id, "done", report_url="https://example.test/ADBE.html")
+        return job_id
+
+    def memo_at(self, tmp_path, published_memo, mtime):
+        published_memo("ADBE")
+        os.utime(tmp_path / "investor-reports" / "ADBE_memo.html", (mtime, mtime))
+
+    def test_a_memo_older_than_the_job_is_not_linked(
+            self, client, store, finished, tmp_path, published_memo):
+        self.memo_at(tmp_path, published_memo, store.get_job(finished)["started_at"] - 86400)
+        body = client.get(f"/jobs/{finished}")[1]
+        assert "_memo.html" not in body
+        assert "https://example.test/ADBE.html" in body
+
+    def test_a_memo_from_a_later_run_of_the_ticker_is_linked(
+            self, client, store, finished, tmp_path, published_memo):
+        self.memo_at(tmp_path, published_memo, store.get_job(finished)["started_at"] + 86400)
+        assert "ADBE_memo.html" in client.get(f"/jobs/{finished}")[1]
+
+    def test_a_memo_the_run_published_before_a_continue_is_still_linked(
+            self, client, store, finished, tmp_path, published_memo):
+        first = store.get_job(finished)["started_at"]
+        self.memo_at(tmp_path, published_memo, first + 1)
+        store.requeue_for_resume(finished)
+        store.mark_running(finished, "ignored")
+        store.db.execute("UPDATE jobs SET started_at = ? WHERE id = ?", (first + 100, finished))
+        store.finish(finished, "done", report_url="https://example.test/ADBE.html")
+        assert "ADBE_memo.html" in client.get(f"/jobs/{finished}")[1]
+
+    def test_the_analyzed_list_links_a_memo_whatever_its_age(self, tmp_path, published_memo):
+        self.memo_at(tmp_path, published_memo, 1000)
+        assert runner_mod.memo_url("ADBE") is not None
 
 
 class TestPolling:

@@ -33,6 +33,8 @@ HEADROOM = 0.5
 LIMIT_GRACE = 120
 #: The five-hour window is waited out; a weekly limit is not.
 MAX_LIMIT_WAIT = 6 * 3600
+#: Seconds of SIGTERM before SIGKILL. launchd allows 20 between its SIGTERM and its own SIGKILL.
+KILL_AFTER = 5
 
 #: Nothing the pipeline runs is an MCP tool or needs a plugin hook, and an
 #: unwatched session carries them on every turn (79 tools and 4 hooks, ~5K
@@ -65,22 +67,33 @@ class Runner(threading.Thread):
         self.home = Path(home) if home else store_mod.home()
         self.poll_seconds = poll_seconds
         self.cancel_poll = cancel_poll
-        self._stop = threading.Event()
+        self._stopping = threading.Event()         # `_stop` is a Thread internal: join() calls it
+        self._process = None
 
     # --- lifecycle ------------------------------------------------------------
 
     def recover(self):
-        """Nothing survives the process dying mid-run, so say so out loud."""
-        return self.store.reset_running_jobs()
+        """A job left running did not settle, so settle it now, and record how
+        far it got while the manifest is still its own: Continue depends on it."""
+        interrupted = self.store.running_jobs()
+        count = self.store.reset_running_jobs()
+        for job in interrupted:
+            self._measure(job, None)
+        return count
 
     def run(self):
         self.recover()
-        while not self._stop.is_set():
+        while not self._stopping.is_set():
             if self.run_next() is None:
-                self._stop.wait(self.poll_seconds)
+                self._stopping.wait(self.poll_seconds)
 
     def stop(self):
-        self._stop.set()
+        """Stop taking work and end the run in flight. Its process tree started
+        its own session, so nothing else would: it would outlive this process."""
+        self._stopping.set()
+        process = self._process
+        if process is not None:
+            _signal_group(process, signal.SIGTERM)
 
     def job_dir(self, job_id):
         path = self.home / "jobs" / job_id
@@ -146,11 +159,12 @@ class Runner(threading.Thread):
 
         A resume that leaves the manifest exactly as it found it made no
         progress, and a session that changes nothing will change nothing next
-        time either — so that resume is the last one, even under the limit."""
+        time either — so that resume is the last one, even under the limit. A
+        resume refused at a usage limit never had the chance, so it does not count."""
         exit_code, result_event, resumes = 0, None, 0
         if not carrying_on:
             exit_code, result_event = self._execute(job, self.command(job, session_id))
-        while resumes < self.resume_limit:
+        while resumes < self.resume_limit and not self._stopping.is_set():
             reset = self._usage_limit_reset(job, result_event)
             if reset is None and not self._stopped_short(job, exit_code, result_event):
                 break
@@ -161,7 +175,8 @@ class Runner(threading.Thread):
             self.store.record_resume(job["id"])
             exit_code, event = self._execute(job, self.resume_command(job, session_id), append=True)
             result_event = event or result_event
-            if self._manifest_snapshot(job["ticker"]) == before:
+            if (self._manifest_snapshot(job["ticker"]) == before
+                    and self._usage_limit_reset(job, result_event) is None):
                 break
         return exit_code, result_event, resumes
 
@@ -193,25 +208,21 @@ class Runner(threading.Thread):
     def _wait_until(self, job_id, when):
         """Sleep until `when`, waking to honour a cancel or a runner stop."""
         while time.time() < when:
-            if self._stop.is_set() or self.store.cancel_requested(job_id):
+            if self._stopping.is_set() or self.store.cancel_requested(job_id):
                 return False
-            self._stop.wait(min(self.cancel_poll * 10, when - time.time()))
+            self._stopping.wait(min(self.cancel_poll * 10, when - time.time()))
         return not self.store.cancel_requested(job_id)
 
     @staticmethod
     def _manifest_snapshot(ticker):
-        """The status of every step, ignoring timing — a stable fingerprint of
-        how far the manifest has gotten."""
-        manifest = progress.read_manifest(ticker)
-        recorded = (manifest or {}).get("steps") or {}
-
-        def status_of(name):
-            entry = recorded.get(name)
-            if isinstance(entry, str):
-                return entry
-            return (entry or {}).get("status")
-
-        return tuple((name, status_of(name)) for name in progress.STEP_NAMES)
+        """Every recorded step's status and every worker's pool and status,
+        ignoring timing — a stable fingerprint of how far the manifest has
+        gotten, gate passes and recovered workers included."""
+        manifest = progress.read_manifest(ticker) or {}
+        recorded = sorted((manifest.get("steps") or {}).items())
+        workers = sorted((manifest.get("workers") or {}).items())
+        return ([(name, progress.entry_status(entry)) for name, entry in recorded],
+                [(key, worker.get("pool"), worker.get("status")) for key, worker in workers])
 
     def _stopped_short(self, job, exit_code, result_event):
         """An analysis that ended on its own terms but never reached `assemble`.
@@ -220,7 +231,9 @@ class Runner(threading.Thread):
             return False
         if exit_code != 0 or (result_event or {}).get("is_error"):
             return False
-        return not progress.is_complete(progress.read_manifest(job["ticker"]))
+        # Fetched afresh: run_next took `job` before it was marked running.
+        since = store_mod.first_start(self.store.get_job(job["id"]) or job)
+        return not progress.finished_since(progress.read_manifest(job["ticker"]), since)
 
     def _execute(self, job, command, append=False):
         folder = self.job_dir(job["id"])
@@ -233,6 +246,7 @@ class Runner(threading.Thread):
                 ["zsh", "-lic", command], cwd=str(self.repo_root),
                 stdout=subprocess.PIPE, stderr=errors, text=True, bufsize=1,
                 start_new_session=True)
+            self._process = process
             stream.write(json.dumps(events.PROCESS_START) + "\n")
             watchdog = self._watch_for_cancel(job["id"], process)
             try:
@@ -249,23 +263,25 @@ class Runner(threading.Thread):
                 exit_code = process.wait()
             finally:
                 watchdog.set()
+                self._process = None
         if result_event is not None:
             (folder / "result.json").write_text(json.dumps(result_event, indent=1), encoding="utf-8")
         return exit_code, result_event
 
     def _watch_for_cancel(self, job_id, process):
-        """Cancel kills the whole process group: the subagents and codex calls
-        the analysis spawned are the expensive part, not the parent."""
+        """Cancel, or the runner stopping, kills the whole process group: the
+        subagents and codex calls the analysis spawned are the expensive part, not
+        the parent. It keeps asking, then insists: an interactive zsh ignores
+        SIGTERM while it reads its startup files, so one signal can simply be lost."""
         done = threading.Event()
 
         def watch():
+            first_asked = None
             while not done.wait(self.cancel_poll):
-                if self.store.cancel_requested(job_id):
-                    try:
-                        os.killpg(os.getpgid(process.pid), signal.SIGTERM)
-                    except (ProcessLookupError, PermissionError):
-                        pass
-                    return
+                if self._stopping.is_set() or self.store.cancel_requested(job_id):
+                    first_asked = first_asked or time.time()
+                    late = time.time() - first_asked > KILL_AFTER
+                    _signal_group(process, signal.SIGKILL if late else signal.SIGTERM)
 
         threading.Thread(target=watch, daemon=True).start()
         return done
@@ -282,10 +298,12 @@ class Runner(threading.Thread):
     def _error_text(self, job, exit_code, result_event, resumes):
         if self.store.cancel_requested(job["id"]):
             return None
+        if exit_code != 0 and self._stopping.is_set():
+            return "runner restarted"
         if self._stopped_short(job, exit_code, result_event):
             step = progress.stopped_at(progress.read_manifest(job["ticker"]))
-            return (f"pipeline stopped at {step} after {resumes} "
-                    f"resume{'s' if resumes != 1 else ''}")
+            where = f"stopped at {step}" if step else "ended without recording a step of its own"
+            return f"pipeline {where} after {resumes} resume{'s' if resumes != 1 else ''}"
         if exit_code == 0 and not (result_event or {}).get("is_error"):
             return None
         reported = (result_event or {}).get("result")
@@ -299,23 +317,46 @@ class Runner(threading.Thread):
             return ""
 
     def _settle(self, job, state, exit_code, result_event, error):
-        report_url = self._report_url(job["ticker"]) \
+        since = store_mod.first_start(self.store.get_job(job["id"]) or job)
+        report_url = self._report_url(job["ticker"], since) \
             if state == "done" and job.get("kind") != "discover" else None
         self.store.finish(job["id"], state, exit_code=exit_code, error=error, report_url=report_url)
+        self._measure(job, result_event)
+
+    def _measure(self, job, result_event):
         self.store.save_metrics(job["id"], metrics.compute(
             job["ticker"], self.store.get_job(job["id"]), result_event,
             events_path=self.job_dir(job["id"]) / "events.jsonl"))
 
-    def _report_url(self, ticker):
+    def _report_url(self, ticker, since):
         return f"{REPORT_BASE}/{ticker}.html" \
-            if (self.repo_root / "investor-reports" / f"{ticker}.html").exists() else None
+            if _published_since(self.repo_root / "investor-reports" / f"{ticker}.html", since) else None
 
 
-def memo_url(ticker):
-    """The published memo page, when the run that wrote it got as far as deploying one."""
-    if (REPO_ROOT / "investor-reports" / f"{ticker}_memo.html").exists():
+def memo_url(ticker, since=None):
+    """The published memo page, if there is one at least as new as `since`: a job
+    links the memo it deployed or a later run's, never a run's before it."""
+    if _published_since(REPO_ROOT / "investor-reports" / f"{ticker}_memo.html", since):
         return f"{REPORT_BASE}/{urllib.parse.quote(ticker)}_memo.html"
     return None
+
+
+def _published_since(page, since):
+    """A deploy leaves the mtime of the file the run's assemble step just wrote
+    (shutil.copy2 keeps it), so a page older than the run is an earlier run's.
+    Whole seconds, like the manifest's clock."""
+    try:
+        return page.stat().st_mtime >= int(since or 0)
+    except OSError:
+        return False
+
+
+def _signal_group(process, signum):
+    """Signal a child's process group, which its pid names: it leads its own session."""
+    try:
+        os.killpg(process.pid, signum)
+    except (ProcessLookupError, PermissionError):
+        pass
 
 
 def _last_rate_limit(events_path):

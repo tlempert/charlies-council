@@ -43,9 +43,19 @@ def load(ticker):
 
 
 def save(ticker, m):
-    os.makedirs(os.path.dirname(_path(ticker)), exist_ok=True)
-    with open(_path(ticker), "w", encoding="utf-8") as f:
-        json.dump(m, f, indent=1)
+    """Write through a temp file in the same directory: `load` reads a torn file
+    as no manifest at all, and Step 4 then `init`s over the run's progress."""
+    path = _path(ticker)
+    os.makedirs(os.path.dirname(path), exist_ok=True)
+    tmp = f"{path}.{os.getpid()}.tmp"
+    try:
+        with open(tmp, "w", encoding="utf-8") as f:
+            json.dump(m, f, indent=1)
+        os.replace(tmp, path)
+    except BaseException:
+        if os.path.exists(tmp):
+            os.remove(tmp)
+        raise
 
 
 def init(ticker):

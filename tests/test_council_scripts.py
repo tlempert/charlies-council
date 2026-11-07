@@ -698,6 +698,52 @@ class TestManifestTimestamps:
         assert m["workers"]["lynch"]["ts"] > 0
 
 
+class TestSaveIsAtomic:
+    """A crash mid-write corrupted the manifest, `load` returned None, and
+    05-experts.md says to `init` if it is missing, which wiped the run's progress."""
+
+    def _prior(self, manifest):
+        m = manifest.init("ADBE")
+        manifest.mark_step(m, "dossier", "done")
+        manifest.save("ADBE", m)
+        return m
+
+    def test_a_failure_while_writing_leaves_the_prior_manifest_and_no_temp_file(self, manifest, tmp_path, monkeypatch):
+        prior = self._prior(manifest)
+        def torn(obj, f, **k):
+            f.write('{"ticker": "AD')
+            raise OSError("disk full")
+        with monkeypatch.context() as patched:
+            patched.setattr(manifest.json, "dump", torn)
+            with pytest.raises(OSError):
+                manifest.save("ADBE", dict(prior, steps={}))
+        assert manifest.load("ADBE") == prior
+        assert os.listdir(tmp_path / "ADBE") == ["manifest.json"]
+
+    def test_a_failure_while_replacing_leaves_the_prior_manifest_and_no_temp_file(self, manifest, tmp_path, monkeypatch):
+        prior = self._prior(manifest)
+        def refused(src, dst):
+            raise OSError("refused")
+        with monkeypatch.context() as patched:
+            patched.setattr(manifest.os, "replace", refused)
+            with pytest.raises(OSError):
+                manifest.save("ADBE", dict(prior, steps={}))
+        assert manifest.load("ADBE") == prior
+        assert os.listdir(tmp_path / "ADBE") == ["manifest.json"]
+
+    def test_the_temp_file_lives_beside_the_manifest_so_the_replace_is_atomic(self, manifest, monkeypatch):
+        seen = []
+        real = os.replace
+        def spy(src, dst):
+            seen.append((src, dst))
+            real(src, dst)
+        monkeypatch.setattr(manifest.os, "replace", spy)
+        manifest.init("ADBE")
+        (src, dst), = seen
+        assert os.path.dirname(src) == os.path.dirname(dst) and src != dst
+        assert dst.endswith("manifest.json")
+
+
 class TestPoolForNamesThePoolARevalidationRecords:
     """The validation loop hardcoded each key's starting pool and re-marked all
     12, so a resume marked a worker that succeeded on claude:haiku `codex:sol ok`."""

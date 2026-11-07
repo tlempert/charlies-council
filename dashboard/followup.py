@@ -61,7 +61,10 @@ class FollowupWorker(threading.Thread):
             self.store.answer_question(
                 question["id"], "This run never opened a session, so there is nothing to resume.", -1)
             return question["id"]
-        self._ask(job, question)
+        try:
+            self._ask(job, question)
+        except Exception as exc:                   # a claim left held would block this job's Continue
+            self.store.answer_question(question["id"], f"Follow-up failed: {exc}", -1)
         return question["id"]
 
     def _ask(self, job, question):

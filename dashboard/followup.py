@@ -28,15 +28,16 @@ class FollowupWorker(threading.Thread):
         self.max_turns = config.get("followup_max_turns") or DEFAULT_MAX_TURNS
         self.home = Path(home) if home else store_mod.home()
         self.poll_seconds = poll_seconds
-        self._stop = threading.Event()
+        self._stopping = threading.Event()         # `_stop` is a Thread internal: join() calls it
 
     def run(self):
-        while not self._stop.is_set():
+        self.store.release_question_claims()       # this thread is the only one that claims
+        while not self._stopping.is_set():
             if self.answer_next() is None:
-                self._stop.wait(self.poll_seconds)
+                self._stopping.wait(self.poll_seconds)
 
     def stop(self):
-        self._stop.set()
+        self._stopping.set()
 
     def job_dir(self, job_id):
         path = self.home / "jobs" / job_id
@@ -53,7 +54,7 @@ class FollowupWorker(threading.Thread):
     def answer_next(self):
         """Answer the oldest question whose run has released its session."""
         question = self.store.next_pending_question()
-        if question is None:
+        if question is None or not self.store.claim_question(question["id"]):
             return None
         job = self.store.get_job(question["job_id"])
         if not job or not job["session_id"]:

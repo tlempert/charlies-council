@@ -35,7 +35,8 @@ CREATE TABLE IF NOT EXISTS jobs (
     report_url TEXT,
     cancel_requested INTEGER NOT NULL DEFAULT 0,
     resumes INTEGER NOT NULL DEFAULT 0,
-    resume_requested INTEGER NOT NULL DEFAULT 0
+    resume_requested INTEGER NOT NULL DEFAULT 0,
+    first_started_at REAL
 );
 CREATE TABLE IF NOT EXISTS questions (
     id INTEGER PRIMARY KEY AUTOINCREMENT,
@@ -44,7 +45,8 @@ CREATE TABLE IF NOT EXISTS questions (
     question TEXT NOT NULL,
     answered_at REAL,
     answer TEXT,
-    exit_code INTEGER
+    exit_code INTEGER,
+    started_at REAL
 );
 CREATE TABLE IF NOT EXISTS candidates (
     id INTEGER PRIMARY KEY AUTOINCREMENT,
@@ -89,7 +91,20 @@ _ADDED_COLUMNS = (
     ("metrics", "stopped_at", "TEXT"),
     ("metrics", "cache_create_tokens", "INTEGER"),
     ("metrics", "model_usage", "TEXT"),
+    ("jobs", "first_started_at", "REAL"),
+    ("questions", "started_at", "REAL"),
 )
+
+#: Follow-ups bill to a job after it settles, so settling again must not reset them.
+_FOLLOWUP_COLUMNS = ("followup_cost_usd", "followup_turns")
+
+#: Every run of a ticker shares one folder, which belongs to the newest of them.
+_NEWER_RUN = ("o.ticker = jobs.ticker AND o.kind = 'analysis' AND (o.created_at > jobs.created_at "
+              "OR (o.created_at = jobs.created_at AND o.rowid > jobs.rowid))")
+_RESUMABLE = ("jobs.kind = 'analysis' AND jobs.session_id IS NOT NULL AND jobs.state IN ('done', 'failed') "
+              f"AND NOT EXISTS (SELECT 1 FROM jobs o WHERE {_NEWER_RUN}) "
+              "AND NOT EXISTS (SELECT 1 FROM jobs o WHERE o.ticker = jobs.ticker AND o.kind = 'analysis' "
+              "AND o.state IN ('queued', 'running'))")
 
 
 def home():
@@ -103,6 +118,12 @@ def clean_ticker(raw):
     if not TICKER_RE.match(ticker):
         raise ValueError(f"not a ticker: {raw!r} (expected 1-10 of A-Z 0-9 . -)")
     return ticker
+
+
+def first_start(job):
+    """When a job first started. mark_running moves started_at on every Continue,
+    and a job that predates first_started_at only has started_at to go on."""
+    return job.get("first_started_at") or job.get("started_at")
 
 
 class Store:
@@ -165,26 +186,50 @@ class Store:
                                (limit,)).fetchall()
         return [_row(r) for r in rows]
 
+    def running_jobs(self):
+        rows = self.db.execute("SELECT * FROM jobs WHERE state = 'running'").fetchall()
+        return [_row(r) for r in rows]
+
     def next_queued(self):
+        """The oldest job that can start now. A session takes one process at a
+        time, so a job carrying on waits out a follow-up in flight on its session."""
         return _row(self.db.execute(
             "SELECT * FROM jobs WHERE state = 'queued' AND cancel_requested = 0 "
+            "AND NOT (resume_requested = 1 AND EXISTS (SELECT 1 FROM questions q WHERE q.job_id = jobs.id "
+            "AND q.started_at IS NOT NULL AND q.answered_at IS NULL)) "
             "ORDER BY created_at, rowid LIMIT 1").fetchone())
 
     def mark_running(self, job_id, session_id):
-        """A job being carried on keeps the session it is carrying on from."""
+        """A job being carried on keeps the session it is carrying on from, and
+        the moment it first started."""
+        now = time.time()
         self.db.execute(
             "UPDATE jobs SET state = 'running', started_at = ?, "
+            "first_started_at = COALESCE(first_started_at, started_at, ?), "
             "session_id = CASE WHEN resume_requested = 1 THEN session_id ELSE ? END WHERE id = ?",
-            (time.time(), session_id, job_id))
+            (now, now, session_id, job_id))
 
     def requeue_for_resume(self, job_id):
         """Put a run that stopped short back on the queue to carry on where it
-        stopped. Says whether there was anything to carry on."""
+        stopped. Says whether there was anything to carry on: only the newest
+        analysis of a ticker, with no other run of it active, owns the folder a
+        resume reads."""
         cur = self.db.execute(
             "UPDATE jobs SET state = 'queued', resume_requested = 1, finished_at = NULL, "
-            "error = NULL, exit_code = NULL WHERE id = ? AND session_id IS NOT NULL "
-            "AND state IN ('done', 'failed')", (job_id,))
+            f"error = NULL, exit_code = NULL, cancel_requested = 0 WHERE id = ? AND {_RESUMABLE}",
+            (job_id,))
         return cur.rowcount > 0
+
+    def can_resume(self, job_id):
+        """Would requeue_for_resume take this job right now?"""
+        return self.db.execute(f"SELECT 1 FROM jobs WHERE id = ? AND {_RESUMABLE}",
+                               (job_id,)).fetchone() is not None
+
+    def superseded(self, job_id):
+        """Has a later run of this ticker taken over the folder this one wrote to?"""
+        return self.db.execute(
+            f"SELECT 1 FROM jobs WHERE id = ? AND EXISTS (SELECT 1 FROM jobs o WHERE {_NEWER_RUN})",
+            (job_id,)).fetchone() is not None
 
     def record_resume(self, job_id):
         """One more crank of the handle on a run that would not finish."""
@@ -199,15 +244,19 @@ class Store:
             (state, time.time(), exit_code, error, report_url, job_id))
 
     def reset_running_jobs(self):
-        """Fail anything the previous process left mid-flight. Returns the count."""
+        """Settle anything the previous process left mid-flight: failed, or
+        cancelled if that is what it was asked for. Returns the count."""
         cur = self.db.execute(
-            "UPDATE jobs SET state = 'failed', finished_at = ?, error = 'runner restarted' "
+            "UPDATE jobs SET state = CASE WHEN cancel_requested = 1 THEN 'cancelled' ELSE 'failed' END, "
+            "finished_at = ?, error = CASE WHEN cancel_requested = 1 THEN NULL ELSE 'runner restarted' END "
             "WHERE state = 'running'", (time.time(),))
         return cur.rowcount
 
     def request_cancel(self, job_id):
-        """Ask the runner to stop a job; a job that never started is cancelled here."""
-        self.db.execute("UPDATE jobs SET cancel_requested = 1 WHERE id = ?", (job_id,))
+        """Ask the runner to stop a job; a job that never started is cancelled
+        here, and a job that is already over stays exactly as it settled."""
+        self.db.execute("UPDATE jobs SET cancel_requested = 1 WHERE id = ? "
+                        "AND state IN ('queued', 'running')", (job_id,))
         self.db.execute("UPDATE jobs SET state = 'cancelled', finished_at = ? "
                         "WHERE id = ? AND state = 'queued'", (time.time(), job_id))
 
@@ -218,11 +267,14 @@ class Store:
     # --- candidates -----------------------------------------------------------
 
     def add_candidate(self, raw_ticker, source="manual", note=""):
-        """Park a name for a later run. Re-proposing it updates the reason, not the date."""
+        """Park a name for a later run. Re-proposing it updates the reason, not
+        the date, and a name whose run finished is waiting for a new one."""
         ticker = clean_ticker(raw_ticker)
         self.db.execute(
             "INSERT INTO candidates (ticker, source, note, added_at) VALUES (?, ?, ?, ?) "
-            "ON CONFLICT(ticker) DO UPDATE SET source = excluded.source, note = excluded.note",
+            "ON CONFLICT(ticker) DO UPDATE SET source = excluded.source, note = excluded.note, "
+            "job_id = CASE WHEN (SELECT state FROM jobs WHERE id = candidates.job_id) = 'done' "
+            "THEN NULL ELSE candidates.job_id END",
             (ticker, source, note, time.time()))
         return ticker
 
@@ -266,10 +318,26 @@ class Store:
         return [_row(r) for r in rows]
 
     def next_pending_question(self):
-        """The oldest unanswered question whose job is no longer holding its session."""
+        """The oldest question nobody has taken, whose job has settled. A queued
+        job is about to need its session, or has yet to open one."""
         return _row(self.db.execute(
             "SELECT q.* FROM questions q JOIN jobs j ON j.id = q.job_id "
-            "WHERE q.answered_at IS NULL AND j.state != 'running' ORDER BY q.id LIMIT 1").fetchone())
+            "WHERE q.answered_at IS NULL AND q.started_at IS NULL "
+            "AND j.state IN ('done', 'failed', 'cancelled') ORDER BY q.id LIMIT 1").fetchone())
+
+    def claim_question(self, question_id):
+        """Take a question, in one statement with the check that its job is still
+        settled: a Continue either lands first and this says no, or lands after
+        and next_queued sees the claim."""
+        cur = self.db.execute(
+            "UPDATE questions SET started_at = ? WHERE id = ? AND started_at IS NULL AND answered_at IS NULL "
+            "AND EXISTS (SELECT 1 FROM jobs j WHERE j.id = questions.job_id "
+            "AND j.state IN ('done', 'failed', 'cancelled'))", (time.time(), question_id))
+        return cur.rowcount > 0
+
+    def release_question_claims(self):
+        """No follow-up survives its process, so what was in flight is asked again."""
+        self.db.execute("UPDATE questions SET started_at = NULL WHERE answered_at IS NULL")
 
     def answer_question(self, question_id, answer, exit_code):
         self.db.execute("UPDATE questions SET answer = ?, exit_code = ?, answered_at = ? WHERE id = ?",
@@ -279,9 +347,11 @@ class Store:
 
     def save_metrics(self, job_id, row):
         values = [_encode(c, row.get(c)) for c in _METRIC_COLUMNS]
+        replaced = ", ".join(f"{c} = excluded.{c}" for c in _METRIC_COLUMNS if c not in _FOLLOWUP_COLUMNS)
         self.db.execute(
-            f"INSERT OR REPLACE INTO metrics (job_id, {', '.join(_METRIC_COLUMNS)}) "
-            f"VALUES ({', '.join('?' * (len(_METRIC_COLUMNS) + 1))})", [job_id] + values)
+            f"INSERT INTO metrics (job_id, {', '.join(_METRIC_COLUMNS)}) "
+            f"VALUES ({', '.join('?' * (len(_METRIC_COLUMNS) + 1))}) "
+            f"ON CONFLICT(job_id) DO UPDATE SET {replaced}", [job_id] + values)
 
     def get_metrics(self, job_id):
         return _metrics_row(self.db.execute("SELECT * FROM metrics WHERE job_id = ?", (job_id,)).fetchone())

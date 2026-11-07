@@ -8,12 +8,15 @@ group, the tee to disk, the state machine and the metrics row.
 import json
 import os
 import shlex
+import signal
+import subprocess
+import sys
 import threading
 import time
 
 import pytest
 
-from dashboard import progress
+from dashboard import app, progress
 from dashboard import runner as runner_mod
 from dashboard import store as store_mod
 
@@ -26,7 +29,10 @@ RESULT_LINE = json.dumps({
 
 #: What the pipeline leaves behind when it ran all the way to the end, and what
 #: it leaves behind when the turn ended while the Codex batch was still out.
-DONE_MANIFEST = {"ticker": "ADBE", "steps": {n: {"status": "done"} for n in progress.STEP_NAMES}}
+#: The fakes write it during the run, so its `assemble` mark is later than any start.
+DONE_MANIFEST = {"ticker": "ADBE", "steps": dict(
+    {n: {"status": "done"} for n in progress.STEP_NAMES},
+    assemble={"status": "done", "ts": 4102444800})}
 SHORT_MANIFEST = {"ticker": "ADBE", "steps": dict(
     {n: {"status": "done"} for n in ("dossier", "forensic", "condense", "refine", "threats")},
     experts={"status": "started"})}
@@ -266,7 +272,9 @@ class TestTheDiscoveryCommand:
 class TestASuccessfulRun:
     @pytest.fixture(autouse=True)
     def _run(self, make_runner, store, repo):
-        (repo / "investor-reports" / "ADBE.html").write_text("<h1>ADBE</h1>", encoding="utf-8")
+        published = repo / "investor-reports" / "ADBE.html"
+        published.write_text("<h1>ADBE</h1>", encoding="utf-8")
+        os.utime(published, (time.time() + 60, time.time() + 60))     # as if the run deployed it
         self.store = store
         self.runner = make_runner()
         self.job_id = store.enqueue("ADBE")
@@ -678,3 +686,368 @@ class TestAnUnwatchedSessionLoadsOnlyWhatThePipelineUses:
         for line in (runner.command(ANALYSIS, "s1"), runner.resume_command(ANALYSIS, "s1")):
             parts = shlex.split(line)
             assert json.loads(parts[parts.index("--settings") + 1]) == {"disableAllHooks": True}
+
+
+def write_manifest(tmp_path, manifest, ticker="ADBE"):
+    folder = council_root(tmp_path) / ticker
+    folder.mkdir(parents=True, exist_ok=True)
+    (folder / "manifest.json").write_text(json.dumps(manifest), encoding="utf-8")
+
+
+def finished_manifest(assemble_ts):
+    return {"ticker": "ADBE", "steps": dict(
+        {n: {"status": "done"} for n in progress.STEP_NAMES},
+        assemble={"status": "done", "ts": int(assemble_ts)})}
+
+
+#: Exits clean having touched nothing: the run whose skill never got as far as
+#: initialising a manifest. Whatever manifest is on disk belongs to someone else.
+UNTOUCHING_CLAUDE = r"""#!/bin/sh
+COUNT=$(cat '@COUNTER@' 2>/dev/null || echo 0)
+echo "$((COUNT + 1))" > '@COUNTER@'
+printf '%s\n' 'RESULT_JSON'
+exit 0
+"""
+
+
+class TestAFinishedManifestThatIsNotThisRuns:
+    """A new run that exits 0 without touching the previous run's manifest used
+    to be `done`, with the previous run's report linked as its own."""
+
+    def test_a_fresh_run_that_never_touched_the_old_manifest_is_not_done(
+            self, make_runner, store, tmp_path, repo):
+        write_manifest(tmp_path, finished_manifest(time.time() - 3600))
+        published = repo / "investor-reports" / "ADBE.html"
+        published.write_text("<h1>old</h1>", encoding="utf-8")
+        job_id = store.enqueue("ADBE")
+        make_runner(fake={"body": UNTOUCHING_CLAUDE}).run_next()
+        job = store.get_job(job_id)
+        assert job["state"] == "failed"
+        assert job["report_url"] is None
+        assert "None" not in job["error"]
+
+    def test_a_fresh_run_that_marked_assemble_itself_is_done(self, make_runner, store):
+        job_id = store.enqueue("ADBE")
+        make_runner().run_next()
+        assert store.get_job(job_id)["state"] == "done"
+
+    def test_a_carried_on_run_may_accept_the_assemble_it_marked_before_the_continue(
+            self, make_runner, store, tmp_path):
+        now = time.time()
+        job_id = store.enqueue("ADBE")
+        store.mark_running(job_id, "sess-1")
+        store.db.execute("UPDATE jobs SET started_at = ?, first_started_at = ? WHERE id = ?",
+                         (now - 100, now - 100, job_id))
+        write_manifest(tmp_path, finished_manifest(now - 50))
+        store.finish(job_id, "failed", exit_code=1, error="runner restarted")
+        store.requeue_for_resume(job_id)
+        make_runner(fake={"body": UNTOUCHING_CLAUDE}).run_next()
+        assert store.get_job(job_id)["state"] == "done"
+
+    def test_a_run_with_no_manifest_at_all_does_not_claim_a_step(self, make_runner, store):
+        job_id = store.enqueue("ADBE")
+        make_runner(fake={"body": UNTOUCHING_CLAUDE}).run_next()
+        job = store.get_job(job_id)
+        assert job["state"] == "failed"
+        assert "None" not in job["error"] and "dossier" not in job["error"]
+        assert store.get_metrics(job_id)["stopped_at"] is None
+
+
+#: Each invocation records one more thing the old fingerprint could not see, and
+#: never touches a step the fingerprint looked at.
+QUIETLY_PROGRESSING = r"""#!/bin/sh
+COUNT=$(cat '@COUNTER@' 2>/dev/null || echo 0)
+COUNT=$((COUNT + 1))
+echo "$COUNT" > '@COUNTER@'
+mkdir -p '@ROOT@/ADBE'
+python3 -c "
+import json
+manifest = json.loads('@SHORT@'.replace('~', '\"'))
+manifest['steps']['gate_pass$COUNT'] = {'status': 'done'}
+with open('@ROOT@/ADBE/manifest.json', 'w') as f:
+    json.dump(manifest, f)
+"
+printf '%s\n' 'RESULT_JSON'
+exit 0
+""".replace("@SHORT@", json.dumps(SHORT_MANIFEST).replace('"', "~"))
+
+#: Stops short, then a resume is refused at the limit having changed nothing,
+#: then the window reopens and the pipeline finishes.
+REFUSED_ON_RESUME = r"""#!/bin/sh
+COUNT=$(cat '@COUNTER@' 2>/dev/null || echo 0)
+COUNT=$((COUNT + 1))
+echo "$COUNT" > '@COUNTER@'
+mkdir -p '@ROOT@/ADBE'
+if [ "$COUNT" -eq 1 ]; then
+  printf '%s' '@SHORT@' > '@ROOT@/ADBE/manifest.json'
+elif [ "$COUNT" -eq 2 ]; then
+  RESET=$(( $(date +%s) + 1 ))
+  printf '%s\n' "{\"type\":\"rate_limit_event\",\"rate_limit_info\":{\"status\":\"rejected\",\"resetsAt\":$RESET}}"
+  printf '%s\n' '{"type":"result","is_error":true,"result":"You have hit your session limit"}'
+  exit 1
+else
+  printf '%s' '@DONE@' > '@ROOT@/ADBE/manifest.json'
+fi
+printf '%s\n' 'RESULT_JSON'
+exit 0
+"""
+
+
+class TestWhatCountsAsProgressBetweenResumes:
+    BASE = {"steps": {"dossier": {"status": "done", "ts": 1}, "gate": {"status": "started", "ts": 2}},
+            "workers": {"lynch": {"pool": "claude:sonnet", "first_pool": "claude:sonnet",
+                                  "status": "failed", "ts": 3}}}
+
+    def fingerprint(self, tmp_path, manifest):
+        write_manifest(tmp_path, manifest)
+        return runner_mod.Runner._manifest_snapshot("ADBE")
+
+    def test_a_gate_pass_is_progress(self, tmp_path):
+        moved = {"steps": dict(self.BASE["steps"], gate_pass1={"status": "done"}),
+                 "workers": self.BASE["workers"]}
+        assert self.fingerprint(tmp_path, self.BASE) != self.fingerprint(tmp_path, moved)
+
+    def test_a_worker_recovering_is_progress(self, tmp_path):
+        moved = dict(self.BASE, workers={"lynch": {"pool": "claude:sonnet", "status": "ok"}})
+        assert self.fingerprint(tmp_path, self.BASE) != self.fingerprint(tmp_path, moved)
+
+    def test_a_worker_moving_down_the_ladder_is_progress(self, tmp_path):
+        moved = dict(self.BASE, workers={"lynch": {"pool": "claude:haiku", "status": "failed"}})
+        assert self.fingerprint(tmp_path, self.BASE) != self.fingerprint(tmp_path, moved)
+
+    def test_a_timestamp_moving_is_not_progress(self, tmp_path):
+        moved = {"steps": {"dossier": {"status": "done", "ts": 91}, "gate": {"status": "started", "ts": 92}},
+                 "workers": {"lynch": {"pool": "claude:sonnet", "first_pool": "claude:sonnet",
+                                       "status": "failed", "ts": 93}}}
+        assert self.fingerprint(tmp_path, self.BASE) == self.fingerprint(tmp_path, moved)
+
+    def test_a_resume_that_only_moved_the_gate_passes_is_allowed_another(
+            self, make_runner, store, tmp_path):
+        job_id = store.enqueue("ADBE")
+        make_runner(fake={"body": QUIETLY_PROGRESSING}, resume_limit=2).run_next()
+        assert store.get_job(job_id)["resumes"] == 2
+        assert invocations(tmp_path) == 3
+
+    def test_a_resume_refused_at_the_limit_waits_it_out_rather_than_giving_up(
+            self, make_runner, store, tmp_path, monkeypatch):
+        monkeypatch.setattr(runner_mod, "LIMIT_GRACE", 0)
+        job_id = store.enqueue("ADBE")
+        make_runner(fake={"body": REFUSED_ON_RESUME}).run_next()
+        job = store.get_job(job_id)
+        assert job["state"] == "done"
+        assert invocations(tmp_path) == 3
+
+    def test_the_resume_limit_still_bounds_a_run_refused_over_and_over(
+            self, make_runner, store, tmp_path, monkeypatch):
+        monkeypatch.setattr(runner_mod, "LIMIT_GRACE", 0)
+        refused = REFUSED_ON_RESUME.replace('[ "$COUNT" -eq 2 ]', '[ "$COUNT" -ge 2 ]')
+        job_id = store.enqueue("ADBE")
+        make_runner(fake={"body": refused}, resume_limit=2).run_next()
+        assert store.get_job(job_id)["state"] == "failed"
+        assert invocations(tmp_path) == 3
+
+
+class TestAPublicationBelongsToTheRunThatMadeIt:
+    """A run whose deploy failed or never happened used to link the previous
+    run's page, because the file was still there."""
+
+    def page(self, repo, mtime):
+        path = repo / "investor-reports" / "ADBE.html"
+        path.write_text("<h1>ADBE</h1>", encoding="utf-8")
+        os.utime(path, (mtime, mtime))
+
+    def test_a_page_older_than_the_run_is_not_linked(self, make_runner, store, repo):
+        self.page(repo, time.time() - 86400)
+        job_id = store.enqueue("ADBE")
+        make_runner().run_next()
+        job = store.get_job(job_id)
+        assert (job["state"], job["report_url"]) == ("done", None)
+
+    def test_a_page_the_run_deployed_before_a_continue_is_still_its_own(
+            self, make_runner, store, repo):
+        now = time.time()
+        self.page(repo, now - 50)
+        job_id = store.enqueue("ADBE")
+        store.mark_running(job_id, "sess-1")
+        store.db.execute("UPDATE jobs SET started_at = ?, first_started_at = ? WHERE id = ?",
+                         (now - 100, now - 100, job_id))
+        store.finish(job_id, "failed", exit_code=1, error="runner restarted")
+        store.requeue_for_resume(job_id)
+        make_runner(fake={"body": SCRIPTED_CLAUDE, "finish_on": 1}).run_next()
+        job = store.get_job(job_id)
+        assert job["state"] == "done"
+        assert job["report_url"].endswith("/ADBE.html")
+
+
+class TestARestartWithACancelPending:
+    def test_recovery_settles_it_as_cancelled_and_the_ticker_can_run_again(self, make_runner, store):
+        job_id = store.enqueue("ADBE")
+        store.mark_running(job_id, "sess-1")
+        store.request_cancel(job_id)
+        make_runner().recover()
+        assert store.get_job(job_id)["state"] == "cancelled"
+        assert store.next_queued() is None
+        assert store.enqueue("ADBE") != job_id
+
+
+class TestRecoveryRemembersWhereTheRunGotTo:
+    def test_a_run_cut_off_by_a_restart_keeps_its_stopping_place(self, make_runner, store, tmp_path):
+        write_manifest(tmp_path, SHORT_MANIFEST)
+        job_id = store.enqueue("ADBE")
+        store.mark_running(job_id, "sess-1")
+        assert make_runner().recover() == 1
+        assert store.get_metrics(job_id)["stopped_at"] == "experts"
+
+    def test_a_second_recovery_does_not_touch_what_the_first_wrote(self, make_runner, store, tmp_path):
+        write_manifest(tmp_path, SHORT_MANIFEST)
+        job_id = store.enqueue("ADBE")
+        store.mark_running(job_id, "sess-1")
+        runner = make_runner()
+        runner.recover()
+        write_manifest(tmp_path, DONE_MANIFEST)
+        assert runner.recover() == 0
+        assert store.get_metrics(job_id)["stopped_at"] == "experts"
+
+
+def alive(pid):
+    """Is the process there, and not merely an unreaped zombie?"""
+    state = subprocess.run(["ps", "-o", "state=", "-p", str(pid)],
+                           capture_output=True, text=True).stdout.strip()
+    return bool(state) and not state.startswith("Z")
+
+
+def wait_until(condition, seconds=20):
+    deadline = time.time() + seconds
+    while time.time() < deadline:
+        if condition():
+            return True
+        time.sleep(0.05)
+    return condition()
+
+
+#: What a real run looks like from outside: the process the runner started, and
+#: under it a long-lived child in the same group, whose pid the test can check.
+TREE_CLAUDE = r"""#!/bin/sh
+sleep 300 &
+echo $! > '@ARGS@'
+wait
+"""
+
+
+@pytest.fixture
+def child_tree(tmp_path):
+    """The path the fake writes its child's pid to; the child never outlives the test."""
+    pidfile = tmp_path / "args.log"
+    yield pidfile
+    if pidfile.exists():
+        try:
+            os.kill(int(pidfile.read_text().strip()), signal.SIGKILL)
+        except (OSError, ValueError):
+            pass
+
+
+class TestStoppingTheRunnerStopsTheRun:
+    """Children start their own session, so a launchd restart left the whole tree
+    running while the job was marked failed "runner restarted"."""
+
+    def test_stopping_kills_the_process_tree_of_the_run_in_flight(
+            self, make_runner, store, child_tree):
+        runner = make_runner(fake={"body": TREE_CLAUDE})
+        job_id = store.enqueue("ADBE")
+        thread = threading.Thread(target=runner.run_next, daemon=True)
+        thread.start()
+        assert wait_until(lambda: child_tree.exists() and child_tree.read_text().strip())
+        pid = int(child_tree.read_text().strip())
+        assert alive(pid)
+        runner.stop()
+        assert wait_until(lambda: not alive(pid), seconds=10)
+        thread.join(timeout=20)
+        assert not thread.is_alive()
+        job = store.get_job(job_id)
+        assert (job["state"], job["error"]) == ("failed", "runner restarted")
+
+    def test_a_stopped_runner_starts_no_further_resume(self, make_runner, store, tmp_path):
+        """A child that takes the signal and exits clean still looks stopped short."""
+        polite = r"""#!/bin/sh
+COUNT=$(cat '@COUNTER@' 2>/dev/null || echo 0)
+trap 'exit 0' TERM
+echo "$((COUNT + 1))" > '@COUNTER@'
+sleep 300 &
+wait
+"""
+        runner = make_runner(fake={"body": polite})
+        job_id = store.enqueue("ADBE")
+        thread = threading.Thread(target=runner.run_next, daemon=True)
+        thread.start()
+        assert wait_until(lambda: invocations(tmp_path) == 1)
+        runner.stop()
+        thread.join(timeout=20)
+        assert not thread.is_alive()
+        assert invocations(tmp_path) == 1
+        assert store.get_job(job_id)["state"] == "failed"
+
+    def test_the_runner_thread_can_be_waited_for(self, make_runner):
+        """`_stop` is a private method of threading.Thread on this Python: an Event
+        under that name made join() raise TypeError."""
+        runner = make_runner()
+        runner.poll_seconds = 0.05
+        runner.start()
+        runner.stop()
+        runner.join(timeout=10)
+        assert not runner.is_alive()
+
+
+class TestASignalTheRunCannotHearYet:
+    """An interactive zsh ignores SIGTERM until it has read its startup files,
+    measured here at 20-50ms after launch. A single SIGTERM landing there is lost,
+    which is what made the cancel test fail now and then under load."""
+
+    DEAF_FOR_A_SECOND = "#!/bin/sh\ntrap '' TERM\necho 1 > '@COUNTER@'\nsleep 1\ntrap - TERM\nsleep 300\n"
+    DEAF_FOR_GOOD = "#!/bin/sh\ntrap '' TERM\necho 1 > '@COUNTER@'\nsleep 300\n"
+
+    def run_and_cancel(self, make_runner, store, tmp_path, body):
+        runner = make_runner(fake={"body": body})
+        job_id = store.enqueue("ADBE")
+        thread = threading.Thread(target=runner.run_next, daemon=True)
+        thread.start()
+        assert wait_until(lambda: invocations(tmp_path) == 1)
+        store.request_cancel(job_id)
+        thread.join(timeout=15)
+        assert not thread.is_alive()
+        assert store.get_job(job_id)["state"] == "cancelled"
+
+    def test_cancel_keeps_asking_until_the_run_can_hear_it(self, make_runner, store, tmp_path):
+        self.run_and_cancel(make_runner, store, tmp_path, self.DEAF_FOR_A_SECOND)
+
+    def test_cancel_stops_asking_nicely_in_the_end(self, make_runner, store, tmp_path, monkeypatch):
+        monkeypatch.setattr(runner_mod, "KILL_AFTER", 0.5)
+        self.run_and_cancel(make_runner, store, tmp_path, self.DEAF_FOR_GOOD)
+
+
+class TestTheServiceShuttingDown:
+    def test_sigterm_ends_the_run_in_flight_and_settles_its_job(self, tmp_path, monkeypatch, child_tree):
+        binary = install_fake_claude(tmp_path, monkeypatch, body=TREE_CLAUDE)
+        write_manifest(tmp_path, SHORT_MANIFEST)
+        home = store_mod.home()
+        home.mkdir(parents=True, exist_ok=True)
+        config = dict(app.make_config("pw", port=0), claude_bin=binary, repo_root=str(tmp_path))
+        (home / "config.json").write_text(json.dumps(config), encoding="utf-8")
+        store = store_mod.Store(home / "council.db")
+        job_id = store.enqueue("ADBE")
+        service = subprocess.Popen([sys.executable, "-m", "dashboard"],
+                                   cwd=str(runner_mod.REPO_ROOT),
+                                   stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL)
+        try:
+            assert wait_until(lambda: child_tree.exists() and child_tree.read_text().strip(), seconds=30)
+            pid = int(child_tree.read_text().strip())
+            assert alive(pid)
+            service.send_signal(signal.SIGTERM)
+            assert service.wait(timeout=30) == 0
+        finally:
+            if service.poll() is None:
+                service.kill()
+                service.wait()
+        assert wait_until(lambda: not alive(pid), seconds=5)
+        job = store.get_job(job_id)
+        assert (job["state"], job["error"]) == ("failed", "runner restarted")
+        assert store.get_metrics(job_id)["stopped_at"] == "experts"

@@ -197,6 +197,11 @@ class TestResumes:
         assert metrics.compute("ADBE", JOB, RESULT_EVENT)["stopped_at"] is None
 
 
+class TestAMissingManifest:
+    def test_a_row_written_with_no_manifest_does_not_invent_a_stopping_place(self):
+        assert metrics.compute("NOPE", JOB, RESULT_EVENT)["stopped_at"] is None
+
+
 class TestMissingInputs:
     def test_a_run_with_no_folder_at_all_still_produces_a_row(self, tmp_path, monkeypatch):
         monkeypatch.setenv("COUNCIL_ROOT", str(tmp_path))

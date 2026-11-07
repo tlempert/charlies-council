@@ -63,7 +63,7 @@ def steps(manifest, now=None):
         entry = entry or {}
         status = entry.get("status", "pending")
         if (name == "reports" and name not in recorded
-                and _entry_status(recorded.get("assemble")) == "done"):
+                and entry_status(recorded.get("assemble")) == "done"):
             status = "skipped"                     # Step 7b only runs with --explainers
         started, ts = entry.get("started"), entry.get("ts")
         finished = ts if status in ("done", "failed") else None
@@ -101,7 +101,7 @@ def _infer_completion(out, recorded):
                 break
 
 
-def _entry_status(entry):
+def entry_status(entry):
     """The recorded status of a raw manifest entry, in either shape (plain
     string from an older run, or the `{"status": ...}` dict a newer one uses)."""
     if isinstance(entry, str):
@@ -127,9 +127,15 @@ def current_step(manifest):
         if step["status"] in ("started", "partial"):
             return step["name"]
     for step in listed:
-        if step["status"] != "done":
+        if step["status"] != "done" and not _unrecorded_reports(step, manifest):
             return step["name"]
     return None
+
+
+def _unrecorded_reports(step, manifest):
+    """Step 7b only runs with --explainers, so a manifest that never mentions
+    `reports` is not waiting on it."""
+    return step["name"] == "reports" and "reports" not in (manifest.get("steps") or {})
 
 
 def is_complete(manifest):
@@ -144,13 +150,31 @@ def is_complete(manifest):
     return False
 
 
+def finished_since(manifest, since):
+    """Did the pipeline finish at or after `since`? A finished manifest may be a
+    previous run's. Its clock is whole seconds, the job's is not, and a mark with
+    no clock at all comes from a run older than any job now starting."""
+    entry = ((manifest or {}).get("steps") or {}).get("assemble")
+    return (is_complete(manifest) and isinstance(entry, dict)
+            and (entry.get("ts") or 0) >= int(since or 0))
+
+
 def stopped_at(manifest):
-    """The step a run that did not finish never got past. None once complete."""
-    if is_complete(manifest):
+    """The step a run that did not finish never got past. None once complete,
+    and None with no manifest, which says nothing about how far a run got.
+
+    The skill continues past a failed memo, so only a run with nothing after it
+    stopped there."""
+    if manifest is None or is_complete(manifest):
         return None
-    for step in steps(manifest):
-        if step["status"] != "done":
-            return step["name"]
+    listed = steps(manifest)
+    for i, step in enumerate(listed):
+        if step["status"] == "done" or _unrecorded_reports(step, manifest):
+            continue
+        if (step["name"] == "memo" and step["status"] == "failed"
+                and any(later["status"] != "pending" for later in listed[i + 1:])):
+            continue
+        return step["name"]
     return None
 
 

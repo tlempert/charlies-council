@@ -138,15 +138,27 @@ def snapshot_cli(d):
     a later pass can `diff -u` against it. Refuses rather than snapshotting
     an empty ledger — a verdict.md with no model_ledger block is a broken
     draft, not an empty one, and decide_cli's ledger_delta would otherwise
-    silently compare against {}."""
+    silently compare against {}.
+
+    A baseline already there is kept: a resumed run re-enters the gate holding
+    a revised verdict, and snapshotting that leaves decide with no delta to see.
+    Step 0's clean slate is what resets it. The ledger file is the commit
+    point, so it is written last and whole; a snapshot that died before it
+    simply runs again."""
     import shutil
+    baseline = os.path.join(d, "verdict.pass1.json")
+    if os.path.exists(baseline):
+        print("verdict.pass1.json exists — baseline kept, snapshot skipped")
+        return 0
     text = open(os.path.join(d, "verdict.md"), encoding="utf-8").read()
     ledger = _ledger(text)
     if not ledger:
         print("no model_ledger in verdict.md — snapshot refused")
         return 1
-    json.dump(ledger, open(os.path.join(d, "verdict.pass1.json"), "w", encoding="utf-8"))
     shutil.copyfile(os.path.join(d, "verdict.md"), os.path.join(d, "verdict.pass1.md"))
+    with open(baseline + ".tmp", "w", encoding="utf-8") as f:
+        json.dump(ledger, f)
+    os.replace(baseline + ".tmp", baseline)
     return 0
 
 

@@ -1225,6 +1225,44 @@ class TestGateDoneIsRecordedOnEveryEndingBranch:
         assert item5.count("step {TICKER} gate done") == 3      # PASS_BY_VERIFICATION, pass 2, corrections
 
 
+class TestTheGateChecksTheManifestBeforeDoingWork:
+    """A resumed run comes back to `gate` and used to walk item 1 from the top:
+    snapshot over the baseline, launch pass 1 again, re-mark `gate_pass1 started`."""
+
+    @property
+    def step6(self):
+        return skill_text().split("# Step 6 — Reality Check GATE", 1)[1].split("# Step 7 —", 1)[0]
+
+    @property
+    def rule(self):
+        return self.step6.split("**On arrival", 1)[1].split("\n1. **Pass 1.**", 1)[0]
+
+    def test_the_resume_rule_stands_at_the_top_of_the_numbered_flow(self):
+        assert self.step6.index("**On arrival") < self.step6.index("\n1. **Pass 1.**")
+        assert "council_manifest.py status {TICKER}" in self.rule
+
+    def test_a_done_pass_is_never_launched_again(self):
+        assert "`gate_pass1` is already `done`" in self.rule
+        assert "`gate_pass2` is already `done`" in self.rule
+        assert self.rule.count("do not launch") == 2
+
+    def test_the_files_name_the_point_to_continue_from(self):
+        rule = self.rule
+        assert "`findings.json` is missing" in rule                 # findings parsed
+        assert "cmp -s $D/verdict.pass1.md $D/verdict.md" in rule   # revision
+        assert "item 4" in rule                                     # verification, then decide
+
+    def test_a_resume_never_reparses_findings_it_already_has(self):
+        assert "never re-run `findings` over a `findings.json` that exists" in self.rule
+
+    def test_a_resume_does_not_append_the_verification_summary_twice(self):
+        assert "### Verification of the revision" in self.rule
+
+    def test_the_snapshot_is_said_to_keep_an_existing_baseline(self):
+        item1 = self.step6.split("\n1. **Pass 1.**", 1)[1].split("\n2. **PASS", 1)[0]
+        assert "keeps an existing baseline" in item1
+
+
 class TestTheShadowEvidenceOutlivesTheRunFolder:
     """Step 8 empties /tmp/silicon_council/{TICKER}, so Step 9 reporting out of
     company_type.json and verification.md reported nothing at all."""

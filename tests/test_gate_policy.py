@@ -5,6 +5,8 @@ import json
 import os
 from types import SimpleNamespace as NS
 
+import pytest
+
 _SCRIPTS = os.path.join(os.path.abspath(os.path.join(os.path.dirname(__file__), "..")), "scripts")
 
 
@@ -199,6 +201,50 @@ class TestSnapshotCLI:
         assert "no model_ledger in verdict.md — snapshot refused" in capsys.readouterr().out
         assert not (tmp_path / "verdict.pass1.json").exists()
         assert not (tmp_path / "verdict.pass1.md").exists()
+
+    @staticmethod
+    def _verdict(word, ceiling, position=0):
+        return ("# Verdict\n\n```json model_ledger\n"
+                + json.dumps({"verdict": word, "ceiling": ceiling, "position_pct": position})
+                + "\n```\n")
+
+    def test_a_second_snapshot_keeps_the_baseline_and_says_so(self, tmp_path, capsys):
+        (tmp_path / "verdict.md").write_text(self._verdict("WAIT", 100))
+        assert gp.snapshot_cli(str(tmp_path)) == 0
+        capsys.readouterr()
+        (tmp_path / "verdict.md").write_text(self._verdict("BUY", 200, 2))
+        assert gp.snapshot_cli(str(tmp_path)) == 0
+        assert "kept" in capsys.readouterr().out
+        assert json.load(open(tmp_path / "verdict.pass1.json"))["verdict"] == "WAIT"
+        assert "WAIT" in (tmp_path / "verdict.pass1.md").read_text()
+
+    def test_a_resumed_snapshot_leaves_decide_seeing_the_revision(self, tmp_path, capsys):
+        """The resumed run re-entered item 1, snapshotted its own revision as the
+        baseline, and WAIT@100 -> BUY@200 came back PASS_BY_VERIFICATION."""
+        (tmp_path / "verdict.md").write_text(self._verdict("WAIT", 100))
+        gp.snapshot_cli(str(tmp_path))
+        (tmp_path / "verdict.md").write_text(self._verdict("BUY", 200, 2))
+        gp.snapshot_cli(str(tmp_path))
+        (tmp_path / "findings.json").write_text("[]")
+        (tmp_path / "manifest.json").write_text(json.dumps({"premium_passes": 1}))
+        capsys.readouterr()
+        gp.decide_cli(str(tmp_path))
+        assert capsys.readouterr().out.splitlines()[0] == "PREMIUM_PASS_2"
+
+    def test_a_snapshot_that_dies_writing_the_ledger_leaves_no_baseline_to_keep(self, tmp_path, monkeypatch):
+        """Keeping an existing baseline makes a torn one permanent, so the ledger
+        file only appears whole, and after the draft copy it vouches for."""
+        (tmp_path / "verdict.md").write_text(self._verdict("WAIT", 100))
+        def torn(obj, f, *a, **k):
+            f.write('{"verdict": "WA')
+            raise OSError("disk full")
+        with monkeypatch.context() as patched:
+            patched.setattr(gp.json, "dump", torn)
+            with pytest.raises(OSError):
+                gp.snapshot_cli(str(tmp_path))
+        assert not (tmp_path / "verdict.pass1.json").exists()
+        assert gp.snapshot_cli(str(tmp_path)) == 0
+        assert json.load(open(tmp_path / "verdict.pass1.json"))["verdict"] == "WAIT"
 
 
 class TestStyleNotesCLI:

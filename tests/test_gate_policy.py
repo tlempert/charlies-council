@@ -247,6 +247,31 @@ class TestSnapshotCLI:
         assert json.load(open(tmp_path / "verdict.pass1.json"))["verdict"] == "WAIT"
 
 
+class TestAfterPass2:
+    """07-gate.md does not re-parse or `decide` after pass 2; these pin why."""
+
+    def test_a_review_holding_both_passes_raises_parse_mismatch(self, tmp_path, capsys):
+        review = tmp_path / "reality_check.md"
+        review.write_text(REVIEW + "\n### Pass 2\n**MAJOR — New label.** Operation: relabel.\n\n"
+                                   "### Result\n`PASS — 0 FATAL. 1 MAJOR.`\n")
+        assert gp.findings_cli(str(review)) == 1
+        assert "PARSE MISMATCH" in capsys.readouterr().out
+
+    def test_decide_on_a_run_with_pass_2_done_cannot_ask_for_a_third_review(self, tmp_path, capsys):
+        """The guard for a resumed run: premium_passes comes from the recorded steps."""
+        ledger = "```json model_ledger\n" + json.dumps({"verdict": "BUY", "ceiling": 200, "position_pct": 2}) + "\n```\n"
+        (tmp_path / "verdict.md").write_text(ledger)
+        (tmp_path / "verdict.pass1.json").write_text(json.dumps({"verdict": "WAIT", "ceiling": 100, "position_pct": 0}))
+        (tmp_path / "findings.json").write_text("[]")
+        manifest = _load("council_manifest")
+        m = {"steps": {}}
+        manifest.mark_step(m, "gate_pass1", "done")
+        manifest.mark_step(m, "gate_pass2", "done")
+        (tmp_path / "manifest.json").write_text(json.dumps(m))
+        gp.decide_cli(str(tmp_path))
+        assert capsys.readouterr().out.splitlines()[0] == "PUBLISH_WITH_CORRECTIONS"
+
+
 class TestStyleNotesCLI:
     def _write(self, tmp_path, findings):
         json.dump(findings, open(tmp_path / "findings.json", "w", encoding="utf-8"))

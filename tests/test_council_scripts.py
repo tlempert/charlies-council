@@ -1222,7 +1222,65 @@ class TestGateDoneIsRecordedOnEveryEndingBranch:
         item2 = self.step6.split("\n2. **PASS", 1)[1].split("\n3. **REJECT", 1)[0]
         item5 = self.step6.split("\n5. **`PASS_BY_VERIFICATION`", 1)[1]
         assert "step {TICKER} gate done" in item2
-        assert item5.count("step {TICKER} gate done") == 3      # PASS_BY_VERIFICATION, pass 2, corrections
+        assert item5.count("step {TICKER} gate done") == 4      # PASS_BY_VERIFICATION, pass 2's PASS and REJECT, corrections
+
+
+class TestTheRevisionBranchCountsItsVerificationRounds:
+    """Item 2's REVISE path never recorded verify_fail_rounds, so a bundle that
+    would not clear there could not trigger the rule that exists for it."""
+
+    COUNTER = "council_manifest.py counter {TICKER} verify_fail_rounds N"
+
+    def _step6(self):
+        return skill_text().split("# Step 6 — Reality Check GATE", 1)[1].split("# Step 7 —", 1)[0]
+
+    def test_item_2_records_the_counter_the_way_item_4_does(self):
+        step6 = self._step6()
+        item2 = step6.split("\n2. **PASS", 1)[1].split("\n3. **REJECT", 1)[0]
+        item4 = step6.split("\n4. **Verify", 1)[1].split("\n5. **`PASS_BY_VERIFICATION`", 1)[0]
+        assert self.COUNTER in item4 and self.COUNTER in item2
+
+    def test_item_2_records_it_before_decide_reads_it(self):
+        item2 = self._step6().split("\n2. **PASS", 1)[1].split("\n3. **REJECT", 1)[0]
+        assert item2.index(self.COUNTER) < item2.index("gate_policy.py decide $D")
+
+
+class TestPass2HasAnEdgeForEitherResult:
+    """After PREMIUM_PASS_2 the skill defined only a REJECT, and `decide` does not
+    run after pass 2, so a PASS with MAJORs had no written next step."""
+
+    @property
+    def pass2(self):
+        step6 = skill_text().split("# Step 6 — Reality Check GATE", 1)[1].split("# Step 7 —", 1)[0]
+        return step6.split("\n5. **`PASS_BY_VERIFICATION`", 1)[1].split("**`PREMIUM_PASS_2`** →", 1)[1].split(
+            "**`PUBLISH_WITH_CORRECTIONS`** →", 1)[0]
+
+    @property
+    def edge(self):
+        return self.pass2.split("**Pass 2's PASS**", 1)[1].split("**Pass 2's REJECT**", 1)[0]
+
+    def test_a_pass_writes_style_notes_records_the_gate_and_goes_to_step_7(self):
+        edge = self.edge
+        assert edge.index("gate_policy.py style-notes $D") < edge.index("step {TICKER} gate done") < edge.index("Step 7")
+
+    def test_pass_2_majors_join_the_corrections_block_and_no_third_review_runs(self):
+        edge = self.edge
+        assert "MAJOR" in edge and "`EDITOR'S CORRECTIONS` block" in edge
+        assert "caps premium passes at 2" in edge and "third review" in edge
+
+    def test_a_reject_also_ends_the_gate_and_goes_to_step_7(self):
+        reject = self.pass2.split("**Pass 2's REJECT**", 1)[1]
+        assert "step {TICKER} gate done" in reject and "Step 7" in reject
+
+    def test_findings_are_not_reparsed_after_pass_2_and_the_cap_guards_a_resume(self):
+        assert "PARSE MISMATCH" in self.pass2
+        assert "guard for a resumed run" in self.pass2 and "`decide`" in self.pass2
+
+    def test_item_2_honours_the_cap_rather_than_reading_it_as_a_pass(self):
+        step6 = skill_text().split("# Step 6 — Reality Check GATE", 1)[1]
+        item2 = step6.split("\n2. **PASS", 1)[1].split("\n3. **REJECT", 1)[0]
+        assert "`PUBLISH_WITH_CORRECTIONS`" in item2
+        assert "Any other decision" not in item2
 
 
 class TestTheGateChecksTheManifestBeforeDoingWork:

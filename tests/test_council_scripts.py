@@ -698,6 +698,192 @@ class TestManifestTimestamps:
         assert m["workers"]["lynch"]["ts"] > 0
 
 
+class TestTheManifestRecordsItsOwnDate:
+    """Step 0's "a manifest exists from today" guard had no recorded date to read,
+    so the orchestrator guessed."""
+
+    def _status_lines(self, manifest, capsys):
+        capsys.readouterr()
+        assert manifest.main(["x", "status", "ADBE"]) == 0
+        return capsys.readouterr().out.splitlines()
+
+    def test_init_records_a_created_epoch(self, manifest):
+        before = int(time.time())
+        manifest.main(["x", "init", "ADBE"])
+        assert before <= manifest.load("ADBE")["created"] <= int(time.time())
+
+    def test_status_shows_created_at_the_top_of_a_full_manifest(self, manifest, capsys):
+        manifest.main(["x", "init", "ADBE"])
+        for name in manifest.STEPS:
+            manifest.main(["x", "step", "ADBE", name, "done"])
+        assert '"created"' in self._status_lines(manifest, capsys)[1]
+
+    def test_step_0_can_see_assemble_on_a_full_manifest(self, manifest, capsys):
+        """The status line was cut at 20 lines, which ends inside the third step."""
+        manifest.main(["x", "init", "ADBE"])
+        for name in manifest.STEPS:
+            manifest.main(["x", "step", "ADBE", name, "done"])
+        assert not any('"assemble"' in line for line in self._status_lines(manifest, capsys)[:20])
+        assert "| head -20" not in skill_text().split("**Resume or clean slate.**", 1)[1].split("```", 2)[1]
+
+    def test_the_skill_says_to_read_created_and_what_a_missing_one_means(self):
+        rule = skill_text().split("**Resume or clean slate.**", 1)[1].split("Every step below records itself twice", 1)[0]
+        assert "its `created` field is **from today**" in rule
+        assert "date -r" in rule
+        assert "A manifest with no `created` is not from today" in rule
+
+
+class TestStepRejectsWhatItDoesNotKnow:
+    """`gate` -> `bananas` and a new step `gaet` were both accepted, and a typo
+    silently fell out of tracking."""
+
+    @pytest.mark.parametrize("args,needle", [(["gaet", "done"], "gaet"), (["gate", "bananas"], "bananas")])
+    def test_an_unknown_name_or_status_exits_2_and_writes_nothing(self, manifest, tmp_path, capsys, args, needle):
+        manifest.main(["x", "init", "ADBE"])
+        before = (tmp_path / "ADBE" / "manifest.json").read_text()
+        capsys.readouterr()
+        assert manifest.main(["x", "step", "ADBE"] + args) == 2
+        assert needle in capsys.readouterr().out
+        assert (tmp_path / "ADBE" / "manifest.json").read_text() == before
+
+    def test_a_missing_status_is_a_usage_error(self, manifest):
+        manifest.main(["x", "init", "ADBE"])
+        assert manifest.main(["x", "step", "ADBE", "gate"]) == 2
+
+    @pytest.mark.parametrize("status", ["started", "done", "partial", "failed"])
+    def test_every_known_status_is_accepted(self, manifest, status):
+        manifest.main(["x", "init", "ADBE"])
+        assert manifest.main(["x", "step", "ADBE", "gate", status]) == 0
+        assert manifest.load("ADBE")["steps"]["gate"]["status"] == status
+
+    def test_moving_a_step_backwards_stays_legal(self, manifest):
+        manifest.main(["x", "init", "ADBE"])
+        manifest.main(["x", "step", "ADBE", "gate", "done"])
+        assert manifest.main(["x", "step", "ADBE", "gate", "started"]) == 0
+        assert manifest.load("ADBE")["steps"]["gate"]["status"] == "started"
+
+    def test_a_legacy_plain_string_status_is_still_upgraded(self, manifest):
+        m = manifest.init("ADBE")
+        m["steps"]["gate"] = "done"
+        manifest.save("ADBE", m)
+        assert manifest.main(["x", "step", "ADBE", "gate", "started"]) == 0
+        assert manifest.load("ADBE")["steps"]["gate"]["status"] == "started"
+
+    def test_the_known_names_are_the_ones_the_skill_lists(self, manifest):
+        listed = skill_text().split("Step names: ", 1)[1].split("\n", 1)[0]
+        assert set(re.findall(r"`(\w+)`", listed)) == set(manifest.STEPS)
+
+    def test_every_step_the_skill_records_is_known(self, manifest):
+        text = skill_text()
+        used = set(re.findall(r"step \{TICKER\} ([a-z_0-9]+) (?:started|done|partial|failed)", text))
+        used |= set(re.findall(r"`([a-z_0-9]+) (?:started|done|partial|failed)`", text))
+        assert used and used <= set(manifest.STEPS)
+
+    def test_every_status_the_skill_records_is_known(self, manifest):
+        used = set(re.findall(r"step \{TICKER\} [a-z_0-9]+ ([a-z]+)", skill_text()))
+        assert used and used <= set(manifest.STATUSES)
+
+
+class TestSaveIsAtomic:
+    """A crash mid-write corrupted the manifest, `load` returned None, and
+    05-experts.md says to `init` if it is missing, which wiped the run's progress."""
+
+    def _prior(self, manifest):
+        m = manifest.init("ADBE")
+        manifest.mark_step(m, "dossier", "done")
+        manifest.save("ADBE", m)
+        return m
+
+    def test_a_failure_while_writing_leaves_the_prior_manifest_and_no_temp_file(self, manifest, tmp_path, monkeypatch):
+        prior = self._prior(manifest)
+        def torn(obj, f, **k):
+            f.write('{"ticker": "AD')
+            raise OSError("disk full")
+        with monkeypatch.context() as patched:
+            patched.setattr(manifest.json, "dump", torn)
+            with pytest.raises(OSError):
+                manifest.save("ADBE", dict(prior, steps={}))
+        assert manifest.load("ADBE") == prior
+        assert os.listdir(tmp_path / "ADBE") == ["manifest.json"]
+
+    def test_a_failure_while_replacing_leaves_the_prior_manifest_and_no_temp_file(self, manifest, tmp_path, monkeypatch):
+        prior = self._prior(manifest)
+        def refused(src, dst):
+            raise OSError("refused")
+        with monkeypatch.context() as patched:
+            patched.setattr(manifest.os, "replace", refused)
+            with pytest.raises(OSError):
+                manifest.save("ADBE", dict(prior, steps={}))
+        assert manifest.load("ADBE") == prior
+        assert os.listdir(tmp_path / "ADBE") == ["manifest.json"]
+
+    def test_the_temp_file_lives_beside_the_manifest_so_the_replace_is_atomic(self, manifest, monkeypatch):
+        seen = []
+        real = os.replace
+        def spy(src, dst):
+            seen.append((src, dst))
+            real(src, dst)
+        monkeypatch.setattr(manifest.os, "replace", spy)
+        manifest.init("ADBE")
+        (src, dst), = seen
+        assert os.path.dirname(src) == os.path.dirname(dst) and src != dst
+        assert dst.endswith("manifest.json")
+
+
+class TestPoolForNamesThePoolARevalidationRecords:
+    """The validation loop hardcoded each key's starting pool and re-marked all
+    12, so a resume marked a worker that succeeded on claude:haiku `codex:sol ok`."""
+
+    def _pool_for(self, manifest, capsys, key, default="codex:sol"):
+        capsys.readouterr()
+        assert manifest.main(["council_manifest.py", "pool-for", "ADBE", key, default]) == 0
+        return capsys.readouterr().out.strip()
+
+    def test_an_untried_worker_gets_the_default(self, manifest, capsys):
+        manifest.main(["x", "init", "ADBE"])
+        assert self._pool_for(manifest, capsys, "lynch", "claude:sonnet") == "claude:sonnet"
+
+    def test_a_failed_worker_gets_the_pool_it_was_routed_to(self, manifest, capsys):
+        manifest.main(["x", "init", "ADBE"])
+        manifest.main(["x", "worker", "ADBE", "lynch", "codex:sol", "failed", "empty"])
+        assert self._pool_for(manifest, capsys, "lynch") == "codex:luna"
+
+    def test_a_worker_that_succeeded_gets_the_pool_it_succeeded_on(self, manifest, capsys):
+        manifest.main(["x", "init", "ADBE"])
+        manifest.main(["x", "worker", "ADBE", "lynch", "codex:sol", "failed", "empty"])
+        manifest.main(["x", "worker", "ADBE", "lynch", "claude:haiku", "ok"])
+        assert self._pool_for(manifest, capsys, "lynch") == "claude:haiku"
+
+    def test_a_worker_past_the_end_of_the_ladder_stays_on_its_last_pool(self, manifest, capsys):
+        manifest.main(["x", "init", "ADBE"])
+        manifest.main(["x", "worker", "ADBE", "lynch", "claude:haiku", "failed", "empty"])
+        assert self._pool_for(manifest, capsys, "lynch") == "claude:haiku"
+
+    def test_a_key_the_manifest_has_never_seen_gets_the_default(self, manifest, capsys):
+        manifest.main(["x", "init", "ADBE"])
+        assert self._pool_for(manifest, capsys, "nobody") == "codex:sol"
+
+    def test_a_missing_argument_is_a_usage_error(self, manifest, capsys):
+        manifest.main(["x", "init", "ADBE"])
+        assert manifest.main(["x", "pool-for", "ADBE", "lynch"]) == 2
+
+    def test_a_resume_re_marking_an_ok_worker_keeps_its_fallback_record(self, manifest, capsys):
+        manifest.main(["x", "init", "ADBE"])
+        manifest.main(["x", "worker", "ADBE", "lynch", "codex:sol", "failed", "empty"])
+        manifest.main(["x", "worker", "ADBE", "lynch", "claude:haiku", "ok"])
+        pool = self._pool_for(manifest, capsys, "lynch")
+        manifest.main(["x", "worker", "ADBE", "lynch", pool, "ok"])
+        w = manifest.load("ADBE")["workers"]["lynch"]
+        assert (w["pool"], w["first_pool"], w["status"]) == ("claude:haiku", "codex:sol", "ok")
+
+    def test_the_validation_loop_asks_the_manifest_for_the_pool(self):
+        loop = skill_text().split("**Validation and failover", 1)[1].split("```bash", 1)[1].split("```", 1)[0]
+        assert 'pool=$(./venv/bin/python3 scripts/council_manifest.py pool-for {TICKER} $k "$default")' in loop
+        assert 'worker {TICKER} $k "$pool" ok' in loop
+        assert 'worker {TICKER} $k "$pool" failed invalid_output' in loop
+        assert "pool=$( [[" not in loop
+
+
 class TestTheSkillMarksEveryStepTwice:
     """The stepper on the job page is only as honest as the skill's checkpoints:
     without a `started` mark a step has no clock until the moment it ends."""
@@ -725,7 +911,7 @@ class TestTheSkillMarksEveryStepTwice:
         assert done in text
         assert text.index(started) < text.index(done)
 
-    def test_assemble_records_done_after_a_cleanup_that_keeps_the_manifest(self):
+    def test_assemble_records_done_and_its_cleanup_keeps_the_manifest(self):
         """KNSL 2026-09-17: the assembly block ended by removing the whole tmp dir,
         manifest included, and `assemble done` was never recorded — so the runner
         saw every finished run as stopped short and resumed it five times."""
@@ -733,9 +919,61 @@ class TestTheSkillMarksEveryStepTwice:
         done = "council_manifest.py step {TICKER} assemble done"
         assert text.count(done) == 1
         assert "shutil.rmtree(tmp" not in text
-        step8 = text.split("# Step 8 — Assemble", 1)[1].split("### Step 8.5", 1)[0]
-        assert 'name in ("manifest.json", "verdict.md")' in step8   # the dashboard reads both
+        step8 = text.split("# Step 8 — Assemble", 1)[1]
+        cleanup = step8.split("### Step 8.6", 1)[1]
+        assert "! -name manifest.json ! -name verdict.md" in cleanup   # the dashboard reads both
         assert step8.index("PYEOF") < step8.index(done)
+
+
+class TestAssembleOrder:
+    """Deleting the folder before the mark let a resume re-assemble from nothing
+    and republish an empty report; marking before the index left a `done` job with
+    a stale corpus index that the runner never resumes."""
+
+    @property
+    def step8(self):
+        return skill_text().split("# Step 8 — Assemble", 1)[1].split("### Step 9:", 1)[0]
+
+    def _cleanup_command(self):
+        block = self.step8.split("### Step 8.6", 1)[1].split("```bash", 1)[1].split("```", 1)[0]
+        return block[block.index("find "):].strip()
+
+    def test_save_then_index_then_mark_then_cleanup(self):
+        s = self.step8
+        order = [s.index("deploy_memo_to_github_pages(paths"), s.index("scripts/build_corpus_index.py"),
+                 s.index("step {TICKER} assemble done"), s.index(self._cleanup_command())]
+        assert order == sorted(order)
+
+    def test_the_save_block_deletes_nothing(self):
+        block = self.step8.split("PYEOF", 2)[1]
+        assert "shutil" not in block and "os.remove" not in block
+
+    def test_the_index_still_runs_when_the_deploy_was_skipped(self):
+        assert "even if the GitHub Pages deploy was skipped or denied" in self.step8.split(
+            "### Step 8.5", 1)[1].split("step {TICKER} assemble done", 1)[0]
+
+    def test_the_cleanup_keeps_what_the_dashboard_reads_and_can_run_twice(self, tmp_path):
+        d = tmp_path / "ADBE"
+        (d / "sub").mkdir(parents=True)
+        for name in ("manifest.json", "verdict.md", "memo.md", ".hidden", "sub/inner.md"):
+            (d / name).write_text("x", encoding="utf-8")
+        for _ in range(2):
+            r = subprocess.run(["bash", "-c", self._cleanup_command()], env=dict(os.environ, D=str(d)))
+            assert r.returncode == 0
+            assert sorted(os.listdir(d)) == ["manifest.json", "verdict.md"]
+
+    def test_the_index_of_steps_names_the_cleanup(self):
+        assert "| 8, 8.5, 8.6 |" in skill_text()
+
+    def test_the_gate_pass_count_survives_the_cleanup_that_follows_the_mark(self, manifest, tmp_path):
+        manifest.main(["x", "init", "ADBE"])
+        for n in ("reality_check.md", "reality_check.pass2.md"):
+            (tmp_path / "ADBE" / n).write_text("x", encoding="utf-8")
+        manifest.main(["x", "step", "ADBE", "assemble", "done"])
+        for n in ("reality_check.md", "reality_check.pass2.md"):
+            (tmp_path / "ADBE" / n).unlink()
+        manifest.main(["x", "step", "ADBE", "assemble", "done"])
+        assert manifest.load("ADBE")["gate_passes"] == 2
 
 
 class TestTheCodexBatchRunsInTheForeground:
@@ -1222,7 +1460,116 @@ class TestGateDoneIsRecordedOnEveryEndingBranch:
         item2 = self.step6.split("\n2. **PASS", 1)[1].split("\n3. **REJECT", 1)[0]
         item5 = self.step6.split("\n5. **`PASS_BY_VERIFICATION`", 1)[1]
         assert "step {TICKER} gate done" in item2
-        assert item5.count("step {TICKER} gate done") == 3      # PASS_BY_VERIFICATION, pass 2, corrections
+        assert item5.count("step {TICKER} gate done") == 4      # PASS_BY_VERIFICATION, pass 2's PASS and REJECT, corrections
+
+
+class TestTheRevisionBranchCountsItsVerificationRounds:
+    """Item 2's REVISE path never recorded verify_fail_rounds, so a bundle that
+    would not clear there could not trigger the rule that exists for it."""
+
+    COUNTER = "council_manifest.py counter {TICKER} verify_fail_rounds N"
+
+    def _step6(self):
+        return skill_text().split("# Step 6 — Reality Check GATE", 1)[1].split("# Step 7 —", 1)[0]
+
+    def test_item_2_records_the_counter_the_way_item_4_does(self):
+        step6 = self._step6()
+        item2 = step6.split("\n2. **PASS", 1)[1].split("\n3. **REJECT", 1)[0]
+        item4 = step6.split("\n4. **Verify", 1)[1].split("\n5. **`PASS_BY_VERIFICATION`", 1)[0]
+        assert self.COUNTER in item4 and self.COUNTER in item2
+
+    def test_item_2_records_it_before_decide_reads_it(self):
+        item2 = self._step6().split("\n2. **PASS", 1)[1].split("\n3. **REJECT", 1)[0]
+        assert item2.index(self.COUNTER) < item2.index("gate_policy.py decide $D")
+
+
+class TestPass2HasAnEdgeForEitherResult:
+    """After PREMIUM_PASS_2 the skill defined only a REJECT, and `decide` does not
+    run after pass 2, so a PASS with MAJORs had no written next step."""
+
+    @property
+    def pass2(self):
+        step6 = skill_text().split("# Step 6 — Reality Check GATE", 1)[1].split("# Step 7 —", 1)[0]
+        return step6.split("\n5. **`PASS_BY_VERIFICATION`", 1)[1].split("**`PREMIUM_PASS_2`** →", 1)[1].split(
+            "**`PUBLISH_WITH_CORRECTIONS`** →", 1)[0]
+
+    @property
+    def edge(self):
+        return self.pass2.split("**Pass 2's PASS**", 1)[1].split("**Pass 2's REJECT**", 1)[0]
+
+    def test_a_pass_writes_style_notes_records_the_gate_and_goes_to_step_7(self):
+        edge = self.edge
+        assert edge.index("gate_policy.py style-notes $D") < edge.index("step {TICKER} gate done") < edge.index("Step 7")
+
+    def test_pass_2_majors_join_the_corrections_block_and_no_third_review_runs(self):
+        edge = self.edge
+        assert "MAJOR" in edge and "`EDITOR'S CORRECTIONS` block" in edge
+        assert "caps premium passes at 2" in edge and "third review" in edge
+
+    def test_a_reject_also_ends_the_gate_and_goes_to_step_7(self):
+        reject = self.pass2.split("**Pass 2's REJECT**", 1)[1]
+        assert "step {TICKER} gate done" in reject and "Step 7" in reject
+
+    def test_findings_are_not_reparsed_after_pass_2_and_the_cap_guards_a_resume(self):
+        assert "PARSE MISMATCH" in self.pass2
+        assert "guard for a resumed run" in self.pass2 and "`decide`" in self.pass2
+
+    @pytest.mark.parametrize("command,expected", [
+        (r"sed -n '/### Result/,\$p' \$D/reality_check\.md \| grep -m1 -E '[^']+'", "REJECT — 1 FATAL"),
+        (r"sed -n '/### Pass 2/,\$p' \$D/reality_check\.md \| grep -E '[^']+' \| tail -1", "PASS — 0 FATAL"),
+    ])
+    def test_the_commands_that_read_a_result_pick_the_right_pass(self, tmp_path, command, expected):
+        (tmp_path / "reality_check.md").write_text(
+            "### Findings\n**FATAL — A.** x\n\n### Result\n`REJECT — 1 FATAL: a.`\n\n"
+            "### Pass 2\n**MAJOR — B.** y\n\n### Result\n`PASS — 0 FATAL. 1 MAJOR.`\n", encoding="utf-8")
+        found = re.search(command, skill_text()).group(0)
+        out = subprocess.run(["bash", "-c", found], env=dict(os.environ, D=str(tmp_path)),
+                             capture_output=True, text=True).stdout
+        assert expected in out and len(out.strip().splitlines()) == 1
+
+    def test_item_2_honours_the_cap_rather_than_reading_it_as_a_pass(self):
+        step6 = skill_text().split("# Step 6 — Reality Check GATE", 1)[1]
+        item2 = step6.split("\n2. **PASS", 1)[1].split("\n3. **REJECT", 1)[0]
+        assert "`PUBLISH_WITH_CORRECTIONS`" in item2
+        assert "Any other decision" not in item2
+
+
+class TestTheGateChecksTheManifestBeforeDoingWork:
+    """A resumed run comes back to `gate` and used to walk item 1 from the top:
+    snapshot over the baseline, launch pass 1 again, re-mark `gate_pass1 started`."""
+
+    @property
+    def step6(self):
+        return skill_text().split("# Step 6 — Reality Check GATE", 1)[1].split("# Step 7 —", 1)[0]
+
+    @property
+    def rule(self):
+        return self.step6.split("**On arrival", 1)[1].split("\n1. **Pass 1.**", 1)[0]
+
+    def test_the_resume_rule_stands_at_the_top_of_the_numbered_flow(self):
+        assert self.step6.index("**On arrival") < self.step6.index("\n1. **Pass 1.**")
+        assert "council_manifest.py status {TICKER}" in self.rule
+
+    def test_a_done_pass_is_never_launched_again(self):
+        assert "`gate_pass1` is already `done`" in self.rule
+        assert "`gate_pass2` is already `done`" in self.rule
+        assert self.rule.count("do not launch") == 2
+
+    def test_the_files_name_the_point_to_continue_from(self):
+        rule = self.rule
+        assert "`findings.json` is missing" in rule                 # findings parsed
+        assert "cmp -s $D/verdict.pass1.md $D/verdict.md" in rule   # revision
+        assert "item 4" in rule                                     # verification, then decide
+
+    def test_a_resume_never_reparses_findings_it_already_has(self):
+        assert "never re-run `findings` over a `findings.json` that exists" in self.rule
+
+    def test_a_resume_does_not_append_the_verification_summary_twice(self):
+        assert "### Verification of the revision" in self.rule
+
+    def test_the_snapshot_is_said_to_keep_an_existing_baseline(self):
+        item1 = self.step6.split("\n1. **Pass 1.**", 1)[1].split("\n2. **PASS", 1)[0]
+        assert "keeps an existing baseline" in item1
 
 
 class TestTheShadowEvidenceOutlivesTheRunFolder:

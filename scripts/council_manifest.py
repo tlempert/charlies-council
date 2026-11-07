@@ -6,6 +6,7 @@ workers succeeded, and where a failed worker goes next.
     council_manifest.py step   TICKER NAME STATUS            # started | done | partial | failed
     council_manifest.py worker TICKER KEY POOL STATUS [REASON]
     council_manifest.py pending TICKER                       # keys that still need a run
+    council_manifest.py pool-for TICKER KEY DEFAULT          # the pool to record a re-validation against
     council_manifest.py status TICKER
     council_manifest.py evidence TICKER [--check]             # record/verify refined_dossier.md's hash
     council_manifest.py counter TICKER NAME VALUE             # set an integer counter, e.g. verify_fail_rounds
@@ -27,6 +28,10 @@ LADDER = ["codex:sol", "codex:luna", "claude:sonnet", "claude:haiku"]
 EXPERTS = ["jeff_bezos", "warren_buffett", "michael_burry", "tim_cook", "steve_jobs",
            "psychologist", "sherlock", "futurist", "biologist", "historian",
            "anthropologist", "lynch"]
+#: What `step` accepts; a typo must fail loudly, not fall out of tracking.
+STEPS = ["dossier", "forensic", "condense", "refine", "threats", "experts", "synthesis",
+         "gate", "gate_pass1", "gate_pass2", "memo", "reports", "assemble"]
+STATUSES = ["started", "done", "partial", "failed"]
 
 
 def _path(ticker):
@@ -42,13 +47,24 @@ def load(ticker):
 
 
 def save(ticker, m):
-    os.makedirs(os.path.dirname(_path(ticker)), exist_ok=True)
-    with open(_path(ticker), "w", encoding="utf-8") as f:
-        json.dump(m, f, indent=1)
+    """Write through a temp file in the same directory: `load` reads a torn file
+    as no manifest at all, and Step 4 then `init`s over the run's progress."""
+    path = _path(ticker)
+    os.makedirs(os.path.dirname(path), exist_ok=True)
+    tmp = f"{path}.{os.getpid()}.tmp"
+    try:
+        with open(tmp, "w", encoding="utf-8") as f:
+            json.dump(m, f, indent=1)
+        os.replace(tmp, path)
+    except BaseException:
+        if os.path.exists(tmp):
+            os.remove(tmp)
+        raise
 
 
 def init(ticker):
-    m = {"ticker": ticker, "steps": {},
+    # `created` first: it is what Step 0's "from today" guard reads off `status`.
+    m = {"created": int(time.time()), "ticker": ticker, "steps": {},
          "workers": {k: {"pool": None, "status": "pending"} for k in EXPERTS}}
     save(ticker, m)
     return m
@@ -86,8 +102,9 @@ def mark_step(m, name, status):
 def record_gate_passes(ticker, m):
     """Keep the highest count of Reality Check files seen so far in the manifest.
 
-    Step 8 empties the run folder before the dashboard computes its metrics row,
-    so the files cannot be counted afterwards (ROG.SW recorded 0 for 3 passes).
+    Step 8.6 empties the run folder before the dashboard computes its metrics
+    row, so the files cannot be counted afterwards (ROG.SW recorded 0 for 3 passes).
+    `assemble done` is the last mark before that cleanup, and the last count.
 
     Counting files alone undercounts: pass 2 appends `### Pass 2` to the same
     reality_check.md rather than writing a second file, so the recorded steps
@@ -124,6 +141,14 @@ def pending(m):
     return [k for k, w in m["workers"].items() if w.get("status") != "ok"]
 
 
+def pool_for(m, key, default):
+    """The pool to record a re-validation against: where a failed worker was
+    routed, else where it last ran, else `default` for a worker never marked.
+    `ok` clears `next`, so a worker that succeeded keeps the pool it did it on."""
+    w = m["workers"].get(key) or {}
+    return w.get("next") or w.get("pool") or default
+
+
 def evidence_sha(ticker):
     p = os.path.join(ROOT, ticker, "refined_dossier.md")
     with open(p, "rb") as f:
@@ -156,6 +181,15 @@ def main(argv):
         print(f"no manifest for {ticker}; run: council_manifest.py init {ticker}")
         return 1
     if cmd == "step":
+        if len(argv) < 5:
+            print(__doc__)
+            return 2
+        if argv[3] not in STEPS:
+            print(f"unknown step {argv[3]!r}; known: {', '.join(STEPS)}")
+            return 2
+        if argv[4] not in STATUSES:
+            print(f"unknown status {argv[4]!r}; known: {', '.join(STATUSES)}")
+            return 2
         mark_step(m, argv[3], argv[4])
         record_gate_passes(ticker, m)
         save(ticker, m)
@@ -168,6 +202,11 @@ def main(argv):
             print(f"{argv[3]}: ladder exhausted — abort, name the key")
     elif cmd == "pending":
         print("\n".join(pending(m)))
+    elif cmd == "pool-for":
+        if len(argv) < 5:
+            print(__doc__)
+            return 2
+        print(pool_for(m, argv[3], argv[4]))
     elif cmd == "evidence":
         if "--check" in argv:
             if not m.get("evidence_sha"):

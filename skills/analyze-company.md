@@ -28,7 +28,7 @@ ahead** — the whole pipeline in context is ~18K tokens carried on every turn.
 | 5 | `/Users/tallempert/src-tal/investor/skills/analyze-company/06-synthesis.md` | Munger synthesis and the verification bundle | `synthesis` |
 | 6 | `/Users/tallempert/src-tal/investor/skills/analyze-company/07-gate.md` | Reality Check gate, revision and decision | `gate`, `gate_pass1`, `gate_pass2` |
 | 7, 7b | `/Users/tallempert/src-tal/investor/skills/analyze-company/08-memo.md` | Investor memo (Codex → Claude); optional explainers | `memo`, `reports` |
-| 8, 8.5 | `/Users/tallempert/src-tal/investor/skills/analyze-company/09-assemble.md` | Assemble, save, deploy, refresh the corpus index | `assemble` |
+| 8, 8.5, 8.6 | `/Users/tallempert/src-tal/investor/skills/analyze-company/09-assemble.md` | Assemble, save, deploy, refresh the corpus index, then clean up | `assemble` |
 
 ## RULES FOR EVERY STEP
 
@@ -56,11 +56,11 @@ Extract the ticker from the arguments. If no ticker was provided, ask the user f
 **Resume or clean slate.** Every step below records itself in `/tmp/silicon_council/{TICKER}/manifest.json`, so a run that died at Step 6 restarts at Step 6, not Step 1:
 
 ```bash
-./venv/bin/python3 scripts/council_manifest.py status {TICKER} 2>/dev/null | head -20 || true
+./venv/bin/python3 scripts/council_manifest.py status {TICKER} 2>/dev/null || true
 ```
 
 - If the manifest shows `assemble` as `done`, that analysis is **finished**, not interrupted: start a clean slate (below), whatever its date. Being invoked again on a finished ticker *is* the request for a new analysis — never ask whether to reuse the old one; a dashboard run is headless and no one can answer (YUMC, 2026-09-26: the question ended the run in three minutes and the job reported yesterday's verdict).
-- Else, if a manifest exists **from today** and the user did not ask for a fresh run, say which steps are already `done`, skip them, and continue from the first step that is not.
+- Else, if a manifest exists, its `created` field is **from today** (an epoch: `date -r <created> +%F` matches `date +%F`) and the user did not ask for a fresh run, say which steps are already `done`, skip them, and continue from the first step that is not. A manifest with no `created` is not from today.
 - Otherwise run `rm -rf /tmp/silicon_council/{TICKER}` (only this ticker's directory — other analyses are unaffected) and initialise: `./venv/bin/python3 scripts/council_manifest.py init {TICKER}`.
 
 Every step below records itself twice: `./venv/bin/python3 scripts/council_manifest.py step {TICKER} <step-name> started` the moment the step begins, and the same line with `done` when it completes — the dashboard times a step from the gap between them. Step names: `dossier`, `forensic`, `condense`, `refine`, `threats`, `experts`, `synthesis`, `gate`, `gate_pass1`, `gate_pass2`, `memo`, `reports`, `assemble`.

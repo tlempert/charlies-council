@@ -51,8 +51,10 @@ CX=$(/Users/tallempert/src-tal/investor/scripts/codex_bin.sh); D=/tmp/silicon_co
 **Validation and failover — run this after BOTH pools finish, over all 12 files:**
 
 ```bash
-cd /Users/tallempert/src-tal/investor && D=/tmp/silicon_council/{TICKER}; for k in jeff_bezos warren_buffett michael_burry tim_cook steve_jobs psychologist sherlock futurist biologist historian anthropologist lynch; do pool=$( [[ " jeff_bezos warren_buffett michael_burry tim_cook steve_jobs psychologist " == *" $k "* ]] && echo codex:sol || echo claude:sonnet ); if scripts/validate_worker.sh $D/$k.md; then ./venv/bin/python3 scripts/council_manifest.py worker {TICKER} $k $pool ok; else ./venv/bin/python3 scripts/council_manifest.py worker {TICKER} $k $pool failed invalid_output; fi; done; echo "PENDING:"; ./venv/bin/python3 scripts/council_manifest.py pending {TICKER}
+cd /Users/tallempert/src-tal/investor && D=/tmp/silicon_council/{TICKER}; for k in jeff_bezos warren_buffett michael_burry tim_cook steve_jobs psychologist sherlock futurist biologist historian anthropologist lynch; do default=$( [[ " jeff_bezos warren_buffett michael_burry tim_cook steve_jobs psychologist " == *" $k "* ]] && echo codex:sol || echo claude:sonnet ); pool=$(./venv/bin/python3 scripts/council_manifest.py pool-for {TICKER} $k "$default"); if scripts/validate_worker.sh $D/$k.md; then ./venv/bin/python3 scripts/council_manifest.py worker {TICKER} $k "$pool" ok; else ./venv/bin/python3 scripts/council_manifest.py worker {TICKER} $k "$pool" failed invalid_output; fi; done; echo "PENDING:"; ./venv/bin/python3 scripts/council_manifest.py pending {TICKER}
 ```
+
+`pool-for` prints the pool the worker actually ran on: the manifest's `next` for a failed key, its recorded `pool` for one that already succeeded, and the starting pool only for a key never marked. So running this loop again, on a retry or on a resume, keeps a fallback record instead of resetting it.
 
 `validate_worker.sh` checks the file is ≥1.5KB, has both `---SUMMARY---` and `---END SUMMARY---`, has a `VERDICT:` line, and is not a contamination error. **A byte count alone is not enough:** a worker that exhausts its quota mid-generation leaves a non-empty, truncated file that would otherwise enter the Moat Tribunal silently.
 

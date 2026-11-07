@@ -63,7 +63,8 @@ def save(ticker, m):
 
 
 def init(ticker):
-    m = {"ticker": ticker, "steps": {},
+    # `created` first: it is what Step 0's "from today" guard reads off `status`.
+    m = {"created": int(time.time()), "ticker": ticker, "steps": {},
          "workers": {k: {"pool": None, "status": "pending"} for k in EXPERTS}}
     save(ticker, m)
     return m

@@ -698,6 +698,41 @@ class TestManifestTimestamps:
         assert m["workers"]["lynch"]["ts"] > 0
 
 
+class TestTheManifestRecordsItsOwnDate:
+    """Step 0's "a manifest exists from today" guard had no recorded date to read,
+    so the orchestrator guessed."""
+
+    def _status_lines(self, manifest, capsys):
+        capsys.readouterr()
+        assert manifest.main(["x", "status", "ADBE"]) == 0
+        return capsys.readouterr().out.splitlines()
+
+    def test_init_records_a_created_epoch(self, manifest):
+        before = int(time.time())
+        manifest.main(["x", "init", "ADBE"])
+        assert before <= manifest.load("ADBE")["created"] <= int(time.time())
+
+    def test_status_shows_created_at_the_top_of_a_full_manifest(self, manifest, capsys):
+        manifest.main(["x", "init", "ADBE"])
+        for name in manifest.STEPS:
+            manifest.main(["x", "step", "ADBE", name, "done"])
+        assert '"created"' in self._status_lines(manifest, capsys)[1]
+
+    def test_step_0_can_see_assemble_on_a_full_manifest(self, manifest, capsys):
+        """The status line was cut at 20 lines, which ends inside the third step."""
+        manifest.main(["x", "init", "ADBE"])
+        for name in manifest.STEPS:
+            manifest.main(["x", "step", "ADBE", name, "done"])
+        assert not any('"assemble"' in line for line in self._status_lines(manifest, capsys)[:20])
+        assert "| head -20" not in skill_text().split("**Resume or clean slate.**", 1)[1].split("```", 2)[1]
+
+    def test_the_skill_says_to_read_created_and_what_a_missing_one_means(self):
+        rule = skill_text().split("**Resume or clean slate.**", 1)[1].split("Every step below records itself twice", 1)[0]
+        assert "its `created` field is **from today**" in rule
+        assert "date -r" in rule
+        assert "A manifest with no `created` is not from today" in rule
+
+
 class TestStepRejectsWhatItDoesNotKnow:
     """`gate` -> `bananas` and a new step `gaet` were both accepted, and a typo
     silently fell out of tracking."""
@@ -1478,6 +1513,19 @@ class TestPass2HasAnEdgeForEitherResult:
     def test_findings_are_not_reparsed_after_pass_2_and_the_cap_guards_a_resume(self):
         assert "PARSE MISMATCH" in self.pass2
         assert "guard for a resumed run" in self.pass2 and "`decide`" in self.pass2
+
+    @pytest.mark.parametrize("command,expected", [
+        (r"sed -n '/### Result/,\$p' \$D/reality_check\.md \| grep -m1 -E '[^']+'", "REJECT — 1 FATAL"),
+        (r"sed -n '/### Pass 2/,\$p' \$D/reality_check\.md \| grep -E '[^']+' \| tail -1", "PASS — 0 FATAL"),
+    ])
+    def test_the_commands_that_read_a_result_pick_the_right_pass(self, tmp_path, command, expected):
+        (tmp_path / "reality_check.md").write_text(
+            "### Findings\n**FATAL — A.** x\n\n### Result\n`REJECT — 1 FATAL: a.`\n\n"
+            "### Pass 2\n**MAJOR — B.** y\n\n### Result\n`PASS — 0 FATAL. 1 MAJOR.`\n", encoding="utf-8")
+        found = re.search(command, skill_text()).group(0)
+        out = subprocess.run(["bash", "-c", found], env=dict(os.environ, D=str(tmp_path)),
+                             capture_output=True, text=True).stdout
+        assert expected in out and len(out.strip().splitlines()) == 1
 
     def test_item_2_honours_the_cap_rather_than_reading_it_as_a_pass(self):
         step6 = skill_text().split("# Step 6 — Reality Check GATE", 1)[1]

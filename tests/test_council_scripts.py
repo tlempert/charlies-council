@@ -779,7 +779,7 @@ class TestTheSkillMarksEveryStepTwice:
         assert done in text
         assert text.index(started) < text.index(done)
 
-    def test_assemble_records_done_after_a_cleanup_that_keeps_the_manifest(self):
+    def test_assemble_records_done_and_its_cleanup_keeps_the_manifest(self):
         """KNSL 2026-09-17: the assembly block ended by removing the whole tmp dir,
         manifest included, and `assemble done` was never recorded — so the runner
         saw every finished run as stopped short and resumed it five times."""
@@ -787,9 +787,61 @@ class TestTheSkillMarksEveryStepTwice:
         done = "council_manifest.py step {TICKER} assemble done"
         assert text.count(done) == 1
         assert "shutil.rmtree(tmp" not in text
-        step8 = text.split("# Step 8 — Assemble", 1)[1].split("### Step 8.5", 1)[0]
-        assert 'name in ("manifest.json", "verdict.md")' in step8   # the dashboard reads both
+        step8 = text.split("# Step 8 — Assemble", 1)[1]
+        cleanup = step8.split("### Step 8.6", 1)[1]
+        assert "! -name manifest.json ! -name verdict.md" in cleanup   # the dashboard reads both
         assert step8.index("PYEOF") < step8.index(done)
+
+
+class TestAssembleOrder:
+    """Deleting the folder before the mark let a resume re-assemble from nothing
+    and republish an empty report; marking before the index left a `done` job with
+    a stale corpus index that the runner never resumes."""
+
+    @property
+    def step8(self):
+        return skill_text().split("# Step 8 — Assemble", 1)[1].split("### Step 9:", 1)[0]
+
+    def _cleanup_command(self):
+        block = self.step8.split("### Step 8.6", 1)[1].split("```bash", 1)[1].split("```", 1)[0]
+        return block[block.index("find "):].strip()
+
+    def test_save_then_index_then_mark_then_cleanup(self):
+        s = self.step8
+        order = [s.index("deploy_memo_to_github_pages(paths"), s.index("scripts/build_corpus_index.py"),
+                 s.index("step {TICKER} assemble done"), s.index(self._cleanup_command())]
+        assert order == sorted(order)
+
+    def test_the_save_block_deletes_nothing(self):
+        block = self.step8.split("PYEOF", 2)[1]
+        assert "shutil" not in block and "os.remove" not in block
+
+    def test_the_index_still_runs_when_the_deploy_was_skipped(self):
+        assert "even if the GitHub Pages deploy was skipped or denied" in self.step8.split(
+            "### Step 8.5", 1)[1].split("step {TICKER} assemble done", 1)[0]
+
+    def test_the_cleanup_keeps_what_the_dashboard_reads_and_can_run_twice(self, tmp_path):
+        d = tmp_path / "ADBE"
+        (d / "sub").mkdir(parents=True)
+        for name in ("manifest.json", "verdict.md", "memo.md", ".hidden", "sub/inner.md"):
+            (d / name).write_text("x", encoding="utf-8")
+        for _ in range(2):
+            r = subprocess.run(["bash", "-c", self._cleanup_command()], env=dict(os.environ, D=str(d)))
+            assert r.returncode == 0
+            assert sorted(os.listdir(d)) == ["manifest.json", "verdict.md"]
+
+    def test_the_index_of_steps_names_the_cleanup(self):
+        assert "| 8, 8.5, 8.6 |" in skill_text()
+
+    def test_the_gate_pass_count_survives_the_cleanup_that_follows_the_mark(self, manifest, tmp_path):
+        manifest.main(["x", "init", "ADBE"])
+        for n in ("reality_check.md", "reality_check.pass2.md"):
+            (tmp_path / "ADBE" / n).write_text("x", encoding="utf-8")
+        manifest.main(["x", "step", "ADBE", "assemble", "done"])
+        for n in ("reality_check.md", "reality_check.pass2.md"):
+            (tmp_path / "ADBE" / n).unlink()
+        manifest.main(["x", "step", "ADBE", "assemble", "done"])
+        assert manifest.load("ADBE")["gate_passes"] == 2
 
 
 class TestTheCodexBatchRunsInTheForeground:

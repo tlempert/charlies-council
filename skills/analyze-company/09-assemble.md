@@ -79,25 +79,12 @@ if memo:
 
 for k, v in paths.items():
     print(f"{k}: {v}")
-
-# Keep manifest.json and verdict.md — the dashboard runner reads the first to
-# know the pipeline reached this step and the second for the run's verdict.
-# Everything else in tmp is disposable now it's assembled.
-import shutil
-for name in os.listdir(tmp):
-    if name in ("manifest.json", "verdict.md"):
-        continue
-    path = os.path.join(tmp, name)
-    if os.path.isdir(path):
-        shutil.rmtree(path, ignore_errors=True)
-    else:
-        os.remove(path)
 PYEOF
 ```
 
 Replace `TICKER_HERE` with the actual ticker.
 
-Record the checkpoint: `./venv/bin/python3 scripts/council_manifest.py step {TICKER} assemble done`
+The order of what follows is the point: refresh the index, record `assemble done`, then clean up. Dying before the mark leaves the files in place, so a resume assembles again from a full folder. Dying after it leaves a finished job and a current index; the next run's clean slate clears the leftovers.
 
 ### Step 8.5: Refresh Corpus Index
 
@@ -108,3 +95,13 @@ cd /Users/tallempert/src-tal/investor && ./venv/bin/python3 scripts/build_corpus
 ```
 
 The index captures per-ticker: Decision, **Δ vs Prior** (how the verdict moved vs the previous run — ↑/↓/＝/NEW), Buy Zone and Price @ Analysis (currency-aware: £/$/€), Conviction, Council Vote, Date, Runs, and a >60-day stale flag. Parsing is best-effort and anchored on the verdict's `**Buy Zone: …**` / price lines.
+
+Record the checkpoint: `./venv/bin/python3 scripts/council_manifest.py step {TICKER} assemble done`
+
+### Step 8.6: Clean Up the Run Folder
+
+Keep `manifest.json` and `verdict.md` — the dashboard runner reads the first to know the pipeline reached this step and the second for the run's verdict. Everything else in the folder is disposable now it's assembled, and running this twice is harmless:
+
+```bash
+cd /Users/tallempert/src-tal/investor && D=/tmp/silicon_council/{TICKER} && find "$D" -mindepth 1 -maxdepth 1 ! -name manifest.json ! -name verdict.md -exec rm -rf {} +
+```

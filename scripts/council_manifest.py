@@ -87,8 +87,9 @@ def mark_step(m, name, status):
 def record_gate_passes(ticker, m):
     """Keep the highest count of Reality Check files seen so far in the manifest.
 
-    Step 8 empties the run folder before the dashboard computes its metrics row,
-    so the files cannot be counted afterwards (ROG.SW recorded 0 for 3 passes).
+    Step 8.6 empties the run folder before the dashboard computes its metrics
+    row, so the files cannot be counted afterwards (ROG.SW recorded 0 for 3 passes).
+    `assemble done` is the last mark before that cleanup, and the last count.
 
     Counting files alone undercounts: pass 2 appends `### Pass 2` to the same
     reality_check.md rather than writing a second file, so the recorded steps

@@ -28,7 +28,7 @@ ahead** — the whole pipeline in context is ~18K tokens carried on every turn.
 | 5 | `/Users/tallempert/src-tal/investor/skills/analyze-company/06-synthesis.md` | Munger synthesis and the verification bundle | `synthesis` |
 | 6 | `/Users/tallempert/src-tal/investor/skills/analyze-company/07-gate.md` | Reality Check gate, revision and decision | `gate`, `gate_pass1`, `gate_pass2` |
 | 7, 7b | `/Users/tallempert/src-tal/investor/skills/analyze-company/08-memo.md` | Investor memo (Codex → Claude); optional explainers | `memo`, `reports` |
-| 8, 8.5 | `/Users/tallempert/src-tal/investor/skills/analyze-company/09-assemble.md` | Assemble, save, deploy, refresh the corpus index | `assemble` |
+| 8, 8.5, 8.6 | `/Users/tallempert/src-tal/investor/skills/analyze-company/09-assemble.md` | Assemble, save, deploy, refresh the corpus index, then clean up | `assemble` |
 
 ## RULES FOR EVERY STEP
 

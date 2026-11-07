@@ -698,6 +698,57 @@ class TestManifestTimestamps:
         assert m["workers"]["lynch"]["ts"] > 0
 
 
+class TestStepRejectsWhatItDoesNotKnow:
+    """`gate` -> `bananas` and a new step `gaet` were both accepted, and a typo
+    silently fell out of tracking."""
+
+    @pytest.mark.parametrize("args,needle", [(["gaet", "done"], "gaet"), (["gate", "bananas"], "bananas")])
+    def test_an_unknown_name_or_status_exits_2_and_writes_nothing(self, manifest, tmp_path, capsys, args, needle):
+        manifest.main(["x", "init", "ADBE"])
+        before = (tmp_path / "ADBE" / "manifest.json").read_text()
+        capsys.readouterr()
+        assert manifest.main(["x", "step", "ADBE"] + args) == 2
+        assert needle in capsys.readouterr().out
+        assert (tmp_path / "ADBE" / "manifest.json").read_text() == before
+
+    def test_a_missing_status_is_a_usage_error(self, manifest):
+        manifest.main(["x", "init", "ADBE"])
+        assert manifest.main(["x", "step", "ADBE", "gate"]) == 2
+
+    @pytest.mark.parametrize("status", ["started", "done", "partial", "failed"])
+    def test_every_known_status_is_accepted(self, manifest, status):
+        manifest.main(["x", "init", "ADBE"])
+        assert manifest.main(["x", "step", "ADBE", "gate", status]) == 0
+        assert manifest.load("ADBE")["steps"]["gate"]["status"] == status
+
+    def test_moving_a_step_backwards_stays_legal(self, manifest):
+        manifest.main(["x", "init", "ADBE"])
+        manifest.main(["x", "step", "ADBE", "gate", "done"])
+        assert manifest.main(["x", "step", "ADBE", "gate", "started"]) == 0
+        assert manifest.load("ADBE")["steps"]["gate"]["status"] == "started"
+
+    def test_a_legacy_plain_string_status_is_still_upgraded(self, manifest):
+        m = manifest.init("ADBE")
+        m["steps"]["gate"] = "done"
+        manifest.save("ADBE", m)
+        assert manifest.main(["x", "step", "ADBE", "gate", "started"]) == 0
+        assert manifest.load("ADBE")["steps"]["gate"]["status"] == "started"
+
+    def test_the_known_names_are_the_ones_the_skill_lists(self, manifest):
+        listed = skill_text().split("Step names: ", 1)[1].split("\n", 1)[0]
+        assert set(re.findall(r"`(\w+)`", listed)) == set(manifest.STEPS)
+
+    def test_every_step_the_skill_records_is_known(self, manifest):
+        text = skill_text()
+        used = set(re.findall(r"step \{TICKER\} ([a-z_0-9]+) (?:started|done|partial|failed)", text))
+        used |= set(re.findall(r"`([a-z_0-9]+) (?:started|done|partial|failed)`", text))
+        assert used and used <= set(manifest.STEPS)
+
+    def test_every_status_the_skill_records_is_known(self, manifest):
+        used = set(re.findall(r"step \{TICKER\} [a-z_0-9]+ ([a-z]+)", skill_text()))
+        assert used and used <= set(manifest.STATUSES)
+
+
 class TestSaveIsAtomic:
     """A crash mid-write corrupted the manifest, `load` returned None, and
     05-experts.md says to `init` if it is missing, which wiped the run's progress."""

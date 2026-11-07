@@ -28,6 +28,10 @@ LADDER = ["codex:sol", "codex:luna", "claude:sonnet", "claude:haiku"]
 EXPERTS = ["jeff_bezos", "warren_buffett", "michael_burry", "tim_cook", "steve_jobs",
            "psychologist", "sherlock", "futurist", "biologist", "historian",
            "anthropologist", "lynch"]
+#: What `step` accepts; a typo must fail loudly, not fall out of tracking.
+STEPS = ["dossier", "forensic", "condense", "refine", "threats", "experts", "synthesis",
+         "gate", "gate_pass1", "gate_pass2", "memo", "reports", "assemble"]
+STATUSES = ["started", "done", "partial", "failed"]
 
 
 def _path(ticker):
@@ -176,6 +180,15 @@ def main(argv):
         print(f"no manifest for {ticker}; run: council_manifest.py init {ticker}")
         return 1
     if cmd == "step":
+        if len(argv) < 5:
+            print(__doc__)
+            return 2
+        if argv[3] not in STEPS:
+            print(f"unknown step {argv[3]!r}; known: {', '.join(STEPS)}")
+            return 2
+        if argv[4] not in STATUSES:
+            print(f"unknown status {argv[4]!r}; known: {', '.join(STATUSES)}")
+            return 2
         mark_step(m, argv[3], argv[4])
         record_gate_passes(ticker, m)
         save(ticker, m)

@@ -698,6 +698,60 @@ class TestManifestTimestamps:
         assert m["workers"]["lynch"]["ts"] > 0
 
 
+class TestPoolForNamesThePoolARevalidationRecords:
+    """The validation loop hardcoded each key's starting pool and re-marked all
+    12, so a resume marked a worker that succeeded on claude:haiku `codex:sol ok`."""
+
+    def _pool_for(self, manifest, capsys, key, default="codex:sol"):
+        capsys.readouterr()
+        assert manifest.main(["council_manifest.py", "pool-for", "ADBE", key, default]) == 0
+        return capsys.readouterr().out.strip()
+
+    def test_an_untried_worker_gets_the_default(self, manifest, capsys):
+        manifest.main(["x", "init", "ADBE"])
+        assert self._pool_for(manifest, capsys, "lynch", "claude:sonnet") == "claude:sonnet"
+
+    def test_a_failed_worker_gets_the_pool_it_was_routed_to(self, manifest, capsys):
+        manifest.main(["x", "init", "ADBE"])
+        manifest.main(["x", "worker", "ADBE", "lynch", "codex:sol", "failed", "empty"])
+        assert self._pool_for(manifest, capsys, "lynch") == "codex:luna"
+
+    def test_a_worker_that_succeeded_gets_the_pool_it_succeeded_on(self, manifest, capsys):
+        manifest.main(["x", "init", "ADBE"])
+        manifest.main(["x", "worker", "ADBE", "lynch", "codex:sol", "failed", "empty"])
+        manifest.main(["x", "worker", "ADBE", "lynch", "claude:haiku", "ok"])
+        assert self._pool_for(manifest, capsys, "lynch") == "claude:haiku"
+
+    def test_a_worker_past_the_end_of_the_ladder_stays_on_its_last_pool(self, manifest, capsys):
+        manifest.main(["x", "init", "ADBE"])
+        manifest.main(["x", "worker", "ADBE", "lynch", "claude:haiku", "failed", "empty"])
+        assert self._pool_for(manifest, capsys, "lynch") == "claude:haiku"
+
+    def test_a_key_the_manifest_has_never_seen_gets_the_default(self, manifest, capsys):
+        manifest.main(["x", "init", "ADBE"])
+        assert self._pool_for(manifest, capsys, "nobody") == "codex:sol"
+
+    def test_a_missing_argument_is_a_usage_error(self, manifest, capsys):
+        manifest.main(["x", "init", "ADBE"])
+        assert manifest.main(["x", "pool-for", "ADBE", "lynch"]) == 2
+
+    def test_a_resume_re_marking_an_ok_worker_keeps_its_fallback_record(self, manifest, capsys):
+        manifest.main(["x", "init", "ADBE"])
+        manifest.main(["x", "worker", "ADBE", "lynch", "codex:sol", "failed", "empty"])
+        manifest.main(["x", "worker", "ADBE", "lynch", "claude:haiku", "ok"])
+        pool = self._pool_for(manifest, capsys, "lynch")
+        manifest.main(["x", "worker", "ADBE", "lynch", pool, "ok"])
+        w = manifest.load("ADBE")["workers"]["lynch"]
+        assert (w["pool"], w["first_pool"], w["status"]) == ("claude:haiku", "codex:sol", "ok")
+
+    def test_the_validation_loop_asks_the_manifest_for_the_pool(self):
+        loop = skill_text().split("**Validation and failover", 1)[1].split("```bash", 1)[1].split("```", 1)[0]
+        assert 'pool=$(./venv/bin/python3 scripts/council_manifest.py pool-for {TICKER} $k "$default")' in loop
+        assert 'worker {TICKER} $k "$pool" ok' in loop
+        assert 'worker {TICKER} $k "$pool" failed invalid_output' in loop
+        assert "pool=$( [[" not in loop
+
+
 class TestTheSkillMarksEveryStepTwice:
     """The stepper on the job page is only as honest as the skill's checkpoints:
     without a `started` mark a step has no clock until the moment it ends."""

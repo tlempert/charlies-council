@@ -6,6 +6,7 @@ workers succeeded, and where a failed worker goes next.
     council_manifest.py step   TICKER NAME STATUS            # started | done | partial | failed
     council_manifest.py worker TICKER KEY POOL STATUS [REASON]
     council_manifest.py pending TICKER                       # keys that still need a run
+    council_manifest.py pool-for TICKER KEY DEFAULT          # the pool to record a re-validation against
     council_manifest.py status TICKER
     council_manifest.py evidence TICKER [--check]             # record/verify refined_dossier.md's hash
     council_manifest.py counter TICKER NAME VALUE             # set an integer counter, e.g. verify_fail_rounds
@@ -124,6 +125,14 @@ def pending(m):
     return [k for k, w in m["workers"].items() if w.get("status") != "ok"]
 
 
+def pool_for(m, key, default):
+    """The pool to record a re-validation against: where a failed worker was
+    routed, else where it last ran, else `default` for a worker never marked.
+    `ok` clears `next`, so a worker that succeeded keeps the pool it did it on."""
+    w = m["workers"].get(key) or {}
+    return w.get("next") or w.get("pool") or default
+
+
 def evidence_sha(ticker):
     p = os.path.join(ROOT, ticker, "refined_dossier.md")
     with open(p, "rb") as f:
@@ -168,6 +177,11 @@ def main(argv):
             print(f"{argv[3]}: ladder exhausted — abort, name the key")
     elif cmd == "pending":
         print("\n".join(pending(m)))
+    elif cmd == "pool-for":
+        if len(argv) < 5:
+            print(__doc__)
+            return 2
+        print(pool_for(m, argv[3], argv[4]))
     elif cmd == "evidence":
         if "--check" in argv:
             if not m.get("evidence_sha"):

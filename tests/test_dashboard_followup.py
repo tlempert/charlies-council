@@ -156,6 +156,43 @@ class TestWhoHoldsTheSession:
         store.requeue_for_resume(finished_job)
         assert store.next_queued()["id"] == finished_job
 
+    def test_a_follow_up_that_blows_up_is_answered_and_lets_go_of_the_session(
+            self, make_worker, store, finished_job, monkeypatch):
+        worker = make_worker()
+        first = store.add_question(finished_job, "why WAIT?")
+
+        def no_shell(*args, **kwargs):
+            raise OSError("cannot spawn zsh")
+
+        with monkeypatch.context() as patched:
+            patched.setattr(followup_mod.subprocess, "run", no_shell)
+            assert worker.answer_next() == first
+        answered = store.questions_for(finished_job)[0]
+        assert "cannot spawn zsh" in answered["answer"]
+        assert answered["exit_code"] == -1
+
+        store.requeue_for_resume(finished_job)
+        assert store.next_queued()["id"] == finished_job
+
+        store.finish(finished_job, "done")
+        second = store.add_question(finished_job, "and now?")
+        assert worker.answer_next() == second
+        assert store.questions_for(finished_job)[1]["answer"] == ANSWER
+
+    def test_a_follow_up_whose_record_cannot_be_written_is_still_answered(
+            self, make_worker, store, finished_job, monkeypatch):
+        worker = make_worker()
+        store.add_question(finished_job, "why WAIT?")
+
+        def no_room(*args, **kwargs):
+            raise OSError("no space left on device")
+
+        monkeypatch.setattr(followup_mod.Path, "write_text", no_room)
+        worker.answer_next()
+        answered = store.questions_for(finished_job)[0]
+        assert "no space left on device" in answered["answer"]
+        assert answered["exit_code"] == -1
+
     def test_a_question_cut_off_by_a_restart_is_asked_again_when_the_worker_comes_back(
             self, make_worker, store, finished_job):
         store.add_question(finished_job, "why WAIT?")

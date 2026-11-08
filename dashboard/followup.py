@@ -83,7 +83,17 @@ class FollowupWorker(threading.Thread):
         summary = events.summarize_result(result) or {}
         answer = summary.get("text") or _fallback_answer(completed)
         self.store.answer_question(question["id"], answer, completed.returncode)
-        self.store.add_followup_cost(job["id"], summary.get("cost_usd"), summary.get("num_turns"))
+        self.store.add_followup_cost(job["id"], self._cost_added(job["id"], summary.get("cost_usd")),
+                                     summary.get("num_turns"))
+
+    def _cost_added(self, job_id, reported):
+        """What this follow-up cost. The CLI reports a resumed session's
+        `total_cost_usd` as the whole session's, run included; an older one
+        reported the call alone, which shows as less than the session cost."""
+        row = self.store.get_metrics(job_id) or {}
+        known = (row.get("cost_usd") or 0) + (row.get("followup_cost_usd") or 0)
+        reported = reported or 0
+        return reported - known if reported >= known else reported
 
     @staticmethod
     def _result_of(stdout):

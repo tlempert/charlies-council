@@ -29,6 +29,11 @@ PAYLOAD = json.dumps([
 ])
 
 
+def _payload(**result):
+    return json.dumps([{"type": "result", "subtype": "success", "is_error": False,
+                        "session_id": "sess-1", "result": ANSWER, **result}])
+
+
 @pytest.fixture
 def store(tmp_path):
     return store_mod.Store(tmp_path / "council.db")
@@ -84,6 +89,33 @@ class TestAnsweringAQuestion:
         assert row["cost_usd"] == 11.25
         assert row["followup_cost_usd"] == 0.42
         assert row["followup_turns"] == 4
+
+    def test_a_session_total_bills_only_what_the_follow_up_added(self, make_worker, store, finished_job):
+        store.add_question(finished_job, "why WAIT?")
+        make_worker(result=_payload(total_cost_usd=11.30, num_turns=1)).answer_next()
+        row = store.get_metrics(finished_job)
+        assert row["followup_cost_usd"] == pytest.approx(0.05)
+        assert row["followup_turns"] == 1
+
+    def test_a_second_follow_up_bills_only_its_own_share_of_the_session_total(
+            self, make_worker, store, finished_job):
+        store.add_question(finished_job, "why WAIT?")
+        make_worker(result=_payload(total_cost_usd=11.30, num_turns=1)).answer_next()
+        store.add_question(finished_job, "and the ceiling?")
+        make_worker(result=_payload(total_cost_usd=11.38, num_turns=1)).answer_next()
+        row = store.get_metrics(finished_job)
+        assert row["followup_cost_usd"] == pytest.approx(0.13)
+        assert row["followup_turns"] == 2
+
+    def test_a_total_below_what_the_session_already_cost_is_the_call_alone(
+            self, make_worker, store, finished_job):
+        store.add_question(finished_job, "why WAIT?")
+        make_worker(result=_payload(total_cost_usd=0.20, num_turns=3)).answer_next()
+        store.add_question(finished_job, "and the ceiling?")
+        make_worker(result=_payload(total_cost_usd=0.10, num_turns=2)).answer_next()
+        row = store.get_metrics(finished_job)
+        assert row["followup_cost_usd"] == pytest.approx(0.30)
+        assert row["followup_turns"] == 5
 
     def test_the_raw_exchange_is_kept_under_the_job(self, make_worker, store, finished_job, tmp_path):
         question_id = store.add_question(finished_job, "why WAIT?")
